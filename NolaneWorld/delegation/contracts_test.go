@@ -25,7 +25,7 @@ func validGrant() Grant {
 		Resource:       "repo:Nolane-x/Nolane-sandbox",
 		Operations:     []Operation{"issue.create", "contents.write", "contents.write"},
 		SecretHandle:   SecretHandle("secret-handle-1"),
-		IssuedAt:       fixedNow,
+		IssuedAt:       fixedNow.Add(-2 * time.Hour),
 		ExpiresAt:      fixedNow.Add(time.Hour),
 	}
 }
