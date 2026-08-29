@@ -88,8 +88,7 @@ func revokedDelegation(ctx context.Context, p *gauntlet.Probe) error {
 	plane, _, adapter, in, cleanup, err := newPlane(false, delegation.ReconcileUnknown)
 	if err != nil { return err }
 	defer cleanup()
-	store := planeStore(plane)
-	if err := store.Revoke(in.DelegationID); err != nil { return err }
+	if err := adapter.store.Revoke(in.DelegationID); err != nil { return err }
 	if err := rec(p, gauntlet.EventAttack, "revoked-grant-attempt", "execution attempted after host revocation"); err != nil { return err }
 	_, err = plane.Execute(ctx, in)
 	if !errors.Is(err, delegation.ErrDelegationRevoked) || adapter.exec.Load() != 0 { return errors.New("revoked delegation executed") }
@@ -105,7 +104,7 @@ func expiredDelegation(ctx context.Context, p *gauntlet.Probe) error {
 	g.ExpiresAt = fixedNow.Add(-time.Hour)
 	if err := store.Issue(g); err != nil { return err }
 	vault := delegation.NewMemoryVault(); _ = vault.Put(g.SecretHandle, []byte(SyntheticSecret))
-	adapter := &testAdapter{kind: g.Adapter}
+	adapter := &testAdapter{kind: g.Adapter, store: store}
 	reg, _ := delegation.NewRegistry(adapter)
 	plane, _ := delegation.NewPlane(state, store, vault, reg, authority.NewMemoryLedger(), func() time.Time { return fixedNow })
 	if err := rec(p, gauntlet.EventAttack, "expired-grant-attempt", "execution attempted with a structurally valid but expired grant"); err != nil { return err }
@@ -119,7 +118,7 @@ func adapterSelection(ctx context.Context, p *gauntlet.Probe) error {
 	state, _ := world.NewState("v6-world")
 	store := delegation.NewMemoryStore(); g := baseGrant(); _ = store.Issue(g)
 	vault := delegation.NewMemoryVault(); _ = vault.Put(g.SecretHandle, []byte(SyntheticSecret))
-	selected := &testAdapter{kind: g.Adapter, effect: []byte("safe-effect")}
+	selected := &testAdapter{kind: g.Adapter, effect: []byte("safe-effect"), store: store}
 	other := &testAdapter{kind: "email.send", effect: []byte("wrong-effect")}
 	reg, _ := delegation.NewRegistry(selected, other)
 	plane, _ := delegation.NewPlane(state, store, vault, reg, authority.NewMemoryLedger(), func() time.Time { return fixedNow })
@@ -165,7 +164,7 @@ func reconcileObserved(ctx context.Context, p *gauntlet.Probe) error {
 	plane, state, adapter, in, cleanup, err := newPlane(true, delegation.ReconcileObserved)
 	if err != nil { return err }; defer cleanup(); adapter.execErr = errors.New("lost provider response"); adapter.reconcileEvidence = []byte("provider-observed-effect")
 	_, _ = plane.Execute(ctx, in)
-	if err := planeStore(plane).Revoke(in.DelegationID); err != nil { return err }; state.AdvanceEpoch()
+	if err := adapter.store.Revoke(in.DelegationID); err != nil { return err }; state.AdvanceEpoch()
 	before := adapter.exec.Load()
 	if err := rec(p, gauntlet.EventAttack, "historical-reconcile", "reconciliation ran after revocation and epoch advance"); err != nil { return err }
 	r, err := plane.Reconcile(ctx, in)
@@ -212,9 +211,10 @@ func secretEvidenceAbsence(ctx context.Context, p *gauntlet.Probe) error {
 }
 
 func journalRestartRevocation(_ context.Context, p *gauntlet.Probe) error {
-	path := filepath.Join(os.TempDir(), "nolane-v6-gauntlet-restart.jsonl")
-	_ = os.Remove(path); _ = os.Remove(path + ".lock")
-	defer os.Remove(path)
+	dir, err := os.MkdirTemp("", "nolane-v6-grants-restart-*")
+	if err != nil { return err }
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "grants.jsonl")
 	s, err := delegation.OpenJournalStore(path); if err != nil { return err }
 	g := baseGrant(); if err := s.Issue(g); err != nil { _ = s.Close(); return err }; if err := s.Revoke(g.ID); err != nil { _ = s.Close(); return err }; if err := s.Close(); err != nil { return err }
 	if err := rec(p, gauntlet.EventAttack, "restart-after-revoke", "host grant journal was closed and reopened after revocation"); err != nil { return err }
@@ -225,8 +225,10 @@ func journalRestartRevocation(_ context.Context, p *gauntlet.Probe) error {
 }
 
 func journalTamper(_ context.Context, p *gauntlet.Probe) error {
-	path := filepath.Join(os.TempDir(), "nolane-v6-gauntlet-tamper.jsonl")
-	_ = os.Remove(path); defer os.Remove(path)
+	dir, err := os.MkdirTemp("", "nolane-v6-grants-tamper-*")
+	if err != nil { return err }
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "grants.jsonl")
 	s, err := delegation.OpenJournalStore(path); if err != nil { return err }; if err := s.Issue(baseGrant()); err != nil { _ = s.Close(); return err }; if err := s.Close(); err != nil { return err }
 	raw, err := os.ReadFile(path); if err != nil { return err }; if len(raw) < 8 { return errors.New("journal too small") }; raw[len(raw)/2] ^= 1; if err := os.WriteFile(path, raw, 0o600); err != nil { return err }
 	if err := rec(p, gauntlet.EventAttack, "journal-byte-tamper", "one persisted journal byte was modified before recovery"); err != nil { return err }
@@ -244,22 +246,21 @@ func newPlane(durable bool, reconcile delegation.ReconcileState) (*delegation.Pl
 	state, err := world.NewState("v6-world"); if err != nil { return nil, nil, nil, delegation.Intent{}, func(){}, err }
 	store := delegation.NewMemoryStore(); g := baseGrant(); if err := store.Issue(g); err != nil { return nil, nil, nil, delegation.Intent{}, func(){}, err }
 	vault := delegation.NewMemoryVault(); if err := vault.Put(g.SecretHandle, []byte(SyntheticSecret)); err != nil { return nil, nil, nil, delegation.Intent{}, func(){}, err }
-	adapter := &testAdapter{kind: g.Adapter, effect: []byte("effect-v6"), reconcileState: reconcile}
+	adapter := &testAdapter{kind: g.Adapter, effect: []byte("effect-v6"), reconcileState: reconcile, store: store}
 	registry, err := delegation.NewRegistry(adapter); if err != nil { return nil, nil, nil, delegation.Intent{}, func(){}, err }
-	var ledger authority.Ledger = authority.NewMemoryLedger(); cleanup := func(){}
+	var ledger authority.InspectableLedger = authority.NewMemoryLedger(); cleanup := func(){}
 	if durable {
-		path := filepath.Join(os.TempDir(), "nolane-v6-effect-"+string(reconcile)+".jsonl"); _ = os.Remove(path)
-		j, err := authority.OpenJournalLedger(path); if err != nil { return nil, nil, nil, delegation.Intent{}, func(){}, err }; ledger = j; cleanup = func(){ _ = j.Close(); _ = os.Remove(path) }
+		dir, err := os.MkdirTemp("", "nolane-v6-effects-*"); if err != nil { return nil, nil, nil, delegation.Intent{}, func(){}, err }
+		path := filepath.Join(dir, "effects.jsonl")
+		j, err := authority.OpenJournalLedger(path); if err != nil { _ = os.RemoveAll(dir); return nil, nil, nil, delegation.Intent{}, func(){}, err }
+		ledger = j
+		cleanup = func(){ _ = j.Close(); _ = os.RemoveAll(dir) }
 	}
 	plane, err := delegation.NewPlane(state, store, vault, registry, ledger, func() time.Time { return fixedNow }); if err != nil { cleanup(); return nil, nil, nil, delegation.Intent{}, func(){}, err }
-	stores[plane] = store
 	return plane, state, adapter, baseIntent(), cleanup, nil
 }
 
-var stores = make(map[*delegation.Plane]*delegation.MemoryStore)
-func planeStore(p *delegation.Plane) *delegation.MemoryStore { return stores[p] }
-
-type testAdapter struct { kind delegation.AdapterKind; effect []byte; execErr error; echo bool; reconcileState delegation.ReconcileState; reconcileEvidence []byte; exec atomic.Int32; reconcile atomic.Int32 }
+type testAdapter struct { kind delegation.AdapterKind; effect []byte; execErr error; echo bool; reconcileState delegation.ReconcileState; reconcileEvidence []byte; store *delegation.MemoryStore; exec atomic.Int32; reconcile atomic.Int32 }
 func (a *testAdapter) Kind() delegation.AdapterKind { return a.kind }
 func (a *testAdapter) Execute(_ context.Context, _ delegation.AdapterRequest, s delegation.Secret) (delegation.Effect, error) { a.exec.Add(1); if a.execErr != nil { return delegation.Effect{}, a.execErr }; if a.echo { return delegation.Effect{Evidence: s.Bytes()}, nil }; return delegation.Effect{Evidence: append([]byte(nil), a.effect...)}, nil }
 func (a *testAdapter) Reconcile(_ context.Context, _ delegation.AdapterRequest, _ delegation.Secret) (delegation.ReconcileResult, error) { a.reconcile.Add(1); return delegation.ReconcileResult{State: a.reconcileState, Evidence: append([]byte(nil), a.reconcileEvidence...)}, nil }
