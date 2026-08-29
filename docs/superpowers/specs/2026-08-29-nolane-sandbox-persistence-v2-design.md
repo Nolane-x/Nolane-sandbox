@@ -1,6 +1,6 @@
 # Nolane Sandbox Persistence v2 Design
 
-**Status:** Implementation spec
+**Status:** Implemented milestone specification
 
 **Date:** 2026-08-29
 
@@ -10,25 +10,19 @@
 
 Persistence v2 makes host-owned authority and world lifecycle truth survive Trust Plane process restart without trusting guest snapshots or guessing after a partial operation.
 
-The new invariant is:
+The invariant is:
 
 > **A host restart may reduce availability, but it must never resurrect authority.**
 
-This milestone adds:
+This milestone adds crash-safe durable authority state, a durable lifecycle catalog, persistent-manager recovery, quarantine of incomplete create/clone operations, single-writer ownership, tamper-evident hash chains, and a broker-facing terminal fence.
 
-- crash-safe durable authority state;
-- a durable world lifecycle catalog;
-- persistent-manager recovery semantics;
-- quarantine of incomplete create/clone operations;
-- single-writer ownership and tamper-evident hash chains.
+## 2. Authority interfaces and ownership
 
-## 2. Authority control interface
+The runtime strictly separates read/execute authority from host mutation authority.
 
-The runtime distinguishes read/execute authority from host mutation authority.
+`AuthorityState` is broker-facing and exposes only identity, epoch observation/validation, and `WithEpoch` execution linearization.
 
-`AuthorityState` remains the broker-facing interface.
-
-A new host-only `AuthorityControl` extends it with:
+`AuthorityControl` is host-only and extends `AuthorityState` with:
 
 ```text
 AdvanceAuthority() (Epoch, error)
@@ -37,17 +31,15 @@ Closed() bool
 Release() error
 ```
 
-Guest code receives neither the controller nor its storage path.
+Guest code and authority adapters never receive an `AuthorityControl`.
 
-The existing in-memory `State` implements the interface through adapters with no persistence errors.
+`Manager.AuthorityState` returns a managed read-only view rather than the underlying mutable controller. The view is bound to a manager-owned atomic terminal fence. Once the lifecycle is terminal, all already-issued views deny authority immediately. This prevents a retained broker pointer from bypassing a later terminal transition, including the case where the durable authority-close write itself temporarily fails.
 
-## 3. Durable AuthorityState
+The existing in-memory `State` implements `AuthorityControl` while preserving legacy `AdvanceEpoch` and `Close` behavior.
 
-Each world gets a dedicated append-only authority journal in a host-only directory.
+## 3. Durable authority state
 
-The filename is derived from SHA-256 of `WorldID`; raw world IDs are never used as filesystem paths.
-
-### 3.1 Journal records
+Each world gets a dedicated append-only authority journal in a host-only directory. The filename is SHA-256 of exact `WorldID`; raw IDs are never host filesystem paths.
 
 Each JSONL record contains:
 
@@ -61,100 +53,54 @@ previous_hash
 record_hash
 ```
 
-`record_hash` binds a domain separator, version, sequence, operation, exact world ID, epoch, and previous hash.
+`record_hash` binds a domain separator, version, sequence, operation, exact world identity, epoch, and previous hash.
 
-### 3.2 Creation
+### 3.1 Creation
 
-Creation uses exclusive file creation. The initial `init` record for epoch 1 is written and fsynced before the state is returned.
+Creation uses exclusive file creation. Epoch 1 `init` is written and fsynced before the state is returned. The containing directory is synced so the file's existence is durable. Existing state is never overwritten.
 
-A pre-existing state path is not overwritten.
+### 3.2 Advance
 
-### 3.3 Advance
+`AdvanceAuthority` serializes on the state lock, rejects a closed/released state, appends and fsyncs `epoch+1`, then changes the in-memory epoch. A failed durable append leaves the old in-memory epoch unchanged.
 
-`AdvanceAuthority`:
+### 3.3 Terminal close
 
-```text
-exclusive state lock
--> reject closed state
--> compute next epoch
--> append + fsync advance record
--> update in-memory epoch
--> return new epoch
-```
+`CloseAuthority` appends and fsyncs `close(epoch+1)` before marking the authority controller closed. Repeated close is idempotent. All future validation is denied.
 
-If durable append fails, the in-memory epoch does not change.
+### 3.4 Recovery
 
-### 3.4 Terminal close
+Opening an existing state strictly replays every record and rejects malformed JSON, unknown fields, unsupported version, non-contiguous sequence, wrong world identity, illegal operation order, epoch jumps/decrements, record-hash mismatch, previous-hash mismatch, and data after terminal close. Ambiguity is corruption and fails closed.
 
-`CloseAuthority`:
+### 3.5 Single writer
 
-```text
-exclusive state lock
--> if already closed: return stable epoch
--> append + fsync close at epoch+1
--> mark closed
-```
-
-All future authority validation is denied.
-
-### 3.5 Recovery
-
-Opening an existing state replays every record and rejects:
-
-- malformed JSON;
-- unknown fields;
-- unsupported version;
-- non-contiguous sequence;
-- incorrect world identity;
-- illegal operation order;
-- epoch jumps/decrements;
-- record-hash mismatch;
-- previous-hash mismatch;
-- data after terminal close.
-
-Corruption fails closed.
-
-### 3.6 Single writer
-
-The authority file is advisory-locked for its lifetime. A second process attempting to open the same world fails.
-
-Unsupported locking platforms fail closed.
+The authority file is advisory-locked for the object's lifetime. A second writer fails. Platforms where locking cannot be implemented by this milestone fail closed rather than silently degrade.
 
 ## 4. Durable lifecycle catalog
 
-The Trust Plane maintains one append-only host catalog mapping world identity to opaque substrate handle and lifecycle phase.
-
-States are:
+The Trust Plane owns an append-only catalog mapping world identity to opaque substrate handle and lifecycle phase:
 
 ```text
 absent -> creating -> ready -> terminal -> destroyed
+              \-------> terminal
 ```
 
-`creating -> terminal` is allowed for failed/uncertain creation.
+`creating -> terminal` is the quarantine path for failed or uncertain creation. There is no transition out of `terminal` or `destroyed`.
 
-`ready -> terminal` is the only authority-bearing shutdown transition.
-
-No transition out of `terminal` or `destroyed` exists.
-
-Each catalog record is hash-chained and fsynced before the corresponding transition becomes visible in memory.
+Each catalog record binds version, global sequence, exact WorldID, opaque handle, phase, previous hash, and record hash. Every transition is appended and fsynced before becoming visible in catalog memory. The catalog is single-writer locked and strict-replayed on startup.
 
 ## 5. Crash ordering
 
 ### 5.1 Create
 
 ```text
-create durable AuthorityState(epoch=1)
+create durable authority(epoch=1)
 -> catalog creating (fsync)
 -> substrate Create
 -> catalog ready(handle) (fsync)
--> expose world as ready
+-> expose managed authority view
 ```
 
-If substrate create fails, authority is terminally closed and catalog transitions to terminal.
-
-If the host crashes while catalog says `creating`, recovery does not guess whether a sandbox was created. It terminally closes authority and leaves a recovery issue indicating a possible orphan execution sandbox.
-
-Because Nolane Cube worlds carry `metadata["nolane.world.id"]`, a later reconciliation worker can locate and destroy such orphans without granting authority.
+If substrate creation fails, authority is terminally closed and catalog transitions to terminal. If the host crashes while catalog says `creating`, recovery never guesses whether a sandbox exists: it closes authority, transitions terminal, and reports `RecoveryIssuePossibleOrphan`.
 
 ### 5.2 Rollback
 
@@ -163,74 +109,80 @@ persist authority epoch advance
 -> substrate rollback
 ```
 
-A crash or rollback failure never rewinds the durable epoch.
+Rollback failure or process crash can leak an incremented epoch but can never restore an older one.
 
 ### 5.3 Destroy
 
+Persistent teardown uses two independent fences:
+
 ```text
-persist terminal authority close
--> catalog terminal (fsync)
+catalog terminal (fsync)
+-> set manager atomic terminal fence
+-> durable authority close (fsync)
 -> substrate destroy
 -> catalog destroyed (fsync)
 ```
 
-A crash before substrate destroy may leak compute, but leaked compute has terminally revoked authority.
+The catalog terminal transition is deliberately first. It is the recoverable lifecycle fact and the manager fence immediately invalidates every broker-facing authority view already issued in the process. If durable authority close then fails, destruction is denied and the world remains terminal; recovery retries the authority close before the world can ever be considered active or before substrate destruction proceeds.
+
+For the in-memory manager, authority close occurs before setting terminal/fence because there is no durable catalog boundary to recover.
 
 ### 5.4 Clone
 
-Clone follows create ordering for the child. Execution state may derive from a snapshot; child authority begins at fresh epoch 1.
+Execution may derive from a source snapshot; authority never does. The child receives a newly created authority state at epoch 1 and follows the same `creating -> ready` persistence sequence as Create.
 
 ## 6. Persistent Manager
 
-`control.Manager` accepts host-side pluggable state factory and lifecycle catalog.
-
-`NewManager` remains an in-memory convenience constructor.
-
-`NewPersistentManager` uses durable state + durable catalog and first recovers catalog truth.
+`control.Manager` is parameterized by `AuthorityFactory` and `LifecycleCatalog`. `NewManager` keeps in-memory behavior; `NewPersistentManager` performs strict recovery.
 
 Recovery rules:
 
-- `ready`: open exact durable authority state; expose only if it is not closed;
-- `creating`: close authority, transition catalog to terminal, report `RecoveryIssuePossibleOrphan`;
-- `terminal`: ensure authority is closed; keep handle for destroy retry;
-- `destroyed`: ensure authority is closed; never expose as active.
+- `ready`: open exact durable authority. If unexpectedly already closed, transition catalog terminal and fence it.
+- `creating`: close authority, transition terminal, fence it, report possible orphan.
+- `terminal`: ensure authority is durably closed, fence it, keep handle for destroy retry.
+- `destroyed`: ensure authority is closed, fence it, never expose it as active.
 
-Any missing/corrupt authority state for a cataloged world fails manager recovery rather than silently creating a new epoch-1 state.
+Missing/corrupt authority storage for any cataloged world fails startup instead of minting a replacement epoch-1 state.
+
+Manager shutdown serializes against lifecycle operations, releases writer locks, closes the catalog, and makes already-issued managed authority views fail closed.
 
 ## 7. Failure policy
 
 Persistence failures are security failures.
 
-- authority epoch cannot be persisted -> rollback/authority mutation is denied;
-- terminal close cannot be persisted -> destructive lifecycle action is denied;
-- catalog terminal transition cannot persist -> substrate destroy is not invoked;
-- catalog ready cannot persist after substrate creation -> authority is immediately terminally closed and recovery reports possible orphan;
+- authority epoch cannot be fsynced -> rollback is denied;
+- lifecycle terminal cannot be fsynced -> no terminal transition is assumed and no substrate destroy is attempted;
+- lifecycle terminal is durable but authority close fails -> existing managed views are fenced immediately, substrate destroy is denied, retry/recovery must close authority first;
+- catalog `ready` cannot persist after substrate creation -> capability is never exposed as ready; authority is closed and the execution is quarantined before any cleanup attempt;
+- incomplete create/clone after crash -> terminal/quarantine, never fresh authority;
 - corrupted journal/catalog -> startup fails closed.
 
-## 8. Required tests
+## 8. Required executable contracts
 
-Tests must prove:
+Tests prove at minimum:
 
-- epoch survives close/reopen;
-- terminal revocation survives close/reopen;
-- old epoch stays stale after process restart;
-- wrong world identity cannot open another journal;
-- hash-chain tamper is detected;
-- truncated/malformed tail is rejected;
-- single-writer state lock;
-- lifecycle catalog legal transitions recover exactly;
-- illegal catalog transitions fail;
-- catalog single-writer lock;
+- authority epoch survives release/reopen;
+- terminal revocation survives restart;
+- old epoch stays stale after restart;
+- raw WorldID cannot become a host path;
+- wrong identity/tamper/malformed tail is rejected;
+- second authority/catalog writer is rejected;
+- lifecycle legal transitions recover exactly and illegal ones fail;
 - persistent rollback advances durable epoch before substrate callback;
-- failed rollback keeps advanced epoch after manager restart;
-- persistent destroy closes authority before substrate callback;
+- failed rollback keeps the advanced epoch after restart;
+- failed destroy keeps terminal authority after restart;
 - incomplete create is quarantined on recovery;
-- no cataloged world silently gets a fresh epoch-1 state on missing/corrupt authority storage.
+- missing authority storage for a cataloged world fails recovery;
+- ready-persistence failure cannot trigger destruction before durable terminal quarantine;
+- manager shutdown waits for in-flight lifecycle mutation;
+- broker-facing authority does not implement `AuthorityControl`;
+- an already-issued broker view is denied immediately after durable terminal lifecycle even if the authority close write fails;
+- an already-issued view is denied after Manager shutdown.
 
 ## 9. Non-goals
 
-Persistence v2 does not yet provide distributed consensus or multi-host concurrent writers. It is a single Trust Plane writer foundation. Multi-node operation must place the same interfaces over a transactional/consensus-backed store rather than sharing these local files over unsafe network filesystems.
+Persistence v2 is single-host crash recovery, not distributed consensus. These local files are not safe shared-state primitives for multi-host concurrent writers and do not protect against rollback of the entire trusted host filesystem/device. A multi-node control plane must place the same interfaces over transactional/consensus-backed trusted storage.
 
-## 10. Next gates
+## 10. Remaining release gates
 
-After Persistence v2 the largest remaining trust gaps are durable capability/provenance storage, KMS-backed authority adapters, and live Cube/KVM adversarial gauntlets.
+The largest remaining trust gaps after v2 are durable capability/provenance storage, KMS-backed authority adapters, typed external-action reconciliation, hostile artifact corpus testing, and live Cube/KVM adversarial gauntlets for egress, metadata, cross-world traffic, stale snapshots, mounts, and resource exhaustion.

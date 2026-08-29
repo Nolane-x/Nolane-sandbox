@@ -96,8 +96,8 @@ func TestDestroyClosesAuthorityBeforeSubstrateAndStaysClosedOnFailure(t *testing
 	if err := m.Destroy(context.Background(), "w1"); err == nil {
 		t.Fatal("expected destroy failure")
 	}
-	if !st.Closed() {
-		t.Fatal("world authority reopened after destroy failure")
+	if err := st.ValidateEpoch(st.CurrentEpoch()); !errors.Is(err, world.ErrClosedWorld) {
+		t.Fatalf("world authority reopened after destroy failure: %v", err)
 	}
 	if _, err := m.Snapshot(context.Background(), "w1"); !errors.Is(err, ErrWorldClosed) {
 		t.Fatalf("snapshot after terminal revoke=%v", err)
@@ -109,7 +109,9 @@ func TestCloneGetsIndependentAuthorityState(t *testing.T) {
 	m, _ := NewManager(fs)
 	_, _ = m.Create(context.Background(), "src")
 	src, _ := m.AuthorityState("src")
-	src.AdvanceEpoch()
+	if err := m.Rollback(context.Background(), "src", "advance-source"); err != nil {
+		t.Fatal(err)
+	}
 	h, err := m.Clone(context.Background(), "src", "snap", "child")
 	if err != nil {
 		t.Fatal(err)
