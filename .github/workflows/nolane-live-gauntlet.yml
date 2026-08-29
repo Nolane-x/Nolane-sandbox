@@ -1,0 +1,121 @@
+name: Nolane Live Substrate Gauntlet
+
+on:
+  pull_request:
+    paths:
+      - 'NolaneWorld/gauntlet/live/**'
+      - 'NolaneWorld/cmd/nolane-gauntlet-live/**'
+      - 'NolaneWorld/substrate/cube/**'
+      - 'docs/superpowers/specs/**live-substrate-gauntlet-v5**'
+      - 'docs/superpowers/plans/**live-substrate-gauntlet-v5**'
+      - '.github/workflows/nolane-live-gauntlet.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nolane-live-gauntlet-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  harness:
+    name: Live harness semantics
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: NolaneWorld/go.mod
+
+      - name: Unit and race tests
+        working-directory: NolaneWorld
+        run: go test -race ./gauntlet/live/... ./cmd/nolane-gauntlet-live ./substrate/cube
+
+      - name: Vet
+        working-directory: NolaneWorld
+        run: go vet ./gauntlet/live/... ./cmd/nolane-gauntlet-live ./substrate/cube
+
+      - name: Prove missing live infrastructure cannot become PASS
+        working-directory: NolaneWorld
+        env:
+          NOLANE_CUBE_API_URL: ''
+          NOLANE_CUBE_API_KEY: ''
+          NOLANE_CUBE_TEMPLATE_ID: ''
+          NOLANE_CUBE_SANDBOX_DOMAIN: ''
+        run: |
+          go run ./cmd/nolane-gauntlet-live --mode probe --profile core --out release-evidence/nolane-live-v5-unavailable.json
+          python3 - <<'PY'
+          import json
+          p = 'release-evidence/nolane-live-v5-unavailable.json'
+          r = json.load(open(p, encoding='utf-8'))
+          assert r['status'] == 'UNAVAILABLE', r
+          assert r['approved'] is False, r
+          assert r['reason'] == 'config_missing', r
+          PY
+
+      - name: Upload harness negative-control evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nolane-live-v5-unavailable-${{ github.sha }}
+          path: NolaneWorld/release-evidence/nolane-live-v5-unavailable.json
+          if-no-files-found: error
+          retention-days: 30
+
+  live-kvm:
+    name: Live Cube/KVM proof
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && vars.NOLANE_LIVE_GAUNTLET_ENABLED == 'true' }}
+    runs-on: [self-hosted, linux, nolane-kvm]
+    environment: nolane-live-gauntlet
+    timeout-minutes: 30
+    steps:
+      - name: Checkout trusted master
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: NolaneWorld/go.mod
+
+      - name: Run required live proof
+        working-directory: NolaneWorld
+        env:
+          NOLANE_CUBE_API_URL: ${{ vars.NOLANE_CUBE_API_URL }}
+          NOLANE_CUBE_API_KEY: ${{ secrets.NOLANE_CUBE_API_KEY }}
+          NOLANE_CUBE_TEMPLATE_ID: ${{ vars.NOLANE_CUBE_TEMPLATE_ID }}
+          NOLANE_CUBE_SANDBOX_DOMAIN: ${{ vars.NOLANE_CUBE_SANDBOX_DOMAIN }}
+          NOLANE_CUBE_PROXY_SCHEME: ${{ vars.NOLANE_CUBE_PROXY_SCHEME }}
+          NOLANE_LIVE_GAUNTLET_PROFILE: ${{ vars.NOLANE_LIVE_GAUNTLET_PROFILE }}
+          NOLANE_GAUNTLET_HTTP_TARGET: ${{ vars.NOLANE_GAUNTLET_HTTP_TARGET }}
+          NOLANE_GAUNTLET_HTTP_EXPECT: ${{ secrets.NOLANE_GAUNTLET_HTTP_EXPECT }}
+          NOLANE_GAUNTLET_TCP_TARGET: ${{ vars.NOLANE_GAUNTLET_TCP_TARGET }}
+          NOLANE_GAUNTLET_TCP_EXPECT: ${{ secrets.NOLANE_GAUNTLET_TCP_EXPECT }}
+          NOLANE_GAUNTLET_UDP_TARGET: ${{ vars.NOLANE_GAUNTLET_UDP_TARGET }}
+          NOLANE_GAUNTLET_UDP_EXPECT: ${{ secrets.NOLANE_GAUNTLET_UDP_EXPECT }}
+          NOLANE_GAUNTLET_DNS_TARGET: ${{ vars.NOLANE_GAUNTLET_DNS_TARGET }}
+          NOLANE_GAUNTLET_DNS_EXPECT: ${{ vars.NOLANE_GAUNTLET_DNS_EXPECT }}
+        run: |
+          profile="${NOLANE_LIVE_GAUNTLET_PROFILE:-core}"
+          timeout 20m go run ./cmd/nolane-gauntlet-live \
+            --mode require-live \
+            --profile "$profile" \
+            --out release-evidence/nolane-live-v5.json
+          python3 - <<'PY'
+          import json
+          r = json.load(open('release-evidence/nolane-live-v5.json', encoding='utf-8'))
+          assert r['status'] == 'LIVE_PASS', r
+          assert r['approved'] is True, r
+          PY
+
+      - name: Upload live substrate evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nolane-live-v5-${{ github.sha }}
+          path: NolaneWorld/release-evidence/nolane-live-v5.json
+          if-no-files-found: error
+          retention-days: 30
