@@ -22,6 +22,16 @@ type AuthorityState interface {
 	WithEpoch(Epoch, func() error) error
 }
 
+// AuthorityControl is host-only mutable authority state. Guest code and
+// authority executors should depend on AuthorityState, not this interface.
+type AuthorityControl interface {
+	AuthorityState
+	AdvanceAuthority() (Epoch, error)
+	CloseAuthority() (Epoch, error)
+	Closed() bool
+	Release() error
+}
+
 type State struct {
 	id     ID
 	mu     sync.RWMutex
@@ -77,6 +87,34 @@ func (s *State) Close() Epoch {
 	}
 	return s.epoch
 }
+
+func (s *State) AdvanceAuthority() (Epoch, error) {
+	if s == nil || s.id == "" {
+		return 0, ErrInvalidWorld
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return s.epoch, ErrClosedWorld
+	}
+	s.epoch++
+	return s.epoch, nil
+}
+
+func (s *State) CloseAuthority() (Epoch, error) {
+	if s == nil || s.id == "" {
+		return 0, ErrInvalidWorld
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.closed {
+		s.epoch++
+		s.closed = true
+	}
+	return s.epoch, nil
+}
+
+func (s *State) Release() error { return nil }
 
 func (s *State) Closed() bool {
 	if s == nil {
