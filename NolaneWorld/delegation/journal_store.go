@@ -2,9 +2,11 @@ package delegation
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -172,7 +174,7 @@ func (s *JournalStore) recover() error {
 	for scanner.Scan() {
 		line++
 		var rec grantJournalRecord
-		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
+		if err := decodeGrantJournalRecord(scanner.Bytes(), &rec); err != nil {
 			return fmt.Errorf("%w: line %d", ErrStoreCorrupt, line)
 		}
 		if err := s.applyRecovered(rec); err != nil {
@@ -184,6 +186,25 @@ func (s *JournalStore) recover() error {
 	}
 	if _, err := s.file.Seek(0, 2); err != nil {
 		return errors.Join(ErrStoreCorrupt, err)
+	}
+	return nil
+}
+
+func decodeGrantJournalRecord(raw []byte, rec *grantJournalRecord) error {
+	if len(raw) == 0 || rec == nil {
+		return ErrStoreCorrupt
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(rec); err != nil {
+		return ErrStoreCorrupt
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return ErrStoreCorrupt
+	}
+	canonical, err := json.Marshal(rec)
+	if err != nil || !bytes.Equal(canonical, raw) {
+		return ErrStoreCorrupt
 	}
 	return nil
 }
