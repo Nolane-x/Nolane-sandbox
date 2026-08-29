@@ -33,19 +33,30 @@ The execution substrate remains CubeSandbox. Nolane does not fork the hypervisor
 
 ### Persistence v2
 
-- host-only `AuthorityControl` separated from broker-facing `AuthorityState`;
-- broker-facing authority is a managed read-only view, never the mutable host controller;
+- host-only `AuthorityControl` separated from broker-facing authority reads/execution;
 - per-world append-only authority journals with SHA-256 hash chains;
-- epoch advances and terminal close fsynced before becoming visible in authority storage memory;
+- epoch advances and terminal close fsynced before becoming visible in memory;
 - hashed authority filenames so raw WorldID values never become host paths;
 - strict replay that rejects malformed, unknown, out-of-order, identity-mismatched, or hash-mismatched records;
 - lifetime single-writer authority file locks;
 - hash-chained lifecycle catalog for `creating -> ready -> terminal -> destroyed`;
 - persistent World Manager recovery;
 - incomplete create/clone recovery terminally revokes authority and reports a possible orphan instead of guessing;
-- durable terminal lifecycle plus an atomic broker fence, so already-issued authority views fail closed even when the authority close journal write itself fails;
-- substrate destruction is never attempted until terminal lifecycle state is durable and durable authority close succeeds;
-- Manager shutdown serializes against in-flight lifecycle mutations and invalidates already-issued managed authority views.
+- Manager shutdown serializes against in-flight lifecycle mutations.
+
+### Capability Persistence v3
+
+- `capability.Store` decouples Forge from in-memory registry implementation;
+- every promotion binds exact content, manifest, and validation-evidence bytes;
+- `DurableRegistry` stores all trusted material in SHA-256 content-addressed storage;
+- promotion trust is an append-only, fsynced, hash-chained journal;
+- exact retry across restart is idempotent and never appends a second promotion;
+- candidate-ID and name/version collision rules survive restart;
+- recovery verifies every promotion record and every referenced CAS blob before trusting registry state;
+- missing, non-regular, tampered, malformed, or hash-mismatched state fails closed;
+- orphan CAS blobs alone never create trusted capability records;
+- single-writer OS locking prevents split-brain local registry writers;
+- Forge persists the exact validator evidence only after clean validator teardown.
 
 ## Security model
 
@@ -61,11 +72,9 @@ A second invariant is intentionally conservative:
 
 > **When the real-world outcome is uncertain, do not execute it again automatically.**
 
-For persistent world teardown, the durable lifecycle catalog is also a broker fence: once `terminal` is fsynced, every managed authority view denies use immediately. The authority journal close is then retried until durable before the execution substrate may be destroyed.
-
 ## What is not production-complete yet
 
-Persistence v2 still does not claim a perfect sandbox or complete production boundary. The local journals are single-host crash-recovery primitives, not distributed consensus and not protection against rollback of the entire host storage device. Remaining release gates include durable capability/provenance storage, KMS/secret brokering, typed external adapters with reconciliation, live Cube/KVM stale-snapshot tests, egress bypass gauntlets, and hostile artifact corpus testing.
+Capability Persistence v3 still does not claim a perfect sandbox or complete production boundary. The local journals are single-host crash-recovery primitives, not distributed consensus and not protection against rollback of the entire host storage device. Remaining release gates include durable general artifact-receipt/quarantine storage, KMS/secret brokering, typed external adapters with reconciliation, live Cube/KVM stale-snapshot tests, egress bypass gauntlets, and hostile artifact corpus testing.
 
 See:
 

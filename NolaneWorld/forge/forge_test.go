@@ -168,3 +168,40 @@ func TestValidatorPanicStillTearsDownAndNeverPromotes(t *testing.T) {
 		t.Fatal("panic candidate promoted")
 	}
 }
+
+func TestForgePersistsExactValidationEvidenceInDurableRegistry(t *testing.T) {
+	worlds := &fakeWorlds{}
+	root := t.TempDir()
+	reg, err := capability.OpenDurableRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := New(worlds, validatorFunc(func(context.Context, substrate.Handle, capability.Candidate, []byte, []byte) (Evidence, error) {
+		return Evidence{Report: []byte("signed-test-report")}, nil
+	}), reg, artifact.Gate{MaxBytes: 1024}, "host-verifier")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.newID = func(prefix string) (string, error) { return prefix + "durable", nil }
+	if _, err := f.Promote(context.Background(), "origin", "durable-tool", "1", []byte("code"), []byte("manifest")); err != nil {
+		t.Fatal(err)
+	}
+	if len(worlds.destroyed) != 1 {
+		t.Fatal("validator must be destroyed before durable promotion returns")
+	}
+	if err := reg.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := capability.OpenDurableRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	material, err := reopened.Load("durable-tool", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(material.VerificationEvidence) != "signed-test-report" {
+		t.Fatalf("evidence=%q", material.VerificationEvidence)
+	}
+}

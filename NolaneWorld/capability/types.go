@@ -20,11 +20,12 @@ type Candidate struct {
 }
 
 type PromotionRequest struct {
-	Candidate          Candidate
-	Content            []byte
-	Manifest           []byte
-	VerifierID         string
-	VerificationDigest string
+	Candidate            Candidate
+	Content              []byte
+	Manifest             []byte
+	VerifierID           string
+	VerificationDigest   string
+	VerificationEvidence []byte
 }
 
 type PromotionReceipt struct {
@@ -49,11 +50,27 @@ type Record struct {
 	Receipt        PromotionReceipt
 }
 
+type Material struct {
+	Record               Record
+	Content              []byte
+	Manifest             []byte
+	VerificationEvidence []byte
+}
+
+type Store interface {
+	Promote(PromotionRequest) (PromotionReceipt, error)
+	Get(name, version string) (Record, bool)
+}
+
 var (
-	ErrInvalidCandidate    = errors.New("capability: invalid candidate")
-	ErrSelfPromotion       = errors.New("capability: self promotion")
-	ErrDigestMismatch      = errors.New("capability: digest mismatch")
-	ErrCapabilityCollision = errors.New("capability: version collision")
+	ErrInvalidCandidate        = errors.New("capability: invalid candidate")
+	ErrSelfPromotion           = errors.New("capability: self promotion")
+	ErrDigestMismatch          = errors.New("capability: digest mismatch")
+	ErrCapabilityCollision     = errors.New("capability: version collision")
+	ErrRegistryCorrupt         = errors.New("capability: durable registry corrupt")
+	ErrRegistryLocked          = errors.New("capability: durable registry locked")
+	ErrRegistryClosed          = errors.New("capability: durable registry closed")
+	ErrRegistryLockUnsupported = errors.New("capability: durable registry locking unsupported")
 )
 
 func Digest(content []byte) string {

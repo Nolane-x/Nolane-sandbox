@@ -33,14 +33,14 @@ type Validator interface {
 type Forge struct {
 	worlds     substrate.SandboxSubstrate
 	validator  Validator
-	registry   *capability.Registry
+	registry   capability.Store
 	gate       artifact.Gate
 	verifierID string
 	now        func() time.Time
 	newID      func(string) (string, error)
 }
 
-func New(worlds substrate.SandboxSubstrate, validator Validator, registry *capability.Registry, gate artifact.Gate, verifierID string) (*Forge, error) {
+func New(worlds substrate.SandboxSubstrate, validator Validator, registry capability.Store, gate artifact.Gate, verifierID string) (*Forge, error) {
 	if worlds == nil || validator == nil || registry == nil || gate.MaxBytes <= 0 || verifierID == "" {
 		return nil, ErrInvalidForge
 	}
@@ -116,6 +116,7 @@ func (f *Forge) Promote(ctx context.Context, origin world.ID, name, version stri
 	return f.registry.Promote(capability.PromotionRequest{
 		Candidate: candidate, Content: contentCopy, Manifest: manifestCopy,
 		VerifierID: f.verifierID, VerificationDigest: capability.Digest(evidence.Report),
+		VerificationEvidence: append([]byte(nil), evidence.Report...),
 	})
 }
 
