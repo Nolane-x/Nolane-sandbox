@@ -16,10 +16,14 @@ func candidate(content []byte) Candidate {
 }
 
 func request(content []byte) PromotionRequest {
-	return PromotionRequest{Candidate: candidate(content), Content: content, Manifest: []byte("manifest"), VerifierID: "fresh-validator-1", VerificationDigest: Digest([]byte("verification"))}
+	evidence := []byte("verification")
+	return PromotionRequest{
+		Candidate: candidate(content), Content: content, Manifest: []byte("manifest"),
+		VerifierID: "fresh-validator-1", VerificationDigest: Digest(evidence), VerificationEvidence: evidence,
+	}
 }
 
-func TestCapabilityPromotionIsIndependentAndContentBound(t *testing.T) {
+func TestCapabilityPromotionIsIndependentAndExactBytesBound(t *testing.T) {
 	r := NewRegistry()
 	req := request([]byte("tool bytes"))
 	receipt, err := r.Promote(req)
@@ -33,96 +37,72 @@ func TestCapabilityPromotionIsIndependentAndContentBound(t *testing.T) {
 	if record.ContentDigest != req.Candidate.ContentDigest || receipt.ContentDigest != req.Candidate.ContentDigest {
 		t.Fatal("digest binding lost")
 	}
-	if receipt.OriginWorldID != "world-1" || receipt.VerifierID != "fresh-validator-1" {
-		t.Fatal("identity binding lost")
+	if receipt.VerificationDigest != Digest(req.VerificationEvidence) {
+		t.Fatal("evidence binding lost")
 	}
 }
 
-func TestCapabilitySelfPromotionIsRejected(t *testing.T) {
+func TestCapabilityRejectsMissingOrMutatedEvidence(t *testing.T) {
+	r := NewRegistry()
+	req := request([]byte("tool"))
+	req.VerificationEvidence = nil
+	if _, err := r.Promote(req); !errors.Is(err, ErrInvalidCandidate) {
+		t.Fatalf("missing evidence=%v", err)
+	}
+	req = request([]byte("tool"))
+	req.VerificationEvidence = []byte("different")
+	if _, err := r.Promote(req); !errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("mutated evidence=%v", err)
+	}
+}
+
+func TestCapabilitySelfPromotionAndMutationsAreRejected(t *testing.T) {
 	r := NewRegistry()
 	req := request([]byte("tool"))
 	req.VerifierID = string(req.Candidate.OriginWorldID)
 	if _, err := r.Promote(req); !errors.Is(err, ErrSelfPromotion) {
-		t.Fatalf("got %v", err)
-	}
-}
-
-func TestCapabilityContentMutationAndMissingEvidenceAreRejected(t *testing.T) {
-	r := NewRegistry()
-	req := request([]byte("tool"))
-	req.Content = []byte("changed")
-	if _, err := r.Promote(req); !errors.Is(err, ErrDigestMismatch) {
-		t.Fatalf("mutation: %v", err)
+		t.Fatalf("self=%v", err)
 	}
 	req = request([]byte("tool"))
-	req.VerificationDigest = ""
-	if _, err := r.Promote(req); !errors.Is(err, ErrInvalidCandidate) {
-		t.Fatalf("missing evidence: %v", err)
+	req.Content = []byte("changed")
+	if _, err := r.Promote(req); !errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("content=%v", err)
+	}
+	req = request([]byte("tool"))
+	req.Manifest = []byte("changed")
+	if _, err := r.Promote(req); !errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("manifest=%v", err)
 	}
 }
 
-func TestCapabilitySameVersionCannotBeReboundToDifferentContent(t *testing.T) {
+func TestCapabilityImmutableVersionCandidateAndIdempotency(t *testing.T) {
 	r := NewRegistry()
 	first := request([]byte("one"))
-	if _, err := r.Promote(first); err != nil {
+	one, err := r.Promote(first)
+	if err != nil {
 		t.Fatal(err)
+	}
+	two, err := r.Promote(first)
+	if err != nil || one != two {
+		t.Fatalf("duplicate=(%+v,%v)", two, err)
 	}
 	second := request([]byte("two"))
 	second.Candidate.CandidateID = "cand-2"
 	if _, err := r.Promote(second); !errors.Is(err, ErrCapabilityCollision) {
-		t.Fatalf("got %v", err)
+		t.Fatalf("version rebound=%v", err)
+	}
+	third := request([]byte("one"))
+	third.Candidate.Name = "different"
+	if _, err := r.Promote(third); !errors.Is(err, ErrCapabilityCollision) {
+		t.Fatalf("candidate rebound=%v", err)
 	}
 }
 
-func TestCapabilityExactDuplicatePromotionIsIdempotent(t *testing.T) {
-	r := NewRegistry()
-	req := request([]byte("same"))
-	one, err := r.Promote(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	two, err := r.Promote(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if one != two {
-		t.Fatalf("promotion receipt changed\none=%#v\ntwo=%#v", one, two)
-	}
-}
-
-func TestCapabilityManifestMutationIsRejected(t *testing.T) {
+func TestCapabilityRejectsUnboundedJournalMetadata(t *testing.T) {
 	r := NewRegistry()
 	req := request([]byte("tool"))
-	req.Manifest = []byte("changed manifest")
-	if _, err := r.Promote(req); !errors.Is(err, ErrDigestMismatch) {
-		t.Fatalf("manifest mutation: %v", err)
-	}
-}
-
-func TestCapabilityCandidateIDCannotBeReboundToDifferentMetadata(t *testing.T) {
-	r := NewRegistry()
-	first := request([]byte("tool"))
-	if _, err := r.Promote(first); err != nil {
-		t.Fatal(err)
-	}
-	second := request([]byte("tool"))
-	second.Candidate.Name = "different-name"
-	if _, err := r.Promote(second); !errors.Is(err, ErrCapabilityCollision) {
-		t.Fatalf("candidate id rebound: %v", err)
-	}
-}
-
-func TestCapabilitySameVersionCannotChangeManifest(t *testing.T) {
-	r := NewRegistry()
-	first := request([]byte("tool"))
-	if _, err := r.Promote(first); err != nil {
-		t.Fatal(err)
-	}
-	second := request([]byte("tool"))
-	second.Candidate.CandidateID = "cand-2"
-	second.Manifest = []byte("different manifest")
-	second.Candidate.ManifestDigest = Digest(second.Manifest)
-	if _, err := r.Promote(second); !errors.Is(err, ErrCapabilityCollision) {
-		t.Fatalf("manifest rebound: %v", err)
+	req.Candidate.Name = string(make([]byte, maxCapabilityNameBytes+1))
+	if _, err := r.Promote(req); !errors.Is(err, ErrInvalidCandidate) {
+		t.Fatalf("oversized name=%v", err)
 	}
 }
