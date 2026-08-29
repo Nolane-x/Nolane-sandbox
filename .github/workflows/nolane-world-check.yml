@@ -51,10 +51,30 @@ jobs:
           cmp release-evidence/nolane-gauntlet-v4.json release-evidence/nolane-gauntlet-v4-repeat.json
           rm release-evidence/nolane-gauntlet-v4-repeat.json
 
+      - name: Generate Delegated Authority evidence
+        working-directory: NolaneWorld
+        run: |
+          go run ./cmd/nolane-authority-gauntlet --out release-evidence/nolane-authority-v6.json
+          go run ./cmd/nolane-authority-gauntlet --out release-evidence/nolane-authority-v6-repeat.json
+          cmp release-evidence/nolane-authority-v6.json release-evidence/nolane-authority-v6-repeat.json
+          if grep -Fq 'SYNTHETIC-V6-SECRET' release-evidence/nolane-authority-v6.json; then
+            echo 'synthetic credential leaked into v6 evidence' >&2
+            exit 1
+          fi
+          rm release-evidence/nolane-authority-v6-repeat.json
+
       - name: Upload Release Gauntlet evidence
         uses: actions/upload-artifact@v4
         with:
           name: nolane-gauntlet-v4-${{ github.sha }}
           path: NolaneWorld/release-evidence/nolane-gauntlet-v4.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Delegated Authority evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nolane-authority-v6-${{ github.sha }}
+          path: NolaneWorld/release-evidence/nolane-authority-v6.json
           if-no-files-found: error
           retention-days: 30
