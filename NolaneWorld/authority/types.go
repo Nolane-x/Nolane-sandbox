@@ -49,22 +49,6 @@ type Executor interface {
 	Execute(context.Context, Intent) ([]byte, error)
 }
 
-type noEffectError struct{ err error }
-
-func (e noEffectError) Error() string { return e.err.Error() }
-func (e noEffectError) Unwrap() error { return e.err }
-func (e noEffectError) definitelyNoEffect() bool { return true }
-
-// MarkNoEffect marks an error as proving that the external side effect was not
-// entered. Durable ledgers may safely abort the pending transition for such an
-// error instead of quarantining the action as uncertain.
-func MarkNoEffect(err error) error {
-	if err == nil {
-		return nil
-	}
-	return noEffectError{err: err}
-}
-
 var (
 	ErrInvalidAction         = errors.New("authority: invalid action")
 	ErrActionCollision       = errors.New("authority: action id collision")
