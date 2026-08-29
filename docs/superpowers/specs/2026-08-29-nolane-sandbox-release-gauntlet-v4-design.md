@@ -102,6 +102,7 @@ Every scenario produces `ScenarioEvidence` containing only deterministic fields:
 - attack;
 - expected defense;
 - severity;
+- required proof markers;
 - outcome;
 - normalized events;
 - failure code/message if any;
@@ -121,7 +122,7 @@ The release report digest binds:
 
 Domain separator: `nolane.gauntlet.report.v1`.
 
-`VerifyReport` recomputes every scenario digest, validates deterministic order, validates outcome semantics, recomputes the report digest, and rejects any mutation.
+`Report` carries the exact `Policy` used by the runner. `VerifyReport` recomputes the policy digest from that policy, recomputes every scenario digest, rechecks every required marker against the recorded events, validates deterministic order and outcome semantics, recomputes the report digest, and rejects any mutation.
 
 ## 8. Deterministic Built-in Scenarios
 
