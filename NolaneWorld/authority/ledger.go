@@ -11,6 +11,21 @@ type Ledger interface {
 	ExecuteOnce(world.ID, string, string, func() (Receipt, error)) (Receipt, error)
 }
 
+// InspectableLedger adds read-only action-state inspection without widening
+// Ledger execution authority. Callers use it for reconciliation, never to
+// mutate or replay an action.
+type InspectableLedger interface {
+	Ledger
+	Status(world.ID, string, string) (ActionStatus, Receipt, error)
+}
+
+// ResolvingLedger may close an already-pending uncertain action after an
+// independent reconciliation proves that the external effect occurred.
+type ResolvingLedger interface {
+	InspectableLedger
+	Resolve(world.ID, string, string, Receipt) error
+}
+
 type ledgerKey struct {
 	worldID  world.ID
 	actionID string
@@ -57,6 +72,26 @@ func (l *MemoryLedger) ExecuteOnce(worldID world.ID, actionID, requestDigest str
 	l.receipts[key] = receipt
 	l.mu.Unlock()
 	return receipt, nil
+}
+
+func (l *MemoryLedger) Status(worldID world.ID, actionID, requestDigest string) (ActionStatus, Receipt, error) {
+	if l == nil || worldID == "" || actionID == "" || requestDigest == "" {
+		return ActionMissing, Receipt{}, ErrInvalidAction
+	}
+	key := ledgerKey{worldID: worldID, actionID: actionID}
+	lock := &l.locks[shardFor(key)]
+	lock.Lock()
+	defer lock.Unlock()
+	l.mu.RLock()
+	prior, ok := l.receipts[key]
+	l.mu.RUnlock()
+	if !ok {
+		return ActionMissing, Receipt{}, nil
+	}
+	if prior.RequestDigest != requestDigest {
+		return ActionMissing, Receipt{}, ErrActionCollision
+	}
+	return ActionCompleted, prior, nil
 }
 
 func shardFor(key ledgerKey) uint32 {
