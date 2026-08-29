@@ -108,11 +108,12 @@
 ### Task 6: Standard Release Suite and Negative Controls
 
 **Files:**
-- Create: `NolaneWorld/gauntlet/suite.go`
-- Create: `NolaneWorld/gauntlet/suite_test.go`
+- Create: `NolaneWorld/gauntlet/scenarios/suite.go`
+- Modify: `NolaneWorld/gauntlet/scenarios/storage_test.go`
+- Modify: `NolaneWorld/gauntlet/runner_test.go`
 
 **Interfaces:**
-- Produces: `StandardSuite() []Scenario`, `RunStandard(context.Context, Policy) (Report, error)`.
+- Produces: `scenarios.StandardSuite() []gauntlet.Scenario`, `scenarios.RunStandard(context.Context, gauntlet.Policy) (gauntlet.Report, error)`.
 
 - [ ] Write RED test requiring exact stable IDs and deterministic report digest across repeated runs.
 - [ ] Write negative-control scenarios that omit denial/boundary events and prove the runner rejects them.
