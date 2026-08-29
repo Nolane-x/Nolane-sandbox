@@ -58,6 +58,19 @@ The execution substrate remains CubeSandbox. Nolane does not fork the hypervisor
 - single-writer OS locking prevents split-brain local registry writers;
 - Forge persists the exact validator evidence only after clean validator teardown.
 
+### Release Gauntlet v4
+
+- deterministic adversarial scenario contract with stable IDs, explicit invariants, attack descriptions, expected defenses, and required proof markers;
+- runner-owned append-only probes so scenarios cannot directly declare themselves passed;
+- fail-closed proof-of-exercise requiring attack, trust-boundary, denial, and all required markers;
+- panic/timeout/error conversion into stable machine-readable failure codes;
+- deterministic SHA-256 scenario evidence and release report digests with domain-separated length-prefixed fields;
+- self-contained evidence carries the exact runner policy and required markers so `VerifyReport` does not have to trust the runner implicitly;
+- standard adversarial suite for stale authority epochs, terminal worlds, action-ID rebinding, artifact path traversal, trusted capability CAS tamper, and promotion-journal tamper;
+- property/fuzz seeds for report mutation detection and deterministic ordering;
+- `nolane-gauntlet` CLI emits verified JSON suitable for CI artifact retention;
+- core gauntlet remains independent of Cube security internals so a future live Cube/KVM adapter can reuse the same evidence contract.
+
 ## Security model
 
 Assume the model, agent, guest root, downloaded packages, webpages, generated code, snapshots, and exported files are hostile.
@@ -74,13 +87,15 @@ A second invariant is intentionally conservative:
 
 ## What is not production-complete yet
 
-Capability Persistence v3 still does not claim a perfect sandbox or complete production boundary. The local journals are single-host crash-recovery primitives, not distributed consensus and not protection against rollback of the entire host storage device. Remaining release gates include durable general artifact-receipt/quarantine storage, KMS/secret brokering, typed external adapters with reconciliation, live Cube/KVM stale-snapshot tests, egress bypass gauntlets, and hostile artifact corpus testing.
+Release Gauntlet v4 still does not claim a perfect sandbox or complete production boundary. The local journals are single-host crash-recovery primitives, not distributed consensus and not protection against rollback of the entire host storage device. V4 proves deterministic in-process trust invariants; remaining gates include durable general artifact-receipt/quarantine storage, KMS/secret brokering, typed external adapters with reconciliation, live Cube/KVM stale-snapshot and egress-bypass attacks, and hostile artifact corpus testing.
 
 See:
 
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-world-design.md`
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-runtime-integration-v1-design.md`
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-persistence-v2-design.md`
+- `../docs/superpowers/specs/2026-08-29-nolane-sandbox-capability-persistence-v3-design.md`
+- `../docs/superpowers/specs/2026-08-29-nolane-sandbox-release-gauntlet-v4-design.md`
 
 ## Verify
 
@@ -89,4 +104,5 @@ cd NolaneWorld
 go test ./...
 go test -race ./...
 go vet ./...
+go run ./cmd/nolane-gauntlet --out release-evidence/nolane-gauntlet-v4.json
 ```
