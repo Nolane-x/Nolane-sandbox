@@ -1,7 +1,9 @@
 package authority
 
 import (
+	"bytes"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -196,5 +198,40 @@ func TestJournalLedgerExplicitNoEffectAbortsDurably(t *testing.T) {
 	}
 	if status != ActionMissing {
 		t.Fatalf("explicit no-effect abort did not survive restart, status=%v", status)
+	}
+}
+
+func TestJournalLedgerRejectsUnknownJSONFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "effects.jsonl")
+	l, err := OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = l.ExecuteOnce(world.ID("w-canonical"), "a1", "digest-canonical", func() (Receipt, error) {
+		return Receipt{WorldID: world.ID("w-canonical"), AuthorityEpoch: 1, ActionID: "a1", RequestDigest: "digest-canonical", EffectDigest: "effect", CompletedAt: time.Unix(1, 0).UTC()}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := bytes.IndexByte(raw, '}')
+	if idx < 0 {
+		t.Fatal("missing journal object terminator")
+	}
+	mutated := make([]byte, 0, len(raw)+32)
+	mutated = append(mutated, raw[:idx]...)
+	mutated = append(mutated, []byte(`,"unknown":"injected"`)...)
+	mutated = append(mutated, raw[idx:]...)
+	if err := os.WriteFile(path, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenJournalLedger(path); !errors.Is(err, ErrLedgerCorrupt) {
+		t.Fatalf("unknown field accepted: %v", err)
 	}
 }
