@@ -126,6 +126,28 @@ The agent never receives:
 
 ## Package boundaries
 
+### `delegation` compatibility helper
+
+V6 intentionally owns construction of `delegation.Secret`: the material field is private, so a Vault implementation in another package cannot fabricate a `Secret` value directly.
+
+V7 permits one narrow reusable helper in `delegation`:
+
+```go
+func WithSecretLease(material []byte, fn func(Secret) error) error
+```
+
+Semantics:
+
+- rejects empty material or nil callback;
+- creates a private working copy owned by `delegation`;
+- invokes the callback with `Secret{material: workingCopy}`;
+- zeroes that working copy before return;
+- never stores, hashes, logs, or serializes the bytes.
+
+`BrokerVault` also zeroes its own decoded broker-response buffer after `WithSecretLease` returns, so both package-owned copies are explicitly wiped on the best-effort Go-memory basis already acknowledged by the security model.
+
+This helper is host-side plumbing only. It does not enter `Intent`, `Grant`, receipt, or guest protocol and does not allow an agent to choose secret material.
+
 ### `credential/broker`
 
 Owns the production-oriented host-local credential boundary.
@@ -142,7 +164,7 @@ Responsibilities:
 - stable sanitized error taxonomy;
 - no logging of secret bytes or raw broker response content.
 
-It implements `delegation.Vault`.
+It implements `delegation.Vault` and uses `delegation.WithSecretLease` rather than constructing a `delegation.Secret` itself.
 
 It does **not** know world IDs, grants, operations, provider URLs, payloads, or external-action targets. Its only trust-bearing input from the plane is an opaque `SecretHandle`.
 
@@ -153,15 +175,18 @@ Owns hardened provider HTTP mechanics shared by provider-specific adapters.
 Responsibilities:
 
 - host-configured base URL validation;
-- HTTPS required for non-loopback destinations;
+- **HTTPS required for every provider endpoint, including loopback test endpoints**;
 - no URL userinfo;
 - redirects disabled;
 - no environment-derived HTTP proxy;
 - bounded response bodies;
-- explicit connect/request timeout through supplied `http.Client`/transport;
+- explicit connect/request timeout through the hardened client;
+- optional host-configured TLS root pool for GitHub Enterprise/test servers without weakening scheme validation;
 - provider paths constructed from typed components rather than concatenated agent URLs;
 - authentication material added only immediately before sending the trusted host request;
 - raw provider response headers/body never returned directly to the agent.
+
+If a caller supplies a transport/client, `providerhttp` copies/wraps configuration as needed so redirect denial, proxy denial, response bounds, and endpoint validation cannot be silently disabled by a permissive caller client.
 
 `providerhttp` is **not** itself a delegation adapter and must never be registrable as an `AdapterKind`.
 
@@ -187,7 +212,7 @@ No operation accepts an arbitrary URL, method, hostname, authorization header, o
 
 ### `gauntlet/provider`
 
-Owns deterministic v7 provider-authority evidence. It uses an in-process controlled fake provider plus a controlled fake credential broker. It never requires a real GitHub credential in ordinary CI.
+Owns deterministic v7 provider-authority evidence. It uses controlled TLS provider endpoints plus a controlled Unix credential broker. It never requires a real GitHub credential in ordinary CI.
 
 ## Secret broker protocol
 
@@ -209,8 +234,11 @@ Requirements:
 - client verifies peer credentials before sending the handle;
 - expected peer UID is explicit host configuration;
 - peer UID mismatch fails closed;
+- socket filesystem permissions remain an operator defense in addition to peer credential validation;
 - platforms where equivalent peer verification is unsupported return a stable unsupported error rather than silently skipping authentication;
 - socket timeouts are context bounded.
+
+A process compromised under the exact same trusted host UID is considered a host-boundary compromise and is not solved by v7 peer-UID pinning.
 
 ### Framing
 
@@ -249,7 +277,7 @@ Failure response schema:
 Rules:
 
 - unknown JSON fields rejected;
-- duplicate fields rejected by canonical re-encoding/equality check;
+- duplicate fields and alternate/non-canonical JSON encodings rejected by strict decode plus canonical re-encode equality;
 - trailing bytes rejected;
 - malformed base64 rejected;
 - empty secret rejected;
@@ -262,14 +290,14 @@ Rules:
 
 `BrokerVault.Use(ctx, handle, fn)`:
 
-1. validates the opaque handle using v6 constraints;
+1. validates the opaque handle using v6 constraints through a safe exported validator/helper rather than duplicating looser rules;
 2. connects to the configured socket;
 3. verifies peer identity;
 4. sends the strict handle-only request;
 5. reads the bounded strict response;
 6. decodes a fresh credential buffer;
-7. invokes `fn(delegation.Secret)`;
-8. zeroes the credential buffer after callback return;
+7. calls `delegation.WithSecretLease(decoded, fn)`;
+8. zeroes the decoded broker buffer after the helper returns;
 9. returns stable errors only.
 
 If the broker cannot provide a credential, this happens before provider entry. The v6 Plane may therefore use its existing explicit `authority.MarkNoEffect(...)` path and permit a safe retry after the secret source recovers.
@@ -290,6 +318,8 @@ GitHub Enterprise Server may use a host-configured HTTPS base URL, including a f
 
 The agent cannot override this endpoint through resource or payload bytes.
 
+Plain HTTP is rejected universally by v7. Tests use controlled TLS servers with an explicit test trust root.
+
 ### URL construction
 
 Every provider URL is built from:
@@ -300,7 +330,7 @@ Every provider URL is built from:
 
 Path components are escaped with URL-path semantics. The adapter rejects control characters, backslashes, empty required components, `.`/`..` path segments for repository content paths, percent-encoded ambiguity in canonical resource fields, and values outside documented length bounds.
 
-The result must remain under the configured base scheme/host/base-path boundary.
+The result must remain under the configured base scheme/host/base-path boundary after construction and URL normalization.
 
 ### Authentication
 
@@ -334,6 +364,8 @@ Raw body text, raw provider error text, raw headers, and authentication metadata
 
 Resources remain strings in the v6 `Grant`/`Intent` ABI, but the GitHub adapter parses them into typed structs and re-serializes them. If exact canonical re-serialization differs from the input string, the adapter rejects the resource.
 
+V7 intentionally accepts a conservative subset of legal GitHub names rather than introducing delimiter ambiguity into an authority identifier.
+
 ### Repository contents
 
 ```text
@@ -342,13 +374,15 @@ github:repo:<owner>/<repo>:contents:<path>@<branch>
 
 Constraints:
 
-- owner and repo use a conservative GitHub identifier charset;
-- branch is non-empty, bounded, contains no control characters, and is never interpreted as a URL;
+- owner and repo use a conservative ASCII GitHub identifier charset and therefore cannot contain `:`, `/`, `@`, `%`, whitespace, or control characters;
+- branch uses a conservative ASCII ref charset; `/` is permitted, while `@`, `:`, `%`, backslash, whitespace, and control characters are rejected;
 - content path uses `/` separators only;
+- each path segment uses a conservative ASCII filename charset and therefore cannot contain `@`, `:`, `%`, backslash, whitespace, or control characters;
 - no empty segment;
 - no `.` or `..` segment;
-- no backslash;
-- no percent-encoded segment in the canonical string.
+- canonical parser/re-serializer must round-trip byte-for-byte.
+
+This deliberately excludes some valid GitHub paths/refs in v7. Broader syntax requires a future versioned canonical resource encoding, not permissive parsing.
 
 ### Issue comment
 
@@ -382,7 +416,8 @@ Rules:
 
 - decoded content size is bounded by the adapter's v7 limit;
 - commit message is bounded and sanitized for control characters;
-- `expected_blob_sha`, when supplied, must be lowercase hex with the expected GitHub object length accepted by the adapter;
+- `expected_blob_sha`, when supplied, must be lowercase hex with an explicitly supported GitHub object length;
+- update of an existing file requires the expected current blob SHA required by the provider operation; omission does not silently become an overwrite;
 - the adapter appends a deterministic Nolane action marker to the provider commit message;
 - user-provided commit message cannot contain a Nolane action-marker prefix.
 
@@ -445,7 +480,7 @@ Execute:
 
 1. validate typed resource/payload;
 2. construct action marker in commit message;
-3. issue exactly one provider write using the configured branch and optional expected current blob SHA;
+3. issue exactly one provider write using the configured branch and optional/required current blob SHA according to create-vs-update semantics;
 4. never automatically repeat a write after an ambiguous transport/provider error;
 5. successful provider IDs are sanitized into typed evidence.
 
@@ -460,7 +495,7 @@ Reconciliation is provider read-only observation and must never call a write end
 The adapter queries the provider's comment listing/read surface for the exact repository/issue or pull request and searches a bounded provider result window for the exact v7 action marker.
 
 - exact marker observed -> `ReconcileObserved`;
-- provider proves the requested object cannot exist because the parent resource itself does not exist -> `ReconcileAbsent`;
+- provider proves the requested parent resource itself does not exist -> `ReconcileAbsent` only when that fact is a trustworthy direct provider observation for the canonical target;
 - marker not found in a bounded or paginated search -> `ReconcileUnknown`, **not** absent;
 - transport/provider ambiguity -> stable reconcile failure/unknown according to whether any trustworthy observation was obtained.
 
@@ -471,14 +506,14 @@ A bounded search can prove presence, not absence.
 The adapter uses read-only commit/content surfaces to search for the exact action marker on the configured branch/path.
 
 - exact marker observed -> `ReconcileObserved`;
-- strong provider proof that the target repository/ref did not exist for the action is not reconstructed retroactively, so ordinary non-observation -> `ReconcileUnknown`;
-- v7 does not infer `absent` merely because the current file content differs or a short commit window lacks the marker.
+- ordinary non-observation -> `ReconcileUnknown`;
+- v7 does not infer `absent` merely because current file content differs, a file is missing now, or a bounded commit window lacks the marker.
 
 This favors availability loss over accidental duplicate write.
 
 ## Secret-broker and provider error taxonomy
 
-V7 adds stable errors. Names are illustrative API requirements and may be grouped by package, but raw external text must never escape.
+V7 adds stable errors. Names are package-level API requirements; raw external text must never escape.
 
 Credential boundary:
 
@@ -508,8 +543,8 @@ V7 does not mint tokens. It consumes a secret supplied by the host secret agent.
 Operational guidance:
 
 - prefer fine-grained GitHub tokens or GitHub App installation tokens;
-- token repository scope should be no broader than the corresponding host grant;
-- token permission scope should be no broader than the adapter operation set;
+- token repository scope should be no broader than the corresponding host grant where provider capabilities permit;
+- token permission scope should be no broader than the adapter operation set where provider capabilities permit;
 - token rotation is performed by the secret backend without changing the v6 `SecretHandle` when operationally appropriate;
 - rotating secret bytes must not alter request digests because v6 binds the opaque handle, not credential material.
 
@@ -522,6 +557,7 @@ The host secret agent is trusted to return the credential for the requested opaq
 Mitigations:
 
 - peer identity pinned;
+- socket permissions provide a second local boundary;
 - one opaque handle per host grant;
 - provider token should itself be narrowly scoped;
 - adapter endpoint/provider kind fixed by host configuration;
@@ -531,20 +567,20 @@ A future hardware-attested secret-agent protocol may strengthen this boundary; i
 
 ## Provider Authority Gauntlet v7
 
-V7 adds a third deterministic host-authority evidence family beside v4 and v6. The suite uses controlled fake Unix broker/provider endpoints and synthetic credentials.
+V7 adds a third deterministic host-authority evidence family beside v4 and v6. The suite uses a controlled Unix broker and controlled TLS provider endpoints with synthetic credentials.
 
 Every registered scenario is mandatory.
 
 Minimum scenario set:
 
-1. **broker peer mismatch denied** — a socket server with the wrong expected peer identity cannot lease a secret;
+1. **broker peer mismatch denied** — test config deliberately expects a UID different from the actual controlled socket peer, so no privileged second user is required;
 2. **broker malformed/unknown-field response denied** — permissive JSON cannot cross the credential boundary;
 3. **broker oversized response denied** — size bounds fail before callback/provider entry;
-4. **secret absent from broker/provider evidence** — exact synthetic secret marker never appears in report bytes;
+4. **secret absent from broker/provider evidence** — exact synthetic secret marker and encoded forms never appear in report bytes;
 5. **provider endpoint cannot be rebound by intent** — hostile payload/resource URL-like text does not change configured origin;
 6. **redirect denied with no credential forwarding** — provider 3xx never causes a second-origin request;
 7. **generic provider HTTP cannot register as a delegation adapter** — v6 invariant remains enforced;
-8. **GitHub resource canonicalization rejects ambiguous path/resource forms**;
+8. **GitHub resource canonicalization rejects delimiter/path ambiguity**;
 9. **strict payload rejects unknown/duplicate/trailing fields before provider entry**;
 10. **comment effect-then-transport-failure remains pending** — no automatic second POST;
 11. **comment reconciliation observes marker without re-execution**;
@@ -612,7 +648,7 @@ docs/superpowers/plans/
 NolaneWorld/README.md
 ```
 
-Small changes to `delegation` are allowed only when required to expose a safe reusable helper or stable contract. No change may give the intent control over adapter kind, secret handle, or provider endpoint.
+Small changes to `delegation` are allowed only for the exact reusable secret-lease/validation helper required by the cross-package Vault implementation. No change may give the intent control over adapter kind, secret handle, secret bytes, or provider endpoint.
 
 Cube security-core implementation remains untouched.
 
@@ -622,13 +658,13 @@ Implementation proceeds RED -> GREEN for each trust boundary.
 
 Required RED contracts include:
 
+- cross-package `WithSecretLease` construction/wipe semantics;
 - peer identity mismatch;
 - strict broker decoder unknown field/trailing frame;
 - broker response bound;
-- working secret buffer wipe behavior observable through test-owned references where possible without exposing production mutation APIs;
-- provider base URL/redirect policy;
+- provider HTTPS-only/base URL/redirect policy;
 - endpoint non-rebinding;
-- canonical GitHub resource parser;
+- canonical GitHub resource parser and delimiter restrictions;
 - strict per-operation payload parser;
 - no internal write retry;
 - comment uncertain-effect reconciliation;
@@ -646,14 +682,15 @@ V7 does not claim:
 
 - that the host secret agent or external KMS cannot be compromised;
 - hardware-backed memory secrecy inside the Nolane process;
-- guaranteed zeroization by the Go compiler/runtime or copies outside the explicitly owned working buffer;
+- guaranteed zeroization by the Go compiler/runtime or copies outside the explicitly owned working buffers;
 - distributed consensus for grant/effect state;
 - whole-host storage rollback resistance;
 - that GitHub itself cannot lie or be compromised;
 - live production-provider verification without a separate exact-commit live artifact;
 - line-level GitHub code-review comments;
 - AWS/email adapters in v7;
-- generic authenticated HTTP.
+- generic authenticated HTTP;
+- support for every GitHub-valid path/ref syntax in the first canonical resource version.
 
 ## Release gate
 
@@ -672,7 +709,7 @@ V7 may merge only when all of the following hold on the exact PR head:
 11. provider write tests prove no internal automatic retry after provider entry;
 12. reconciliation tests prove observation never performs a write;
 13. broker tests prove peer mismatch, malformed response, and oversized response fail closed;
-14. provider tests prove redirects do not forward credentials;
+14. provider tests prove HTTPS-only configuration and redirects do not forward credentials;
 15. strict resource/payload tests reject ambiguous encodings before provider entry;
 16. final diff does not modify Cube/KVM/RustVMM/CubeNet/CubeEgress/CubeCoW security-core implementation;
 17. agent-generated commits contain the required `Autonomously-by: ChatGPT:GPT-5.6-Sol` trailer;
@@ -680,6 +717,6 @@ V7 may merge only when all of the following hold on the exact PR head:
 
 ## Exit criterion
 
-V7 is complete when Nolane Sandbox can take a v6 delegated intent, resolve a credential through the authenticated host-local broker, execute one of the explicitly supported GitHub operations against a host-configured provider endpoint, quarantine ambiguous outcomes without replay, reconcile by provider-observable action markers, and emit deterministic secret-free adversarial evidence proving those boundaries.
+V7 is complete when Nolane Sandbox can take a v6 delegated intent, resolve a credential through the authenticated host-local broker, execute one of the explicitly supported GitHub operations against a host-configured HTTPS provider endpoint, quarantine ambiguous outcomes without replay, reconcile by provider-observable action markers, and emit deterministic secret-free adversarial evidence proving those boundaries.
 
 Completion of v7 does **not** by itself certify a real external KMS/HSM or a production GitHub account. Those require environment-specific live evidence in a later gate.
