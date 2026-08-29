@@ -89,3 +89,18 @@ func TestVerifyReportRejectsUnknownFailureCode(t *testing.T) {
 		t.Fatal("report verified with unknown failure code")
 	}
 }
+
+func TestLengthPrefixedHashSeparatesFieldBoundaries(t *testing.T) {
+	left := hashFields("domain", "ab", "c")
+	right := hashFields("domain", "a", "bc")
+	if left == right {
+		t.Fatal("field-boundary ambiguity collapsed to the same digest")
+	}
+}
+
+func TestScenarioSpecRejectsDuplicateRequiredMarkers(t *testing.T) {
+	s := ScenarioSpec{ID: "duplicate-markers", Invariant: "i", Attack: "a", ExpectedDefense: "d", Severity: SeverityHigh, RequiredMarkers: []string{"same", "same"}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("duplicate required markers accepted")
+	}
+}
