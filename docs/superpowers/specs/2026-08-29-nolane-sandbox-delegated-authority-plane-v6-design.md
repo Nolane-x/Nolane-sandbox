@@ -30,6 +30,8 @@ V6 is a host-side trust subsystem. It does not modify KVM, RustVMM, CubeEgress, 
 14. **Authority receipts bind the delegation.** The request digest includes the delegated intent digest, exact grant digest, and secret-handle digest.
 15. **Durable delegation state is host-owned.** Issue/revoke state is fsynced append-only state and is never derived from guest files, snapshots, chat history, or model claims.
 16. **No release score can hide a failed authority invariant.** Every registered v6 gauntlet scenario is mandatory.
+17. **No-effect must be proven explicitly.** A ledger may discard a pending transition only when trusted host code marks a failure as having occurred before external-effect entry; a bare error sentinel never proves that no effect happened.
+18. **Persistent trust records have one canonical representation.** Grant/effect journal replay rejects unknown JSON fields and non-canonical encodings instead of silently interpreting ambiguous bytes.
 
 ## Architecture
 
@@ -90,9 +92,7 @@ Owns the v6 trust protocol:
 
 ### `authority`
 
-V6 extends the existing ledger with **read-only action inspection** without changing existing `Ledger.ExecuteOnce` semantics.
-
-New optional interface:
+V6 hardens the existing effect ledger so delegated external effects have inspectable uncertainty semantics rather than a success-only cache.
 
 ```go
 type InspectableLedger interface {
@@ -101,7 +101,9 @@ type InspectableLedger interface {
 }
 ```
 
-`MemoryLedger` reports missing/completed. `JournalLedger` reports missing/pending/completed. `JournalLedger.Resolve` remains the only completion transition for an already-pending uncertain action.
+Both `MemoryLedger` and `JournalLedger` report `missing`, `pending`, and `completed`. They install `pending` before entering the effect callback. An unmarked callback failure keeps that action pending so an exact retry returns `ErrActionUncertain` instead of executing again. Only an explicit host `MarkNoEffect(...)` annotation may remove/abort that pending transition. `JournalLedger.Resolve` remains the completion transition for a durable already-pending uncertain action after independent reconciliation.
+
+`Plane` requires an `InspectableLedger` at construction time, preventing accidental use of a ledger that cannot expose uncertainty state.
 
 ### `gauntlet/delegation`
 
@@ -154,11 +156,11 @@ The plane constructs this from the verified intent and immutable grant:
 
 ```go
 type AdapterRequest struct {
-    WorldID       world.ID
-    ActionID      string
-    Operation     Operation
-    Resource      string
-    Payload       []byte
+    WorldID        world.ID
+    ActionID       string
+    Operation      Operation
+    Resource       string
+    Payload        []byte
     IdempotencyKey string
 }
 ```
@@ -197,9 +199,11 @@ The agent execution path never receives a `Controller`.
 - SHA-256 hash chain over canonical length-prefixed fields;
 - fsync before in-memory state mutation becomes visible;
 - single-writer lifetime file lock;
-- strict replay rejecting malformed JSON, unknown transition kinds, sequence gaps, hash mismatch, duplicate issue, revoke-before-issue, and duplicate revoke.
+- strict replay rejecting malformed JSON, unknown JSON fields, non-canonical JSON encoding, unknown transition kinds, sequence gaps, hash mismatch, duplicate issue, revoke-before-issue, and duplicate revoke.
 
 A grant remains queryable after revocation so historical pending actions can be reconciled against the exact original grant.
+
+The effect `JournalLedger` applies the same fail-closed JSON parser discipline to its persisted `pending`, `aborted`, and `completed` records. Unknown fields or alternate/non-canonical encodings are treated as corruption rather than ignored input.
 
 ## Vault boundary
 
@@ -246,15 +250,16 @@ The adapter receives only the already-authorized canonical resource and operatio
 9. Require operation membership in grant allowlist.
 10. Resolve adapter by **grant adapter kind**.
 11. Compute request digest from intent digest + grant digest + secret-handle digest.
-12. Enter existing action ledger `ExecuteOnce`.
+12. Enter the inspectable action ledger `ExecuteOnce`, which records `pending` before the effect callback.
 13. Vault resolves secret only inside callback.
 14. Adapter executes with deterministic idempotency key.
-15. If adapter errors, return stable `ErrAdapterFailure` without wrapping its text. Ledger remains uncertain unless the failure is classified definitely-no-effect before adapter execution.
-16. If returned evidence contains exact non-empty secret bytes, return `ErrSecretLeak`; do not create a success receipt.
-17. On success, create `authority.Receipt` with request/effect digests.
-18. Return a v6 receipt whose derived fields bind grant and secret handle digests.
+15. A vault/policy failure that trusted host code knows occurred before provider entry is wrapped with `authority.MarkNoEffect(...)`; only that explicit proof may abort/remove `pending` and permit a retry.
+16. If adapter execution has been entered and returns an error, return stable `ErrAdapterFailure` without wrapping its text and leave the action pending/uncertain.
+17. If returned evidence contains exact non-empty secret bytes, return `ErrSecretLeak`; do not create a success receipt and leave the action pending/uncertain.
+18. On success, create `authority.Receipt` with request/effect digests and transition the ledger to completed.
+19. Return a v6 receipt whose derived fields bind grant and secret handle digests.
 
-A retry of a pending `JournalLedger` action returns `ErrActionUncertain`; the plane never calls `Execute` again automatically.
+A retry of a pending action in either the memory or durable ledger returns `ErrActionUncertain`; the plane never calls `Adapter.Execute` again automatically.
 
 ## Reconciliation state machine
 
@@ -318,6 +323,8 @@ The v6 suite is mandatory and independent from v4. At minimum it proves:
 
 The CLI emits a deterministic JSON report via the existing gauntlet evidence contract but uses a separate suite ID/output artifact so v4 remains byte-stable.
 
+Ledger contract tests additionally prove that a bare policy sentinel is not enough to erase uncertainty, explicit no-effect proof can safely abort, both memory/durable ledgers quarantine unmarked failure, and persisted journals reject unknown/non-canonical JSON.
+
 ## CI
 
 `Nolane World Check` continues to run all module tests/race/vet and v4 evidence unchanged.
@@ -352,7 +359,8 @@ V6 may merge only when:
 - vet passes;
 - v4 evidence remains byte-stable;
 - v6 deterministic evidence verifies and is byte-stable across two executions;
-- journal tamper/restart/revocation tests pass;
+- journal tamper/restart/revocation and canonical-parser tests pass;
+- uncertainty tests prove unmarked failures remain pending and only explicit no-effect proof permits retry;
 - secret-leak tests prove synthetic secret bytes are absent from receipts, errors, and v6 report;
 - diff does not modify Cube security-core implementation;
 - human DCO policy remains unforgeable by the agent.
