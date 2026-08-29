@@ -3,10 +3,12 @@ package delegation
 import (
 	"context"
 	"strings"
+
+	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/world"
 )
 
 type AdapterRequest struct {
-	WorldID        string
+	WorldID        world.ID
 	ActionID       string
 	Operation      Operation
 	Resource       string
