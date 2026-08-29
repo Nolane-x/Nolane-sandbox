@@ -12,14 +12,14 @@ import (
 )
 
 type Broker struct {
-	state    *world.State
+	state    world.AuthorityState
 	policy   Policy
 	executor Executor
 	ledger   Ledger
 	now      func() time.Time
 }
 
-func NewBroker(state *world.State, policy Policy, executor Executor, ledger Ledger) (*Broker, error) {
+func NewBroker(state world.AuthorityState, policy Policy, executor Executor, ledger Ledger) (*Broker, error) {
 	if state == nil || state.ID() == "" || policy == nil || executor == nil || ledger == nil {
 		return nil, ErrInvalidAction
 	}
@@ -33,7 +33,6 @@ func (b *Broker) Execute(ctx context.Context, in Intent) (Receipt, error) {
 	if in.WorldID != b.state.ID() {
 		return Receipt{}, world.ErrInvalidWorld
 	}
-
 	digest := requestDigest(in)
 	var receipt Receipt
 	err := b.state.WithEpoch(in.AuthorityEpoch, func() error {
@@ -46,7 +45,6 @@ func (b *Broker) Execute(ctx context.Context, in Intent) (Receipt, error) {
 			if decision != Allow {
 				return Receipt{}, ErrDenied
 			}
-
 			effect, err := b.executor.Execute(ctx, cloneIntent(in))
 			if err != nil {
 				return Receipt{}, errors.Join(ErrExecutionFailure, err)
@@ -95,8 +93,4 @@ func requestDigest(in Intent) string {
 	writeField(in.Payload)
 	return hex.EncodeToString(h.Sum(nil))
 }
-
-func digestBytes(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
+func digestBytes(b []byte) string { sum := sha256.Sum256(b); return hex.EncodeToString(sum[:]) }

@@ -1,25 +1,35 @@
 # Nolane Sandbox Trust Kernel
 
-`NolaneWorld` is the trust/evolution boundary for **Nolane Sandbox**.
+`NolaneWorld` is the host-owned trust/evolution boundary for **Nolane Sandbox**.
 
-The execution substrate remains CubeSandbox. This module deliberately does not fork the hypervisor, KVM/RustVMM integration, CubeEgress, CubeNet, or CubeCoW. Instead it defines the host-owned rules that let an untrusted AI build arbitrary software capabilities inside a disposable world without being able to mint external authority or trusted persistence.
+The execution substrate remains CubeSandbox. Nolane does not fork the hypervisor, KVM/RustVMM integration, CubeEgress, CubeNet, or CubeCoW for ordinary agent behavior. Instead it defines the rules that let an untrusted AI build arbitrary software capabilities inside disposable worlds without being able to mint external authority, certify itself, or turn execution snapshots into trusted state.
 
-## Current milestone
+## Implemented
 
-Trust Kernel v0 implements:
+### Trust Kernel v0
 
-- a compiled 12-law constitution;
-- world identity and host-owned monotonic authority epochs;
-- typed authority intents;
-- exact-once in-process effect receipts for duplicate actions, including cross-broker serialization;
-- fail-closed policy evaluation;
-- capability candidate → independent promotion → trusted registry flow;
-- exact content + manifest digest binding;
-- artifact export validation and provenance receipt digests;
+- compiled 12-law constitution;
+- world identity and monotonic authority epochs;
+- typed authority intents and fail-closed policy decisions;
+- exact duplicate/collision semantics for effect receipts;
+- candidate → independent promotion → trusted registry;
+- exact content and manifest binding;
+- artifact admission/provenance receipts;
 - explicit network authority classes `N0` through `N5`;
-- a narrow `SandboxSubstrate` interface for future CubeAPI wiring.
+- narrow `SandboxSubstrate` interface.
 
-The in-memory authority ledger and registry are **not production durability claims**. A later milestone will add crash-safe external persistence and Cube-backed integration tests before the project can claim rollback-safe production behavior across process/node failure.
+### Runtime Integration v1
+
+- terminal world authority revocation;
+- host-owned World Manager for create/pause/resume/snapshot/rollback/destroy/clone;
+- rollback epoch advance before execution-state restoration;
+- fail-closed CubeAPI adapter with HTTPS/loopback policy, no redirects, bounded responses, no public network by default;
+- Capability Forge using fresh validator worlds rather than origin clones;
+- host-hashed validation evidence and teardown-before-promotion;
+- validator panic/failure cleanup;
+- crash-recoverable append-only effect JournalLedger;
+- uncertain-outcome replay denial and host reconciliation;
+- single-writer OS locking for the durable effect journal.
 
 ## Security model
 
@@ -31,7 +41,18 @@ The central invariant is:
 
 > **Unbounded capability creation; bounded authority, promotion, truth, and persistence.**
 
-See `../docs/superpowers/specs/2026-08-29-nolane-sandbox-world-design.md` for the normative design.
+A second invariant is intentionally conservative:
+
+> **When the real-world outcome is uncertain, do not execute it again automatically.**
+
+## What is not production-complete yet
+
+Runtime Integration v1 deliberately does not claim a perfect sandbox or complete production boundary. Remaining release gates include durable authority epochs, durable capability/provenance storage, KMS/secret brokering, typed external adapters with reconciliation, live Cube/KVM stale-snapshot tests, egress bypass gauntlets, and hostile artifact corpus testing.
+
+See:
+
+- `../docs/superpowers/specs/2026-08-29-nolane-sandbox-world-design.md`
+- `../docs/superpowers/specs/2026-08-29-nolane-sandbox-runtime-integration-v1-design.md`
 
 ## Verify
 

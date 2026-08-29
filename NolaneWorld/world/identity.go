@@ -12,12 +12,21 @@ var (
 	ErrInvalidWorld = errors.New("world: invalid world")
 	ErrInvalidEpoch = errors.New("world: invalid epoch")
 	ErrStaleEpoch   = errors.New("world: stale epoch")
+	ErrClosedWorld  = errors.New("world: closed world")
 )
 
+type AuthorityState interface {
+	ID() ID
+	CurrentEpoch() Epoch
+	ValidateEpoch(Epoch) error
+	WithEpoch(Epoch, func() error) error
+}
+
 type State struct {
-	id    ID
-	mu    sync.RWMutex
-	epoch Epoch
+	id     ID
+	mu     sync.RWMutex
+	epoch  Epoch
+	closed bool
 }
 
 func NewState(id ID) (*State, error) {
@@ -49,8 +58,33 @@ func (s *State) AdvanceEpoch() Epoch {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return s.epoch
+	}
 	s.epoch++
 	return s.epoch
+}
+
+func (s *State) Close() Epoch {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.closed {
+		s.epoch++
+		s.closed = true
+	}
+	return s.epoch
+}
+
+func (s *State) Closed() bool {
+	if s == nil {
+		return true
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.closed
 }
 
 func (s *State) ValidateEpoch(epoch Epoch) error {
@@ -62,13 +96,12 @@ func (s *State) ValidateEpoch(epoch Epoch) error {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.closed {
+		return ErrClosedWorld
+	}
 	return validateEpoch(epoch, s.epoch)
 }
 
-// WithEpoch linearizes an authority-sensitive operation against epoch
-// advancement. AdvanceEpoch cannot return while fn is executing under the
-// previously-current epoch, and a caller cannot begin fn after revocation has
-// advanced the epoch. fn must not call AdvanceEpoch on this State.
 func (s *State) WithEpoch(epoch Epoch, fn func() error) error {
 	if s == nil || s.id == "" {
 		return ErrInvalidWorld
@@ -78,6 +111,9 @@ func (s *State) WithEpoch(epoch Epoch, fn func() error) error {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.closed {
+		return ErrClosedWorld
+	}
 	if err := validateEpoch(epoch, s.epoch); err != nil {
 		return err
 	}

@@ -42,9 +42,14 @@ type Executor interface {
 }
 
 var (
-	ErrInvalidAction    = errors.New("authority: invalid action")
-	ErrActionCollision  = errors.New("authority: action id collision")
-	ErrDenied           = errors.New("authority: denied")
-	ErrPolicyFailure    = errors.New("authority: policy failure")
-	ErrExecutionFailure = errors.New("authority: execution failure")
+	ErrInvalidAction         = errors.New("authority: invalid action")
+	ErrActionCollision       = errors.New("authority: action id collision")
+	ErrActionUncertain       = errors.New("authority: action outcome uncertain")
+	ErrLedgerCorrupt         = errors.New("authority: ledger corrupt")
+	ErrLedgerClosed          = errors.New("authority: ledger closed")
+	ErrLedgerLocked          = errors.New("authority: ledger locked")
+	ErrLedgerLockUnsupported = errors.New("authority: ledger locking unsupported")
+	ErrDenied                = errors.New("authority: denied")
+	ErrPolicyFailure         = errors.New("authority: policy failure")
+	ErrExecutionFailure      = errors.New("authority: execution failure")
 )
