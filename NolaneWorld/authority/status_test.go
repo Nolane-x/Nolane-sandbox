@@ -34,6 +34,52 @@ func TestMemoryLedgerStatusMissingAndCompleted(t *testing.T) {
 	}
 }
 
+func TestMemoryLedgerUnknownFailureBecomesPendingAndCannotReplay(t *testing.T) {
+	l := NewMemoryLedger()
+	calls := 0
+	_, err := l.ExecuteOnce(world.ID("w-pending"), "a1", "digest-pending", func() (Receipt, error) {
+		calls++
+		return Receipt{}, errors.New("transport lost after dispatch")
+	})
+	if err == nil {
+		t.Fatal("expected provider uncertainty")
+	}
+	status, _, err := l.Status(world.ID("w-pending"), "a1", "digest-pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionPending {
+		t.Fatalf("status=%v", status)
+	}
+	_, err = l.ExecuteOnce(world.ID("w-pending"), "a1", "digest-pending", func() (Receipt, error) {
+		calls++
+		return Receipt{}, nil
+	})
+	if !errors.Is(err, ErrActionUncertain) {
+		t.Fatalf("retry err=%v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("uncertain action re-executed, calls=%d", calls)
+	}
+}
+
+func TestMemoryLedgerDefinitelyNoEffectMayRetry(t *testing.T) {
+	l := NewMemoryLedger()
+	_, err := l.ExecuteOnce(world.ID("w-safe-retry"), "a1", "digest-safe", func() (Receipt, error) {
+		return Receipt{}, ErrPolicyFailure
+	})
+	if !errors.Is(err, ErrPolicyFailure) {
+		t.Fatalf("err=%v", err)
+	}
+	status, _, err := l.Status(world.ID("w-safe-retry"), "a1", "digest-safe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionMissing {
+		t.Fatalf("definitely-no-effect failure left pending status=%v", status)
+	}
+}
+
 func TestLedgerStatusRejectsDigestRebinding(t *testing.T) {
 	l := NewMemoryLedger()
 	_, err := l.ExecuteOnce(world.ID("w-status"), "a1", "digest-1", func() (Receipt, error) {
