@@ -1,6 +1,7 @@
 package delegation
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -78,6 +79,38 @@ func TestJournalStoreRejectsTamper(t *testing.T) {
 	}
 	if _, err := OpenJournalStore(path); !errors.Is(err, ErrStoreCorrupt) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestJournalStoreRejectsUnknownJSONFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "delegations.jsonl")
+	s, err := OpenJournalStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Issue(validGrant()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := bytes.LastIndexByte(raw, '}')
+	if idx < 0 {
+		t.Fatal("missing journal object terminator")
+	}
+	mutated := make([]byte, 0, len(raw)+32)
+	mutated = append(mutated, raw[:idx]...)
+	mutated = append(mutated, []byte(`,"unknown":"injected"`)...)
+	mutated = append(mutated, raw[idx:]...)
+	if err := os.WriteFile(path, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenJournalStore(path); !errors.Is(err, ErrStoreCorrupt) {
+		t.Fatalf("unknown field accepted: %v", err)
 	}
 }
 
