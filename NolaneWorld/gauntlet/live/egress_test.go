@@ -82,3 +82,18 @@ func TestFullEgressAllPreflightedTargetsDeniedIsLivePass(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTargetEvidenceDigestDoesNotDependOnExpectationSecret(t *testing.T) {
+	d := &egressDriver{preflightErr: map[TargetKind]error{}, reached: map[TargetKind]bool{}}
+	base := []Target{{Kind: TargetHTTP, Address: "https://target.test", Expect: "secret-one"}, {Kind: TargetTCP, Address: "target.test:443"}, {Kind: TargetUDP, Address: "target.test:9000"}, {Kind: TargetDNS, Address: "target.test"}}
+	changed := append([]Target(nil), base...)
+	changed[0].Expect = "different-secret"
+	a, _ := runEgressScenarios(context.Background(), d, base)
+	b, _ := runEgressScenarios(context.Background(), d, changed)
+	if len(a) != len(b) || a[0].Digest != b[0].Digest {
+		t.Fatalf("expectation secret affected evidence: a=%s b=%s", a[0].Digest, b[0].Digest)
+	}
+	if a[0].Markers[0] != b[0].Markers[0] {
+		t.Fatalf("expectation secret affected target marker: %q != %q", a[0].Markers[0], b[0].Markers[0])
+	}
+}
