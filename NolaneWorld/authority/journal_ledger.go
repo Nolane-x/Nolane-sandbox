@@ -122,6 +122,30 @@ func (l *JournalLedger) ExecuteOnce(worldID world.ID, actionID, requestDigest st
 	return receipt, nil
 }
 
+func (l *JournalLedger) Status(worldID world.ID, actionID, requestDigest string) (ActionStatus, Receipt, error) {
+	if l == nil || worldID == "" || actionID == "" || requestDigest == "" {
+		return ActionMissing, Receipt{}, ErrInvalidAction
+	}
+	key := ledgerKey{worldID: worldID, actionID: actionID}
+	lock := &l.locks[shardFor(key)]
+	lock.Lock()
+	defer lock.Unlock()
+	if err := l.ensureOpen(); err != nil {
+		return ActionMissing, Receipt{}, err
+	}
+	entry, ok := l.get(key)
+	if !ok {
+		return ActionMissing, Receipt{}, nil
+	}
+	if entry.requestDigest != requestDigest {
+		return ActionMissing, Receipt{}, ErrActionCollision
+	}
+	if entry.pending {
+		return ActionPending, Receipt{}, nil
+	}
+	return ActionCompleted, entry.receipt, nil
+}
+
 func (l *JournalLedger) Resolve(worldID world.ID, actionID, requestDigest string, receipt Receipt) error {
 	if l == nil || worldID == "" || actionID == "" || requestDigest == "" {
 		return ErrInvalidAction
