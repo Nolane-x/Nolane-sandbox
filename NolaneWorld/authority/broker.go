@@ -33,34 +33,35 @@ func (b *Broker) Execute(ctx context.Context, in Intent) (Receipt, error) {
 	if in.WorldID != b.state.ID() {
 		return Receipt{}, world.ErrInvalidWorld
 	}
-	if err := b.state.ValidateEpoch(in.AuthorityEpoch); err != nil {
-		return Receipt{}, err
-	}
 
 	digest := requestDigest(in)
-	return b.ledger.ExecuteOnce(in.WorldID, in.ActionID, digest, func() (Receipt, error) {
-		// Revalidate after acquiring the ledger's cross-broker action lock. A
-		// host may revoke authority while a duplicate request is waiting.
-		if err := b.state.ValidateEpoch(in.AuthorityEpoch); err != nil {
-			return Receipt{}, err
-		}
-		decision, err := b.policy.Evaluate(ctx, cloneIntent(in))
-		if err != nil {
-			return Receipt{}, errors.Join(ErrPolicyFailure, err)
-		}
-		if decision != Allow {
-			return Receipt{}, ErrDenied
-		}
+	var receipt Receipt
+	err := b.state.WithEpoch(in.AuthorityEpoch, func() error {
+		var err error
+		receipt, err = b.ledger.ExecuteOnce(in.WorldID, in.ActionID, digest, func() (Receipt, error) {
+			decision, err := b.policy.Evaluate(ctx, cloneIntent(in))
+			if err != nil {
+				return Receipt{}, errors.Join(ErrPolicyFailure, err)
+			}
+			if decision != Allow {
+				return Receipt{}, ErrDenied
+			}
 
-		effect, err := b.executor.Execute(ctx, cloneIntent(in))
-		if err != nil {
-			return Receipt{}, errors.Join(ErrExecutionFailure, err)
-		}
-		return Receipt{
-			WorldID: in.WorldID, AuthorityEpoch: in.AuthorityEpoch, ActionID: in.ActionID,
-			RequestDigest: digest, EffectDigest: digestBytes(effect), CompletedAt: b.now(),
-		}, nil
+			effect, err := b.executor.Execute(ctx, cloneIntent(in))
+			if err != nil {
+				return Receipt{}, errors.Join(ErrExecutionFailure, err)
+			}
+			return Receipt{
+				WorldID: in.WorldID, AuthorityEpoch: in.AuthorityEpoch, ActionID: in.ActionID,
+				RequestDigest: digest, EffectDigest: digestBytes(effect), CompletedAt: b.now(),
+			}, nil
+		})
+		return err
 	})
+	if err != nil {
+		return Receipt{}, err
+	}
+	return receipt, nil
 }
 
 func validateIntent(in Intent) error {

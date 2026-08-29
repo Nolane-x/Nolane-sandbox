@@ -98,3 +98,31 @@ func TestCapabilityManifestMutationIsRejected(t *testing.T) {
 		t.Fatalf("manifest mutation: %v", err)
 	}
 }
+
+func TestCapabilityCandidateIDCannotBeReboundToDifferentMetadata(t *testing.T) {
+	r := NewRegistry()
+	first := request([]byte("tool"))
+	if _, err := r.Promote(first); err != nil {
+		t.Fatal(err)
+	}
+	second := request([]byte("tool"))
+	second.Candidate.Name = "different-name"
+	if _, err := r.Promote(second); !errors.Is(err, ErrCapabilityCollision) {
+		t.Fatalf("candidate id rebound: %v", err)
+	}
+}
+
+func TestCapabilitySameVersionCannotChangeManifest(t *testing.T) {
+	r := NewRegistry()
+	first := request([]byte("tool"))
+	if _, err := r.Promote(first); err != nil {
+		t.Fatal(err)
+	}
+	second := request([]byte("tool"))
+	second.Candidate.CandidateID = "cand-2"
+	second.Manifest = []byte("different manifest")
+	second.Candidate.ManifestDigest = Digest(second.Manifest)
+	if _, err := r.Promote(second); !errors.Is(err, ErrCapabilityCollision) {
+		t.Fatalf("manifest rebound: %v", err)
+	}
+}

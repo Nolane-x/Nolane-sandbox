@@ -30,18 +30,23 @@ type PromotionRequest struct {
 type PromotionReceipt struct {
 	CapabilityID       string
 	CandidateID        string
+	CandidateDigest    string
 	OriginWorldID      world.ID
+	Name               string
+	Version            string
 	ContentDigest      string
+	ManifestDigest     string
 	VerifierID         string
 	VerificationDigest string
 	PromotedAt         time.Time
 }
 
 type Record struct {
-	Name          string
-	Version       string
-	ContentDigest string
-	Receipt       PromotionReceipt
+	Name           string
+	Version        string
+	ContentDigest  string
+	ManifestDigest string
+	Receipt        PromotionReceipt
 }
 
 var (

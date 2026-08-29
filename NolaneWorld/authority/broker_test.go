@@ -216,3 +216,43 @@ func (e *countingExecutorWithHook) Execute(context.Context, Intent) ([]byte, err
 	return append([]byte(nil), e.result...), nil
 }
 func (e *countingExecutorWithHook) Calls() int { e.mu.Lock(); defer e.mu.Unlock(); return e.calls }
+
+func TestAuthorityEpochAdvanceIsLinearizableWithInFlightExecution(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	exec := &countingExecutorWithHook{hook: func(call int) {
+		if call == 1 {
+			close(started)
+			<-release
+		}
+	}, result: []byte("ok")}
+	b, state := newBrokerForTest(t, "world-1", policyFunc(allowPolicy), exec, NewMemoryLedger())
+
+	actionDone := make(chan error, 1)
+	go func() {
+		_, err := b.Execute(context.Background(), intent("linearizable", 1, "patch"))
+		actionDone <- err
+	}()
+	<-started
+
+	advanced := make(chan world.Epoch, 1)
+	go func() { advanced <- state.AdvanceEpoch() }()
+
+	select {
+	case got := <-advanced:
+		t.Fatalf("epoch advanced to %d while old-epoch effect was still in flight", got)
+	case <-time.After(40 * time.Millisecond):
+	}
+
+	close(release)
+	if err := <-actionDone; err != nil {
+		t.Fatalf("in-flight action failed: %v", err)
+	}
+	if got := <-advanced; got != 2 {
+		t.Fatalf("advanced epoch=%d", got)
+	}
+
+	if _, err := b.Execute(context.Background(), intent("after-revoke", 1, "patch")); !errors.Is(err, world.ErrStaleEpoch) {
+		t.Fatalf("old epoch accepted after advance: %v", err)
+	}
+}

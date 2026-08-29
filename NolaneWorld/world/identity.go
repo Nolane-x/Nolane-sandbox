@@ -61,8 +61,30 @@ func (s *State) ValidateEpoch(epoch Epoch) error {
 		return ErrInvalidEpoch
 	}
 	s.mu.RLock()
-	current := s.epoch
-	s.mu.RUnlock()
+	defer s.mu.RUnlock()
+	return validateEpoch(epoch, s.epoch)
+}
+
+// WithEpoch linearizes an authority-sensitive operation against epoch
+// advancement. AdvanceEpoch cannot return while fn is executing under the
+// previously-current epoch, and a caller cannot begin fn after revocation has
+// advanced the epoch. fn must not call AdvanceEpoch on this State.
+func (s *State) WithEpoch(epoch Epoch, fn func() error) error {
+	if s == nil || s.id == "" {
+		return ErrInvalidWorld
+	}
+	if epoch == 0 || fn == nil {
+		return ErrInvalidEpoch
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := validateEpoch(epoch, s.epoch); err != nil {
+		return err
+	}
+	return fn()
+}
+
+func validateEpoch(epoch, current Epoch) error {
 	if epoch < current {
 		return ErrStaleEpoch
 	}
