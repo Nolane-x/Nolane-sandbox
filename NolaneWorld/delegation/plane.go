@@ -184,9 +184,9 @@ func (p *Plane) executeAdapter(ctx context.Context, handle SecretHandle, adapter
 	})
 	if err != nil {
 		if !entered {
-			// Vault resolution failed before provider execution. Join only stable
-			// sentinels so the ledger may safely remove this pending row.
-			return nil, errors.Join(ErrSecretUnavailable, authority.ErrPolicyFailure)
+			// Vault resolution failed before provider execution. Explicitly mark
+			// this path as no-effect; ordinary errors never imply safe retry.
+			return nil, authority.MarkNoEffect(errors.Join(ErrSecretUnavailable, authority.ErrPolicyFailure))
 		}
 		if errors.Is(err, ErrSecretLeak) {
 			return nil, ErrSecretLeak
