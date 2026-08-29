@@ -2,9 +2,11 @@ package authority
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -203,7 +205,7 @@ func (l *JournalLedger) recover() error {
 	for scanner.Scan() {
 		line++
 		var rec journalRecord
-		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
+		if err := decodeJournalRecord(scanner.Bytes(), &rec); err != nil {
 			return fmt.Errorf("%w: line %d: %v", ErrLedgerCorrupt, line, err)
 		}
 		if err := l.applyRecovered(rec); err != nil {
@@ -215,6 +217,25 @@ func (l *JournalLedger) recover() error {
 	}
 	_, err := l.file.Seek(0, 2)
 	return err
+}
+
+func decodeJournalRecord(raw []byte, rec *journalRecord) error {
+	if len(raw) == 0 || rec == nil {
+		return ErrLedgerCorrupt
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(rec); err != nil {
+		return ErrLedgerCorrupt
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return ErrLedgerCorrupt
+	}
+	canonical, err := json.Marshal(rec)
+	if err != nil || !bytes.Equal(canonical, raw) {
+		return ErrLedgerCorrupt
+	}
+	return nil
 }
 
 func (l *JournalLedger) applyRecovered(rec journalRecord) error {
