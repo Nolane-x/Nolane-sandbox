@@ -1,0 +1,237 @@
+package authority
+
+import (
+	"bytes"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/world"
+)
+
+func TestMemoryLedgerStatusMissingAndCompleted(t *testing.T) {
+	l := NewMemoryLedger()
+	status, _, err := l.Status(world.ID("w-status"), "a1", "digest-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionMissing {
+		t.Fatalf("status=%v", status)
+	}
+
+	_, err = l.ExecuteOnce(world.ID("w-status"), "a1", "digest-1", func() (Receipt, error) {
+		return Receipt{WorldID: world.ID("w-status"), AuthorityEpoch: 1, ActionID: "a1", RequestDigest: "digest-1", EffectDigest: "effect", CompletedAt: time.Unix(1, 0).UTC()}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, receipt, err := l.Status(world.ID("w-status"), "a1", "digest-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionCompleted || receipt.ActionID != "a1" {
+		t.Fatalf("status=%v receipt=%+v", status, receipt)
+	}
+}
+
+func TestMemoryLedgerUnknownFailureBecomesPendingAndCannotReplay(t *testing.T) {
+	l := NewMemoryLedger()
+	calls := 0
+	_, err := l.ExecuteOnce(world.ID("w-pending"), "a1", "digest-pending", func() (Receipt, error) {
+		calls++
+		return Receipt{}, errors.New("transport lost after dispatch")
+	})
+	if err == nil {
+		t.Fatal("expected provider uncertainty")
+	}
+	status, _, err := l.Status(world.ID("w-pending"), "a1", "digest-pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionPending {
+		t.Fatalf("status=%v", status)
+	}
+	_, err = l.ExecuteOnce(world.ID("w-pending"), "a1", "digest-pending", func() (Receipt, error) {
+		calls++
+		return Receipt{}, nil
+	})
+	if !errors.Is(err, ErrActionUncertain) {
+		t.Fatalf("retry err=%v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("uncertain action re-executed, calls=%d", calls)
+	}
+}
+
+func TestMemoryLedgerBarePolicyFailureStaysPending(t *testing.T) {
+	l := NewMemoryLedger()
+	_, err := l.ExecuteOnce(world.ID("w-bare-policy"), "a1", "digest-policy", func() (Receipt, error) {
+		return Receipt{}, ErrPolicyFailure
+	})
+	if !errors.Is(err, ErrPolicyFailure) {
+		t.Fatalf("err=%v", err)
+	}
+	status, _, err := l.Status(world.ID("w-bare-policy"), "a1", "digest-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionPending {
+		t.Fatalf("bare policy sentinel incorrectly proved no-effect, status=%v", status)
+	}
+}
+
+func TestMemoryLedgerExplicitNoEffectMayRetry(t *testing.T) {
+	l := NewMemoryLedger()
+	_, err := l.ExecuteOnce(world.ID("w-safe-retry"), "a1", "digest-safe", func() (Receipt, error) {
+		return Receipt{}, MarkNoEffect(ErrPolicyFailure)
+	})
+	if !errors.Is(err, ErrPolicyFailure) {
+		t.Fatalf("err=%v", err)
+	}
+	status, _, err := l.Status(world.ID("w-safe-retry"), "a1", "digest-safe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionMissing {
+		t.Fatalf("explicit no-effect proof left pending status=%v", status)
+	}
+}
+
+func TestLedgerStatusRejectsDigestRebinding(t *testing.T) {
+	l := NewMemoryLedger()
+	_, err := l.ExecuteOnce(world.ID("w-status"), "a1", "digest-1", func() (Receipt, error) {
+		return Receipt{WorldID: world.ID("w-status"), AuthorityEpoch: 1, ActionID: "a1", RequestDigest: "digest-1", EffectDigest: "effect", CompletedAt: time.Unix(1, 0).UTC()}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = l.Status(world.ID("w-status"), "a1", "digest-2")
+	if !errors.Is(err, ErrActionCollision) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestJournalLedgerStatusPendingSurvivesReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "effects.jsonl")
+	l, err := OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = l.ExecuteOnce(world.ID("w-pending"), "a1", "digest-pending", func() (Receipt, error) {
+		return Receipt{}, errors.New("transport lost after dispatch")
+	})
+	if err == nil {
+		t.Fatal("expected uncertain execution error")
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	l, err = OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	status, _, err := l.Status(world.ID("w-pending"), "a1", "digest-pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionPending {
+		t.Fatalf("status=%v", status)
+	}
+}
+
+func TestJournalLedgerBarePolicyFailureRemainsPendingAcrossRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "effects.jsonl")
+	l, err := OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = l.ExecuteOnce(world.ID("w-policy-pending"), "a1", "digest-policy", func() (Receipt, error) {
+		return Receipt{}, ErrPolicyFailure
+	})
+	if !errors.Is(err, ErrPolicyFailure) {
+		t.Fatalf("err=%v", err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l, err = OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	status, _, err := l.Status(world.ID("w-policy-pending"), "a1", "digest-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionPending {
+		t.Fatalf("bare policy sentinel incorrectly aborted durable pending row, status=%v", status)
+	}
+}
+
+func TestJournalLedgerExplicitNoEffectAbortsDurably(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "effects.jsonl")
+	l, err := OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = l.ExecuteOnce(world.ID("w-safe-abort"), "a1", "digest-safe", func() (Receipt, error) {
+		return Receipt{}, MarkNoEffect(ErrPolicyFailure)
+	})
+	if !errors.Is(err, ErrPolicyFailure) {
+		t.Fatalf("err=%v", err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l, err = OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	status, _, err := l.Status(world.ID("w-safe-abort"), "a1", "digest-safe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionMissing {
+		t.Fatalf("explicit no-effect abort did not survive restart, status=%v", status)
+	}
+}
+
+func TestJournalLedgerRejectsUnknownJSONFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "effects.jsonl")
+	l, err := OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = l.ExecuteOnce(world.ID("w-canonical"), "a1", "digest-canonical", func() (Receipt, error) {
+		return Receipt{WorldID: world.ID("w-canonical"), AuthorityEpoch: 1, ActionID: "a1", RequestDigest: "digest-canonical", EffectDigest: "effect", CompletedAt: time.Unix(1, 0).UTC()}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := bytes.IndexByte(raw, '}')
+	if idx < 0 {
+		t.Fatal("missing journal object terminator")
+	}
+	mutated := make([]byte, 0, len(raw)+32)
+	mutated = append(mutated, raw[:idx]...)
+	mutated = append(mutated, []byte(`,"unknown":"injected"`)...)
+	mutated = append(mutated, raw[idx:]...)
+	if err := os.WriteFile(path, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenJournalLedger(path); !errors.Is(err, ErrLedgerCorrupt) {
+		t.Fatalf("unknown field accepted: %v", err)
+	}
+}

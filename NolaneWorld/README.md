@@ -44,7 +44,6 @@ The execution substrate remains CubeSandbox. Nolane does not fork the hypervisor
 - incomplete create/clone recovery terminally revokes authority and reports a possible orphan instead of guessing;
 - Manager shutdown serializes against in-flight lifecycle mutations.
 
-
 ### Capability Persistence v3
 
 - `capability.Store` decouples Forge from in-memory registry implementation;
@@ -59,7 +58,6 @@ The execution substrate remains CubeSandbox. Nolane does not fork the hypervisor
 - single-writer OS locking prevents split-brain local registry writers;
 - Forge persists the exact validator evidence only after clean validator teardown.
 
-
 ### Release Gauntlet v4
 
 - deterministic adversarial scenario contract with stable IDs, explicit invariants, attack descriptions, expected defenses, and required proof markers;
@@ -71,7 +69,7 @@ The execution substrate remains CubeSandbox. Nolane does not fork the hypervisor
 - standard adversarial suite for stale authority epochs, terminal worlds, action-ID rebinding, artifact path traversal, trusted capability CAS tamper, and promotion-journal tamper;
 - property/fuzz seeds for report mutation detection and deterministic ordering;
 - `nolane-gauntlet` CLI emits verified JSON suitable for CI artifact retention;
-- core gauntlet remains independent of Cube security internals so a future live Cube/KVM adapter can reuse the same evidence contract.
+- v4 remains a separate deterministic evidence family and its standard suite is not extended by later live/authority layers.
 
 ### Live Substrate Gauntlet v5
 
@@ -87,11 +85,29 @@ The execution substrate remains CubeSandbox. Nolane does not fork the hypervisor
 
 A V5 harness being present in the repository is **not** itself a live/KVM verification claim. A build is live-substrate verified only when a `LIVE_PASS` artifact exists from the configured `nolane-kvm` runner for that exact commit.
 
+### Delegated Authority Plane v6
+
+- agent-visible external-action intents contain a delegation ID, operation, exact resource, payload, world ID/epoch, and action ID — **never a credential handle, credential bytes, or adapter selection**;
+- immutable host grants bind one world/epoch, one typed adapter kind, one canonical resource, an explicit operation allowlist, one host-only `SecretHandle`, and an expiry;
+- grant IDs cannot be rebound, revocation is monotonic, and revoked grants remain historically queryable for safe reconciliation;
+- `Resolver` is read-only while host administration uses the separate `Controller` mutation interface, so the execution path cannot issue or revoke its own grants;
+- `JournalStore` persists issue/revoke transitions with mode `0600`, sequence numbers, SHA-256 hash chaining, fsync-before-trust, strict replay, and single-writer locking;
+- `Vault.Use` leases a fresh credential buffer only inside trusted host adapter callbacks and wipes the working buffer when the callback returns;
+- `MemoryVault` is test/development infrastructure, **not** a production KMS;
+- typed adapter registration rejects generic/raw/authenticated HTTP transports, preventing a credential proxy from becoming arbitrary delegated authority;
+- delegated execution resolves the adapter and secret handle from the immutable host grant, binds the grant/handle into the action request digest, and reuses the existing exactly-once effect ledger;
+- any provider failure after adapter execution begins remains `pending`/uncertain, so automatic retry cannot duplicate a real-world side effect;
+- if provider evidence echoes exact credential bytes, the plane emits the stable `ErrSecretLeak` sentinel, creates no success receipt, and leaves the action uncertain;
+- `Reconcile` is observation-only: it can inspect a historical pending effect after grant revocation, expiry, or world epoch advance, but it never calls `Adapter.Execute`;
+- an `observed` reconciliation may close the pending receipt; `absent` and `unknown` remain non-replayable;
+- the Delegated Authority Gauntlet v6 contains 15 mandatory scenarios covering resource/operation rebinding, stale epoch, revocation, expiry, adapter confusion, generic authenticated HTTP, action collision, uncertain replay, observed/absent reconciliation, secret echo/absence, and durable journal restart/tamper;
+- `nolane-authority-gauntlet` emits a deterministic, secret-free JSON evidence artifact without altering the Release Gauntlet v4 standard evidence family.
+
 ## Security model
 
-Assume the model, agent, guest root, downloaded packages, webpages, generated code, snapshots, and exported files are hostile.
+Assume the model, agent, guest root, downloaded packages, webpages, generated code, snapshots, exported files, and agent-provided external-action payloads are hostile.
 
-The Trust Kernel owns authority state outside the guest. A guest snapshot is execution state only; it is never a source of truth for authority epochs, external-effect history, promotion receipts, or trusted capability records.
+The Trust Kernel owns authority state outside the guest. A guest snapshot is execution state only; it is never a source of truth for authority epochs, external-effect history, delegation grants/revocation, promotion receipts, or trusted capability records.
 
 The central invariant is:
 
@@ -101,15 +117,25 @@ A second invariant is intentionally conservative:
 
 > **When the real-world outcome is uncertain, do not execute it again automatically.**
 
+V6 strengthens that rule for credentials:
+
+> **The agent requests a typed effect; the host grant chooses the authority and credential. The agent never receives credential material.**
+
 ## What is not production-complete yet
 
-Live Substrate Gauntlet v5 still does not claim a perfect sandbox or complete production boundary. The local journals remain single-host crash-recovery primitives, not distributed consensus and not protection against rollback of the entire host storage device. V4 continuously proves deterministic trust invariants; V5 provides the fail-closed harness for real Cube/KVM guest, snapshot, cleanup, and controlled egress evidence. Until a `LIVE_PASS` artifact exists for an exact commit, that commit must not be described as live-substrate verified. Remaining product gates include durable general artifact-receipt/quarantine storage, KMS/typed credential brokering, reconciled external adapters, target-backed credential-injection proof, and a hostile artifact corpus.
+Delegated Authority Plane v6 provides the protocol, durable single-host grant/revocation state, typed adapter boundary, callback-scoped secret lease, reconciliation semantics, and deterministic adversarial evidence. It does **not** claim that `MemoryVault` is production secret storage, does not ship GitHub/AWS/email production adapters, and does not provide distributed consensus or protection against rollback of the entire host storage device.
+
+Live Substrate Gauntlet v5 likewise remains a harness until a `LIVE_PASS` artifact exists for the exact commit on a configured `nolane-kvm` runner. Remaining product gates include a production KMS/HSM-backed Vault, provider-specific typed adapters with provider idempotency/reconciliation, target-backed credential-injection proof, durable general artifact-receipt/quarantine storage, hostile artifact corpus testing, and eventually a durable multi-host authority/effect substrate where required.
 
 See:
 
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-world-design.md`
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-runtime-integration-v1-design.md`
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-persistence-v2-design.md`
+- `../docs/superpowers/specs/2026-08-29-nolane-sandbox-capability-persistence-v3-design.md`
+- `../docs/superpowers/specs/2026-08-29-nolane-sandbox-release-gauntlet-v4-design.md`
+- `../docs/superpowers/specs/2026-08-29-nolane-sandbox-live-substrate-gauntlet-v5-design.md`
+- `../docs/superpowers/specs/2026-08-29-nolane-sandbox-delegated-authority-plane-v6-design.md`
 
 ## Verify
 
@@ -118,7 +144,12 @@ cd NolaneWorld
 go test ./...
 go test -race ./...
 go vet ./...
+
+# Deterministic in-process trust evidence.
 go run ./cmd/nolane-gauntlet --out release-evidence/nolane-gauntlet-v4.json
+
+# Deterministic delegated-authority evidence. Synthetic secret bytes must not appear.
+go run ./cmd/nolane-authority-gauntlet --out release-evidence/nolane-authority-v6.json
 
 # Safe on machines without Cube/KVM: must say UNAVAILABLE, never PASS.
 go run ./cmd/nolane-gauntlet-live --mode probe --profile core

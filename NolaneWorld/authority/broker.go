@@ -40,10 +40,10 @@ func (b *Broker) Execute(ctx context.Context, in Intent) (Receipt, error) {
 		receipt, err = b.ledger.ExecuteOnce(in.WorldID, in.ActionID, digest, func() (Receipt, error) {
 			decision, err := b.policy.Evaluate(ctx, cloneIntent(in))
 			if err != nil {
-				return Receipt{}, errors.Join(ErrPolicyFailure, err)
+				return Receipt{}, MarkNoEffect(errors.Join(ErrPolicyFailure, err))
 			}
 			if decision != Allow {
-				return Receipt{}, ErrDenied
+				return Receipt{}, MarkNoEffect(ErrDenied)
 			}
 			effect, err := b.executor.Execute(ctx, cloneIntent(in))
 			if err != nil {

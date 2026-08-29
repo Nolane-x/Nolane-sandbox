@@ -2,9 +2,11 @@ package authority
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -122,6 +124,30 @@ func (l *JournalLedger) ExecuteOnce(worldID world.ID, actionID, requestDigest st
 	return receipt, nil
 }
 
+func (l *JournalLedger) Status(worldID world.ID, actionID, requestDigest string) (ActionStatus, Receipt, error) {
+	if l == nil || worldID == "" || actionID == "" || requestDigest == "" {
+		return ActionMissing, Receipt{}, ErrInvalidAction
+	}
+	key := ledgerKey{worldID: worldID, actionID: actionID}
+	lock := &l.locks[shardFor(key)]
+	lock.Lock()
+	defer lock.Unlock()
+	if err := l.ensureOpen(); err != nil {
+		return ActionMissing, Receipt{}, err
+	}
+	entry, ok := l.get(key)
+	if !ok {
+		return ActionMissing, Receipt{}, nil
+	}
+	if entry.requestDigest != requestDigest {
+		return ActionMissing, Receipt{}, ErrActionCollision
+	}
+	if entry.pending {
+		return ActionPending, Receipt{}, nil
+	}
+	return ActionCompleted, entry.receipt, nil
+}
+
 func (l *JournalLedger) Resolve(worldID world.ID, actionID, requestDigest string, receipt Receipt) error {
 	if l == nil || worldID == "" || actionID == "" || requestDigest == "" {
 		return ErrInvalidAction
@@ -179,7 +205,7 @@ func (l *JournalLedger) recover() error {
 	for scanner.Scan() {
 		line++
 		var rec journalRecord
-		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
+		if err := decodeJournalRecord(scanner.Bytes(), &rec); err != nil {
 			return fmt.Errorf("%w: line %d: %v", ErrLedgerCorrupt, line, err)
 		}
 		if err := l.applyRecovered(rec); err != nil {
@@ -191,6 +217,25 @@ func (l *JournalLedger) recover() error {
 	}
 	_, err := l.file.Seek(0, 2)
 	return err
+}
+
+func decodeJournalRecord(raw []byte, rec *journalRecord) error {
+	if len(raw) == 0 || rec == nil {
+		return ErrLedgerCorrupt
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(rec); err != nil {
+		return ErrLedgerCorrupt
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return ErrLedgerCorrupt
+	}
+	canonical, err := json.Marshal(rec)
+	if err != nil || !bytes.Equal(canonical, raw) {
+		return ErrLedgerCorrupt
+	}
+	return nil
 }
 
 func (l *JournalLedger) applyRecovered(rec journalRecord) error {
@@ -277,5 +322,6 @@ func (l *JournalLedger) delete(key ledgerKey) {
 }
 
 func definitelyNoEffect(err error) bool {
-	return errors.Is(err, ErrDenied) || errors.Is(err, ErrPolicyFailure)
+	var marked interface{ definitelyNoEffect() bool }
+	return errors.As(err, &marked) && marked.definitelyNoEffect()
 }
