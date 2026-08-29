@@ -97,9 +97,12 @@ func TestCoreLivePassRequiresGuestSnapshotAuthorityAndCleanup(t *testing.T) {
 }
 
 func TestCleanupFailureIsLiveFail(t *testing.T) {
+	d := &fakeDriver{}
+	// First box is created lazily; configure via hook after creation through driver wrapper.
 	d2 := &customDriver{create: func(context.Context, world.ID) (Sandbox, error) {
 		return &fakeBox{id: "box", cleanupErr: errors.New("still alive")}, nil
 	}}
+	_ = d
 	r, err := Runner{Mode: ModeRequireLive, Profile: ProfileCore}.Run(context.Background(), d2)
 	if !errors.Is(err, ErrLiveFailed) {
 		t.Fatalf("err=%v report=%+v", err, r)
@@ -121,6 +124,7 @@ func (d *customDriver) Create(ctx context.Context, id world.ID) (Sandbox, error)
 	return d.create(ctx, id)
 }
 
+// Compile-time assertions keep the live scenario tied to the real authority contracts it is meant to prove.
 var _ = authority.ErrActionCollision
 
 func TestCreateCleanupUncertaintyIsClassifiedAsCleanupFailure(t *testing.T) {
