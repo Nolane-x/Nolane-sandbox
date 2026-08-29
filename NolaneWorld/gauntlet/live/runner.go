@@ -163,7 +163,6 @@ func runSnapshotAuthorityScenario(ctx context.Context, d Driver) (ScenarioEviden
 	}
 	ev.RuntimeDigest = box.Digest()
 	cleanupObserved := false
-	defer func() { _ = cleanupObserved }()
 	cleanup := func() bool {
 		if box.DestroyObserved(ctx) == nil {
 			ev.Markers = append(ev.Markers, "cleanup-observed")
@@ -209,7 +208,10 @@ func runSnapshotAuthorityScenario(ctx context.Context, d Driver) (ScenarioEviden
 		return fail(ReasonRollbackFailed, "rollback-state-not-restored")
 	}
 	ev.Markers = append(ev.Markers, "rollback-restored-a")
-	broker, _ := authority.NewBroker(state, allowPolicy{}, fixedExecutor{}, authority.NewMemoryLedger())
+	broker, err := authority.NewBroker(state, allowPolicy{}, fixedExecutor{}, authority.NewMemoryLedger())
+	if err != nil {
+		return fail(ReasonAuthorityFailed, "authority-broker-failed")
+	}
 	_, err = broker.Execute(ctx, authority.Intent{WorldID: state.ID(), AuthorityEpoch: oldEpoch, ActionID: "stale-after-rollback", Kind: "gauntlet", Target: "proof"})
 	if !errors.Is(err, world.ErrStaleEpoch) {
 		return fail(ReasonAuthorityFailed, "stale-authority-accepted")
