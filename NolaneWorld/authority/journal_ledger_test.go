@@ -77,7 +77,7 @@ func TestJournalLedgerPolicyDenialDoesNotPoisonAction(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "effects.jsonl")
 	l, _ := OpenJournalLedger(path)
 	defer l.Close()
-	_, err := l.ExecuteOnce("w", "a", "d", func() (Receipt, error) { return Receipt{}, ErrDenied })
+	_, err := l.ExecuteOnce("w", "a", "d", func() (Receipt, error) { return Receipt{}, MarkNoEffect(ErrDenied) })
 	if !errors.Is(err, ErrDenied) {
 		t.Fatalf("error=%v", err)
 	}
