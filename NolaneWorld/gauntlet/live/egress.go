@@ -34,7 +34,7 @@ func runEgressScenarios(ctx context.Context, d Driver, targets []Target) ([]Scen
 			out = append(out, unavailableEgress(kind, ReasonTargetPreflight, "preflight-unavailable"))
 			continue
 		}
-		ev := ScenarioEvidence{ID: targetScenarioID(kind), Outcome: OutcomeUnavailable, Reason: ReasonTargetPreflight, Markers: []string{"target-digest:" + digestString(string(kind)+"\x00"+target.Address+"\x00"+target.Expect)}}
+		ev := ScenarioEvidence{ID: targetScenarioID(kind), Outcome: OutcomeUnavailable, Reason: ReasonTargetPreflight, Markers: []string{"target-digest:" + digestString(string(kind)+"\x00"+target.Address)}}
 		if err := pre.Preflight(ctx, target); err != nil {
 			ev.Markers = append(ev.Markers, "target-preflight-failed")
 			sealScenario(&ev)
