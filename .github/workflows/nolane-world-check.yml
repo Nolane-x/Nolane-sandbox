@@ -42,3 +42,19 @@ jobs:
       - name: Vet
         working-directory: NolaneWorld
         run: go vet ./...
+
+      - name: Generate Release Gauntlet evidence
+        working-directory: NolaneWorld
+        run: |
+          go run ./cmd/nolane-gauntlet --out release-evidence/nolane-gauntlet-v4.json
+          go run ./cmd/nolane-gauntlet --out release-evidence/nolane-gauntlet-v4-repeat.json
+          cmp release-evidence/nolane-gauntlet-v4.json release-evidence/nolane-gauntlet-v4-repeat.json
+          rm release-evidence/nolane-gauntlet-v4-repeat.json
+
+      - name: Upload Release Gauntlet evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nolane-gauntlet-v4-${{ github.sha }}
+          path: NolaneWorld/release-evidence/nolane-gauntlet-v4.json
+          if-no-files-found: error
+          retention-days: 30
