@@ -29,16 +29,22 @@ type Config struct {
 	APIURL           string
 	APIKey           string
 	TemplateID       string
+	SandboxDomain    string
+	ProxyScheme      string
 	MaxResponseBytes int64
 	HTTPClient       *http.Client
+	DataHTTPClient   *http.Client
 }
 
 type Client struct {
-	apiURL     string
-	apiKey     string
-	templateID string
-	maxBytes   int64
-	http       *http.Client
+	apiURL        string
+	apiKey        string
+	templateID    string
+	sandboxDomain string
+	proxyScheme   string
+	maxBytes      int64
+	http          *http.Client
+	dataHTTP      *http.Client
 }
 
 func New(cfg Config) (*Client, error) {
@@ -62,20 +68,22 @@ func New(cfg Config) (*Client, error) {
 	if maxBytes < 1 {
 		return nil, ErrInvalidConfig
 	}
-	hc := &http.Client{Timeout: 30 * time.Second}
-	if cfg.HTTPClient != nil {
-		copyClient := *cfg.HTTPClient
-		hc = &copyClient
-		if hc.Timeout == 0 {
-			hc.Timeout = 30 * time.Second
-		}
+	hc := hardenedHTTPClient(cfg.HTTPClient, 30*time.Second)
+	dc := hardenedHTTPClient(cfg.DataHTTPClient, 30*time.Second)
+	if cfg.DataHTTPClient == nil && cfg.HTTPClient != nil {
+		dc = hardenedHTTPClient(cfg.HTTPClient, 30*time.Second)
 	}
-	hc.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
+	proxyScheme := cfg.ProxyScheme
+	if proxyScheme == "" {
+		proxyScheme = "https"
+	}
+	if proxyScheme != "https" && proxyScheme != "http" {
+		return nil, ErrInvalidConfig
 	}
 	return &Client{
 		apiURL: strings.TrimRight(cfg.APIURL, "/"), apiKey: cfg.APIKey,
-		templateID: cfg.TemplateID, maxBytes: maxBytes, http: hc,
+		templateID: cfg.TemplateID, sandboxDomain: cfg.SandboxDomain, proxyScheme: proxyScheme,
+		maxBytes: maxBytes, http: hc, dataHTTP: dc,
 	}, nil
 }
 
@@ -224,4 +232,19 @@ func loopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func hardenedHTTPClient(src *http.Client, timeout time.Duration) *http.Client {
+	hc := &http.Client{Timeout: timeout}
+	if src != nil {
+		copyClient := *src
+		hc = &copyClient
+		if hc.Timeout == 0 {
+			hc.Timeout = timeout
+		}
+	}
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return hc
 }

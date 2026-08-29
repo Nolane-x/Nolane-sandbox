@@ -44,6 +44,7 @@ The execution substrate remains CubeSandbox. Nolane does not fork the hypervisor
 - incomplete create/clone recovery terminally revokes authority and reports a possible orphan instead of guessing;
 - Manager shutdown serializes against in-flight lifecycle mutations.
 
+
 ### Capability Persistence v3
 
 - `capability.Store` decouples Forge from in-memory registry implementation;
@@ -58,6 +59,7 @@ The execution substrate remains CubeSandbox. Nolane does not fork the hypervisor
 - single-writer OS locking prevents split-brain local registry writers;
 - Forge persists the exact validator evidence only after clean validator teardown.
 
+
 ### Release Gauntlet v4
 
 - deterministic adversarial scenario contract with stable IDs, explicit invariants, attack descriptions, expected defenses, and required proof markers;
@@ -70,6 +72,20 @@ The execution substrate remains CubeSandbox. Nolane does not fork the hypervisor
 - property/fuzz seeds for report mutation detection and deterministic ordering;
 - `nolane-gauntlet` CLI emits verified JSON suitable for CI artifact retention;
 - core gauntlet remains independent of Cube security internals so a future live Cube/KVM adapter can reuse the same evidence contract.
+
+### Live Substrate Gauntlet v5
+
+- a second, non-substitutable evidence family for real CubeSandbox execution rather than deterministic in-process proof;
+- explicit `LIVE_PASS`, `LIVE_FAIL`, and `UNAVAILABLE` states so absent KVM/Cube infrastructure can never masquerade as a passing live check;
+- capability attestation crosses CubeAPI health/create/connect and envd guest execution before claiming live guest capability;
+- real snapshot proof requires guest state `A -> B -> rollback -> A`, while host authority advances independently and still rejects the pre-rollback epoch;
+- teardown is release evidence: DELETE alone is insufficient, and the harness polls until sandbox absence is observed;
+- typed Cube network policy and controlled HTTP/TCP/UDP/DNS egress probes require host preflight before a guest connection failure may count as denial;
+- API, envd, traffic, and target expectation credentials are excluded from live reports; runtime identifiers are represented by SHA-256 digests;
+- `nolane-gauntlet-live --mode probe` emits verified `UNAVAILABLE` evidence on ordinary machines; `--mode require-live` fails closed unless the selected live profile materially passes;
+- the self-hosted live workflow is manual, master-only, and gated by `NOLANE_LIVE_GAUNTLET_ENABLED`, so pull requests never receive live-runner secrets.
+
+A V5 harness being present in the repository is **not** itself a live/KVM verification claim. A build is live-substrate verified only when a `LIVE_PASS` artifact exists from the configured `nolane-kvm` runner for that exact commit.
 
 ## Security model
 
@@ -87,15 +103,13 @@ A second invariant is intentionally conservative:
 
 ## What is not production-complete yet
 
-Release Gauntlet v4 still does not claim a perfect sandbox or complete production boundary. The local journals are single-host crash-recovery primitives, not distributed consensus and not protection against rollback of the entire host storage device. V4 proves deterministic in-process trust invariants; remaining gates include durable general artifact-receipt/quarantine storage, KMS/secret brokering, typed external adapters with reconciliation, live Cube/KVM stale-snapshot and egress-bypass attacks, and hostile artifact corpus testing.
+Live Substrate Gauntlet v5 still does not claim a perfect sandbox or complete production boundary. The local journals remain single-host crash-recovery primitives, not distributed consensus and not protection against rollback of the entire host storage device. V4 continuously proves deterministic trust invariants; V5 provides the fail-closed harness for real Cube/KVM guest, snapshot, cleanup, and controlled egress evidence. Until a `LIVE_PASS` artifact exists for an exact commit, that commit must not be described as live-substrate verified. Remaining product gates include durable general artifact-receipt/quarantine storage, KMS/typed credential brokering, reconciled external adapters, target-backed credential-injection proof, and a hostile artifact corpus.
 
 See:
 
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-world-design.md`
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-runtime-integration-v1-design.md`
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-persistence-v2-design.md`
-- `../docs/superpowers/specs/2026-08-29-nolane-sandbox-capability-persistence-v3-design.md`
-- `../docs/superpowers/specs/2026-08-29-nolane-sandbox-release-gauntlet-v4-design.md`
 
 ## Verify
 
@@ -105,4 +119,10 @@ go test ./...
 go test -race ./...
 go vet ./...
 go run ./cmd/nolane-gauntlet --out release-evidence/nolane-gauntlet-v4.json
+
+# Safe on machines without Cube/KVM: must say UNAVAILABLE, never PASS.
+go run ./cmd/nolane-gauntlet-live --mode probe --profile core
+
+# Provisioned live runner only: UNAVAILABLE and LIVE_FAIL are non-zero.
+go run ./cmd/nolane-gauntlet-live --mode require-live --profile core --out release-evidence/nolane-live-v5.json
 ```
