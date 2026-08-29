@@ -24,6 +24,14 @@ const (
 	Allow
 )
 
+type ActionStatus uint8
+
+const (
+	ActionMissing ActionStatus = iota
+	ActionPending
+	ActionCompleted
+)
+
 type Receipt struct {
 	WorldID        world.ID
 	AuthorityEpoch world.Epoch
