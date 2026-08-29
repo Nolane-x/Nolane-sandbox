@@ -31,14 +31,20 @@ type ledgerKey struct {
 	actionID string
 }
 
+type memoryEntry struct {
+	requestDigest string
+	pending       bool
+	receipt       Receipt
+}
+
 type MemoryLedger struct {
-	mu       sync.RWMutex
-	receipts map[ledgerKey]Receipt
-	locks    [64]sync.Mutex
+	mu      sync.RWMutex
+	entries map[ledgerKey]memoryEntry
+	locks   [64]sync.Mutex
 }
 
 func NewMemoryLedger() *MemoryLedger {
-	return &MemoryLedger{receipts: make(map[ledgerKey]Receipt)}
+	return &MemoryLedger{entries: make(map[ledgerKey]memoryEntry)}
 }
 
 func (l *MemoryLedger) ExecuteOnce(worldID world.ID, actionID, requestDigest string, fn func() (Receipt, error)) (Receipt, error) {
@@ -51,25 +57,42 @@ func (l *MemoryLedger) ExecuteOnce(worldID world.ID, actionID, requestDigest str
 	defer lock.Unlock()
 
 	l.mu.RLock()
-	prior, ok := l.receipts[key]
+	prior, ok := l.entries[key]
 	l.mu.RUnlock()
 	if ok {
-		if prior.RequestDigest != requestDigest {
+		if prior.requestDigest != requestDigest {
 			return Receipt{}, ErrActionCollision
 		}
-		return prior, nil
+		if prior.pending {
+			return Receipt{}, ErrActionUncertain
+		}
+		return prior.receipt, nil
 	}
+
+	// Mark the action pending before entering the effect callback. If the
+	// callback returns an error that does not prove "no effect", the pending
+	// row remains and a retry is quarantined instead of re-executed.
+	l.mu.Lock()
+	l.entries[key] = memoryEntry{requestDigest: requestDigest, pending: true}
+	l.mu.Unlock()
 
 	receipt, err := fn()
 	if err != nil {
+		if definitelyNoEffect(err) {
+			l.mu.Lock()
+			delete(l.entries, key)
+			l.mu.Unlock()
+		}
 		return Receipt{}, err
 	}
 	if receipt.WorldID != worldID || receipt.ActionID != actionID || receipt.RequestDigest != requestDigest {
+		// Invalid success metadata cannot prove that the real-world effect did
+		// not happen. Keep the action pending and fail closed.
 		return Receipt{}, ErrExecutionFailure
 	}
 
 	l.mu.Lock()
-	l.receipts[key] = receipt
+	l.entries[key] = memoryEntry{requestDigest: requestDigest, receipt: receipt}
 	l.mu.Unlock()
 	return receipt, nil
 }
@@ -83,15 +106,18 @@ func (l *MemoryLedger) Status(worldID world.ID, actionID, requestDigest string) 
 	lock.Lock()
 	defer lock.Unlock()
 	l.mu.RLock()
-	prior, ok := l.receipts[key]
+	prior, ok := l.entries[key]
 	l.mu.RUnlock()
 	if !ok {
 		return ActionMissing, Receipt{}, nil
 	}
-	if prior.RequestDigest != requestDigest {
+	if prior.requestDigest != requestDigest {
 		return ActionMissing, Receipt{}, ErrActionCollision
 	}
-	return ActionCompleted, prior, nil
+	if prior.pending {
+		return ActionPending, Receipt{}, nil
+	}
+	return ActionCompleted, prior.receipt, nil
 }
 
 func shardFor(key ledgerKey) uint32 {
