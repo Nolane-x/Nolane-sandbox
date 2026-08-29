@@ -301,5 +301,6 @@ func (l *JournalLedger) delete(key ledgerKey) {
 }
 
 func definitelyNoEffect(err error) bool {
-	return errors.Is(err, ErrDenied) || errors.Is(err, ErrPolicyFailure)
+	var marked interface{ definitelyNoEffect() bool }
+	return errors.As(err, &marked) && marked.definitelyNoEffect()
 }
