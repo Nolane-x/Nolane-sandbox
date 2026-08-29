@@ -15,11 +15,11 @@ type Plane struct {
 	grants   Resolver
 	vault    Vault
 	adapters *Registry
-	ledger   authority.Ledger
+	ledger   authority.InspectableLedger
 	now      func() time.Time
 }
 
-func NewPlane(state world.AuthorityState, grants Resolver, vault Vault, adapters *Registry, ledger authority.Ledger, now func() time.Time) (*Plane, error) {
+func NewPlane(state world.AuthorityState, grants Resolver, vault Vault, adapters *Registry, ledger authority.InspectableLedger, now func() time.Time) (*Plane, error) {
 	if state == nil || state.ID() == "" || grants == nil || vault == nil || adapters == nil || ledger == nil {
 		return nil, ErrInvalidPlane
 	}
@@ -185,7 +185,7 @@ func (p *Plane) executeAdapter(ctx context.Context, handle SecretHandle, adapter
 	if err != nil {
 		if !entered {
 			// Vault resolution failed before provider execution. Join only stable
-			// sentinels so the durable ledger may safely abort this pending row.
+			// sentinels so the ledger may safely remove this pending row.
 			return nil, errors.Join(ErrSecretUnavailable, authority.ErrPolicyFailure)
 		}
 		if errors.Is(err, ErrSecretLeak) {
@@ -225,7 +225,7 @@ func (p *Plane) reconcileAdapter(ctx context.Context, handle SecretHandle, adapt
 
 func buildAdapterRequest(in Intent, requestDigest string) AdapterRequest {
 	return AdapterRequest{
-		WorldID:        string(in.WorldID),
+		WorldID:        in.WorldID,
 		ActionID:       in.ActionID,
 		Operation:      in.Operation,
 		Resource:       in.Resource,
