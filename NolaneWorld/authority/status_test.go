@@ -63,10 +63,27 @@ func TestMemoryLedgerUnknownFailureBecomesPendingAndCannotReplay(t *testing.T) {
 	}
 }
 
-func TestMemoryLedgerDefinitelyNoEffectMayRetry(t *testing.T) {
+func TestMemoryLedgerBarePolicyFailureStaysPending(t *testing.T) {
+	l := NewMemoryLedger()
+	_, err := l.ExecuteOnce(world.ID("w-bare-policy"), "a1", "digest-policy", func() (Receipt, error) {
+		return Receipt{}, ErrPolicyFailure
+	})
+	if !errors.Is(err, ErrPolicyFailure) {
+		t.Fatalf("err=%v", err)
+	}
+	status, _, err := l.Status(world.ID("w-bare-policy"), "a1", "digest-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionPending {
+		t.Fatalf("bare policy sentinel incorrectly proved no-effect, status=%v", status)
+	}
+}
+
+func TestMemoryLedgerExplicitNoEffectMayRetry(t *testing.T) {
 	l := NewMemoryLedger()
 	_, err := l.ExecuteOnce(world.ID("w-safe-retry"), "a1", "digest-safe", func() (Receipt, error) {
-		return Receipt{}, ErrPolicyFailure
+		return Receipt{}, MarkNoEffect(ErrPolicyFailure)
 	})
 	if !errors.Is(err, ErrPolicyFailure) {
 		t.Fatalf("err=%v", err)
@@ -76,7 +93,7 @@ func TestMemoryLedgerDefinitelyNoEffectMayRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	if status != ActionMissing {
-		t.Fatalf("definitely-no-effect failure left pending status=%v", status)
+		t.Fatalf("explicit no-effect proof left pending status=%v", status)
 	}
 }
 
@@ -121,5 +138,63 @@ func TestJournalLedgerStatusPendingSurvivesReopen(t *testing.T) {
 	}
 	if status != ActionPending {
 		t.Fatalf("status=%v", status)
+	}
+}
+
+func TestJournalLedgerBarePolicyFailureRemainsPendingAcrossRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "effects.jsonl")
+	l, err := OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = l.ExecuteOnce(world.ID("w-policy-pending"), "a1", "digest-policy", func() (Receipt, error) {
+		return Receipt{}, ErrPolicyFailure
+	})
+	if !errors.Is(err, ErrPolicyFailure) {
+		t.Fatalf("err=%v", err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l, err = OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	status, _, err := l.Status(world.ID("w-policy-pending"), "a1", "digest-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionPending {
+		t.Fatalf("bare policy sentinel incorrectly aborted durable pending row, status=%v", status)
+	}
+}
+
+func TestJournalLedgerExplicitNoEffectAbortsDurably(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "effects.jsonl")
+	l, err := OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = l.ExecuteOnce(world.ID("w-safe-abort"), "a1", "digest-safe", func() (Receipt, error) {
+		return Receipt{}, MarkNoEffect(ErrPolicyFailure)
+	})
+	if !errors.Is(err, ErrPolicyFailure) {
+		t.Fatalf("err=%v", err)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	l, err = OpenJournalLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	status, _, err := l.Status(world.ID("w-safe-abort"), "a1", "digest-safe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status != ActionMissing {
+		t.Fatalf("explicit no-effect abort did not survive restart, status=%v", status)
 	}
 }
