@@ -1,9 +1,15 @@
 package agentruntime
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/fabric"
+	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/realm"
+	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/world"
 )
 
 func TestAgentFacingTypesDoNotExposeRealizationAuthority(t *testing.T) {
@@ -25,6 +31,18 @@ func TestAgentFacingTypesDoNotExposeRealizationAuthority(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestEnterRejectsCallerForgedPolicyDigest(t *testing.T) {
+	store := realm.NewMemoryStore()
+	spec := realm.Spec{ID: realm.ID("realm://policy"), MaxWorlds: 2, DefaultLease: time.Minute, NetworkProfile: realm.R0InternalOnly, ResourceBudget: realm.ResourceBudget{CPUUnits: 2, MemoryMiB: 1024, DiskMiB: 2048}}
+	if _, err := store.CreateRealm(spec); err != nil { t.Fatal(err) }
+	ff := &fakeFabric{lease: fabric.Lease{RealmID: spec.ID, WorldID: world.ID("world-a"), Generation: 1, ExpiresUnix: time.Now().Add(time.Minute).Unix(), RealizationRevision: 1}}
+	svc, err := New(store, ff, &fakeGuest{})
+	if err != nil { t.Fatal(err) }
+	if _, err := svc.Enter(context.Background(), EnterRequest{RealmID: spec.ID, ExpectedRevision: 1, PolicyDigest: "caller-forged-policy"}); err == nil {
+		t.Fatal("Enter accepted a caller-forged policy digest instead of binding the session to host policy")
 	}
 }
 
