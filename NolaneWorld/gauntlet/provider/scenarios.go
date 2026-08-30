@@ -556,6 +556,7 @@ func commentAmbiguousOnce(ctx context.Context, p *gauntlet.Probe) error {
 				_ = conn.Close()
 				return
 			}
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -599,6 +600,7 @@ func contentsAmbiguousOnce(ctx context.Context, p *gauntlet.Probe) error {
 				_ = conn.Close()
 				return
 			}
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
