@@ -20,6 +20,7 @@ var (
 	ErrInvalidRequest     = errors.New("agentruntime: invalid request")
 	ErrSessionNotFound    = errors.New("agentruntime: session not found")
 	ErrStaleSession       = errors.New("agentruntime: stale session")
+	ErrPolicyMismatch     = errors.New("agentruntime: Realm policy digest mismatch")
 	ErrOperationCollision = errors.New("agentruntime: operation collision")
 	ErrExecUncertain      = errors.New("agentruntime: execution outcome uncertain")
 )
@@ -117,10 +118,17 @@ func (s *Service) Enter(ctx context.Context, req EnterRequest) (Session, error) 
 	if rec.Revision != req.ExpectedRevision {
 		return Session{}, ErrStaleSession
 	}
+	policyDigest, err := realm.PolicyDigest(rec.Spec, rec.Revision)
+	if err != nil {
+		return Session{}, ErrInvalidRuntime
+	}
+	if req.PolicyDigest != policyDigest {
+		return Session{}, ErrPolicyMismatch
+	}
 	n := s.seq.Add(1)
-	raw := fmt.Sprintf("nolane.session.v1\x00%s\x00%d\x00%s\x00%d", req.RealmID, rec.Revision, req.PolicyDigest, n)
+	raw := fmt.Sprintf("nolane.session.v1\x00%s\x00%d\x00%s\x00%d", req.RealmID, rec.Revision, policyDigest, n)
 	h := sha256.Sum256([]byte(raw))
-	session := Session{ID: realm.SessionID("session://" + hex.EncodeToString(h[:])), RealmID: req.RealmID, RealmRevision: rec.Revision, PolicyDigest: req.PolicyDigest}
+	session := Session{ID: realm.SessionID("session://" + hex.EncodeToString(h[:])), RealmID: req.RealmID, RealmRevision: rec.Revision, PolicyDigest: policyDigest}
 	s.mu.Lock()
 	s.sessions[session.ID] = session
 	s.mu.Unlock()
@@ -180,6 +188,10 @@ func (s *Service) validateSession(id realm.SessionID, revision uint64) (Session,
 		return Session{}, ErrStaleSession
 	}
 	if rec.Revision != sess.RealmRevision {
+		return Session{}, ErrStaleSession
+	}
+	policyDigest, err := realm.PolicyDigest(rec.Spec, rec.Revision)
+	if err != nil || policyDigest != sess.PolicyDigest {
 		return Session{}, ErrStaleSession
 	}
 	return sess, nil
