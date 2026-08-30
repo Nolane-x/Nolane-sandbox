@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -138,14 +139,26 @@ func TestPlaneUncertainGitHubWriteReconcilesWithoutSecondWrite(t *testing.T) {
 		Resource: "github:repo:Nolane-x/Nolane-sandbox:issue:42", Operations: []delegation.Operation{OpIssueComment},
 		SecretHandle: "github-token", IssuedAt: time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
 	}
-	if err := store.Issue(grant); err != nil { t.Fatal(err) }
+	if err := store.Issue(grant); err != nil {
+		t.Fatal(err)
+	}
 	vault := delegation.NewMemoryVault()
-	if err := vault.Put(grant.SecretHandle, []byte(syntheticV7Secret)); err != nil { t.Fatal(err) }
+	if err := vault.Put(grant.SecretHandle, []byte(syntheticV7Secret)); err != nil {
+		t.Fatal(err)
+	}
 	registry, err := delegation.NewRegistry(adapter)
-	if err != nil { t.Fatal(err) }
-	ledger := authority.NewMemoryLedger()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := authority.OpenJournalLedger(filepath.Join(t.TempDir(), "effects.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ledger.Close()
 	plane, err := delegation.NewPlane(state, store, vault, registry, ledger, func() time.Time { return time.Date(2026, 8, 30, 1, 0, 0, 0, time.UTC) })
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	intent := delegation.Intent{WorldID: "world-v7", AuthorityEpoch: 1, ActionID: "action-v7", DelegationID: "grant-v7", Operation: OpIssueComment, Resource: grant.Resource, Payload: []byte(`{"body":"hello"}`)}
 	if _, err := plane.Execute(context.Background(), intent); !errors.Is(err, delegation.ErrAdapterFailure) {
 		t.Fatalf("execute err=%v", err)
