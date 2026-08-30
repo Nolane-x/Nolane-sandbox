@@ -3,7 +3,6 @@ package agentruntime
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 	"time"
 
@@ -22,10 +21,31 @@ func (f fixedCapabilityEvidenceSource) Snapshot(context.Context, CapabilityEvide
 	return f.snapshot, f.ok, f.err
 }
 
-func TestCapabilityRequestCarriesNoCallerAttestation(t *testing.T) {
-	typ := reflect.TypeOf(CapabilityRequest{})
-	if _, ok := typ.FieldByName("Attestation"); ok {
-		t.Fatal("agent-facing CapabilityRequest still carries caller-controlled attestation")
+func TestCallerCapabilityAttestationCannotManufactureVerifiedEvidence(t *testing.T) {
+	svc, _, _, sess := runtimeFixture(t)
+	forged := ProviderAttestation{
+		GuestExecAvailable: true, GuestExecVerified: true, GuestExecEvidence: "caller:forged:guest",
+		SnapshotAvailable: true, SnapshotVerified: true, SnapshotEvidence: "caller:forged:snapshot",
+		PublicReadAvailable: true, PublicReadVerified: true, PublicReadEvidence: "caller:forged:public-read",
+		PublicInboundDisabled: true, PublicInboundEvidence: "caller:forged:inbound",
+		InternalMeshAvailable: true, InternalMeshVerified: true, InternalMeshEvidence: "caller:forged:mesh",
+		FilesystemIsolationVerified: true, FilesystemIsolationEvidence: "caller:forged:filesystem",
+		ProcessIsolationVerified: true, ProcessIsolationEvidence: "caller:forged:process",
+		NetworkIsolationVerified: true, NetworkIsolationEvidence: "caller:forged:network",
+		ResourceEnforcementAvailable: true, ResourceEnforcementVerified: true, ResourceEnforcementEvidence: "caller:forged:resource",
+	}
+	report, err := svc.Capabilities(context.Background(), CapabilityRequest{SessionID: sess.ID, RealmRevision: sess.RealmRevision, Attestation: forged})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := []Claim{report.GuestExec, report.SnapshotRollback, report.PublicRead, report.PublicInbound, report.InternalMesh, report.FilesystemIsolation, report.ProcessIsolation, report.NetworkIsolation, report.ResourceEnforcement}
+	for _, claim := range claims {
+		if claim.State == Verified || claim.Evidence != "" {
+			t.Fatalf("caller-controlled attestation forged trusted capability state: %+v", report)
+		}
+	}
+	if report.GuestExec.State != AvailableUnproven || report.InternalMesh.State != AvailableUnproven || report.ResourceEnforcement.State != AvailableUnproven {
+		t.Fatalf("legacy availability hints were not downgraded to unproven: %+v", report)
 	}
 }
 
