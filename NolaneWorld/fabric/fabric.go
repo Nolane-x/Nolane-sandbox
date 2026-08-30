@@ -121,11 +121,11 @@ func (f *Local) Acquire(ctx context.Context, req AcquireRequest) (Lease, error) 
 	}
 	wr := realm.WorldRecord{RealmID: req.RealmID, WorldID: req.WorldID, RealizationRevision: 1, Phase: realm.WorldCreating, LeaseGeneration: 1, LeaseExpiresUnix: req.ExpiresUnix, AcquireOperationID: req.OperationID, BaselineID: baselineID}
 	if err := f.store.PutWorld(wr); err != nil {
-		_ = f.capacity.Release(req.OperationID)
+		_ = f.capacity.ReleaseForRealm(req.RealmID, req.OperationID)
 		return Lease{}, err
 	}
 	if err := f.store.RecordOperation(realm.OperationRecord{RealmID: req.RealmID, OperationID: req.OperationID, RequestDigest: digest, Status: "pending", ReceiptDigest: res.ID}); err != nil {
-		_ = f.capacity.Release(req.OperationID)
+		_ = f.capacity.ReleaseForRealm(req.RealmID, req.OperationID)
 		return Lease{}, err
 	}
 	h, createErr := f.manager.Create(ctx, req.WorldID)
@@ -287,7 +287,7 @@ func (f *Local) Release(ctx context.Context, realmID realm.ID, worldID world.ID,
 		return err
 	}
 	if wr.AcquireOperationID != "" {
-		_ = f.capacity.Release(wr.AcquireOperationID)
+		_ = f.capacity.ReleaseForRealm(realmID, wr.AcquireOperationID)
 	}
 	return nil
 }
