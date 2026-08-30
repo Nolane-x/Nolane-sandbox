@@ -22,7 +22,11 @@ func TestCapabilityReportDoesNotUpgradeRequestsIntoProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sess, err := svc.Enter(context.Background(), EnterRequest{RealmID: spec.ID, ExpectedRevision: 1, PolicyDigest: "p"})
+	policyDigest, err := realm.PolicyDigest(spec, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := svc.Enter(context.Background(), EnterRequest{RealmID: spec.ID, ExpectedRevision: 1, PolicyDigest: policyDigest})
 	if err != nil {
 		t.Fatal(err)
 	}
