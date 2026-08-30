@@ -62,6 +62,38 @@ func TestEnterRejectsCallerForgedPolicyDigest(t *testing.T) {
 	}
 }
 
+func TestSessionIDsDoNotResurrectAcrossRuntimeRestart(t *testing.T) {
+	store := realm.NewMemoryStore()
+	spec := realm.Spec{ID: realm.ID("realm://restart-session"), MaxWorlds: 2, DefaultLease: time.Minute, NetworkProfile: realm.R0InternalOnly, ResourceBudget: realm.ResourceBudget{CPUUnits: 2, MemoryMiB: 1024, DiskMiB: 2048}}
+	if _, err := store.CreateRealm(spec); err != nil {
+		t.Fatal(err)
+	}
+	policyDigest, err := realm.PolicyDigest(spec, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ff := &fakeFabric{lease: fabric.Lease{RealmID: spec.ID, WorldID: world.ID("world-a"), Generation: 1, ExpiresUnix: time.Now().Add(time.Minute).Unix(), RealizationRevision: 1}}
+	firstRuntime, err := New(store, ff, &fakeGuest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := firstRuntime.Enter(context.Background(), EnterRequest{RealmID: spec.ID, ExpectedRevision: 1, PolicyDigest: policyDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRuntime, err := New(store, ff, &fakeGuest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := secondRuntime.Enter(context.Background(), EnterRequest{RealmID: spec.ID, ExpectedRevision: 1, PolicyDigest: policyDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == second.ID {
+		t.Fatalf("session identity resurrected across runtime restart: %s", first.ID)
+	}
+}
+
 func TestRuntimeInterfaceIsCompleteAndHasNoRealmAdministration(t *testing.T) {
 	typ := reflect.TypeOf((*Runtime)(nil)).Elem()
 	required := map[string]bool{
