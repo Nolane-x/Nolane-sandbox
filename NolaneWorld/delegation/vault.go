@@ -18,6 +18,26 @@ type Vault interface {
 	Use(context.Context, SecretHandle, func(Secret) error) error
 }
 
+// ValidateSecretHandle exposes the exact v6 validity rule to trusted host-side
+// Vault implementations without exposing the package-private generic validator.
+func ValidateSecretHandle(handle SecretHandle) error {
+	if !strict(string(handle), 512) {
+		return ErrSecretUnavailable
+	}
+	return nil
+}
+
+// WithSecretLease constructs a callback-scoped Secret while keeping Secret
+// construction package-owned. The working copy is wiped before return.
+func WithSecretLease(material []byte, fn func(Secret) error) error {
+	if len(material) == 0 || len(material) > 1024*1024 || fn == nil {
+		return ErrSecretUnavailable
+	}
+	working := append([]byte(nil), material...)
+	defer zero(working)
+	return fn(Secret{material: working})
+}
+
 // MemoryVault is for tests/development. Production deployments should provide
 // a KMS/HSM-backed Vault implementation without changing the plane protocol.
 type MemoryVault struct {
@@ -30,7 +50,7 @@ func NewMemoryVault() *MemoryVault {
 }
 
 func (v *MemoryVault) Put(handle SecretHandle, material []byte) error {
-	if v == nil || !strict(string(handle), 512) || len(material) == 0 || len(material) > 1024*1024 {
+	if v == nil || ValidateSecretHandle(handle) != nil || len(material) == 0 || len(material) > 1024*1024 {
 		return ErrSecretUnavailable
 	}
 	copyMaterial := append([]byte(nil), material...)
@@ -49,7 +69,7 @@ func (v *MemoryVault) Put(handle SecretHandle, material []byte) error {
 }
 
 func (v *MemoryVault) Use(ctx context.Context, handle SecretHandle, fn func(Secret) error) error {
-	if v == nil || ctx == nil || !strict(string(handle), 512) || fn == nil {
+	if v == nil || ctx == nil || ValidateSecretHandle(handle) != nil || fn == nil {
 		return ErrSecretUnavailable
 	}
 	select {
