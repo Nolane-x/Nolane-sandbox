@@ -24,9 +24,21 @@ func (c *Capacity) Release(operationID string) error {
 	if c.used.CPUUnits < r.Units.CPUUnits || c.used.MemoryMiB < r.Units.MemoryMiB || c.used.DiskMiB < r.Units.DiskMiB {
 		return ErrInvalidCapacity
 	}
+	realmUsed := c.usedByRealm[r.RealmID]
+	if realmUsed.CPUUnits < r.Units.CPUUnits || realmUsed.MemoryMiB < r.Units.MemoryMiB || realmUsed.DiskMiB < r.Units.DiskMiB {
+		return ErrInvalidCapacity
+	}
 	c.used.CPUUnits -= r.Units.CPUUnits
 	c.used.MemoryMiB -= r.Units.MemoryMiB
 	c.used.DiskMiB -= r.Units.DiskMiB
+	realmUsed.CPUUnits -= r.Units.CPUUnits
+	realmUsed.MemoryMiB -= r.Units.MemoryMiB
+	realmUsed.DiskMiB -= r.Units.DiskMiB
+	if realmUsed.CPUUnits == 0 && realmUsed.MemoryMiB == 0 && realmUsed.DiskMiB == 0 {
+		delete(c.usedByRealm, r.RealmID)
+	} else {
+		c.usedByRealm[r.RealmID] = realmUsed
+	}
 	delete(c.reservations, operationID)
 	return nil
 }
