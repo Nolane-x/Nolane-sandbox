@@ -63,6 +63,26 @@ jobs:
           fi
           rm release-evidence/nolane-authority-v6-repeat.json
 
+      - name: Generate Provider Authority evidence
+        working-directory: NolaneWorld
+        run: |
+          go run ./cmd/nolane-provider-gauntlet --out release-evidence/nolane-provider-v7.json
+          go run ./cmd/nolane-provider-gauntlet --out release-evidence/nolane-provider-v7-repeat.json
+          cmp release-evidence/nolane-provider-v7.json release-evidence/nolane-provider-v7-repeat.json
+          if grep -Fq 'SYNTHETIC-V7-SECRET' release-evidence/nolane-provider-v7.json; then
+            echo 'synthetic credential leaked into v7 evidence as plaintext' >&2
+            exit 1
+          fi
+          if grep -Fq 'U1lOVEhFVElDLVY3LVNFQ1JFVA==' release-evidence/nolane-provider-v7.json; then
+            echo 'synthetic credential leaked into v7 evidence as base64' >&2
+            exit 1
+          fi
+          if grep -Fq '53594e5448455449432d56372d534543524554' release-evidence/nolane-provider-v7.json; then
+            echo 'synthetic credential leaked into v7 evidence as hex' >&2
+            exit 1
+          fi
+          rm release-evidence/nolane-provider-v7-repeat.json
+
       - name: Upload Release Gauntlet evidence
         uses: actions/upload-artifact@v4
         with:
@@ -76,5 +96,13 @@ jobs:
         with:
           name: nolane-authority-v6-${{ github.sha }}
           path: NolaneWorld/release-evidence/nolane-authority-v6.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Provider Authority evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nolane-provider-v7-${{ github.sha }}
+          path: NolaneWorld/release-evidence/nolane-provider-v7.json
           if-no-files-found: error
           retention-days: 30
