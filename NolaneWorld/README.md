@@ -121,11 +121,30 @@ A V5 harness being present in the repository is **not** itself a live/KVM verifi
 
 `BrokerVault` is the host-local trust boundary toward a real secret backend. V7 proves the broker protocol, peer binding, lease semantics, typed provider runtime, uncertainty behavior, reconciliation, and deterministic evidence; it does **not** claim that every broker implementation is a KMS/HSM, or that an unverified external secret backend inherits Nolane trust automatically.
 
+### Freedom Plane / Reality Membrane v8
+
+- host-owned `Freedom Realm` policy binds a stable `realm://` identity, revision, resource accounting budget, default lease, world limit, and one of the explicit R0-R2 network profiles;
+- `Local Capacity Fabric` owns resource reservations, realization revisions, lease generations, exact operation-ID replay/collision semantics, checkpoint/resume fences, and terminal-world denial;
+- reusable baselines are sanitized, identity-free templates only: they cannot carry a World identity or checkpoint ownership, and every Acquire still creates the caller's exact fresh `WorldID`;
+- the agent-facing `Runtime` is semantic rather than substrate-shaped: `Enter`, `Acquire`, `Exec`, `Spawn`, `Checkpoint`, `Resume`, `RegisterService`, `Capabilities`, and `Release` expose no Cube handle, sandbox token, credential, or Realm administration authority;
+- bounded Exec validates command/time/output limits before guest entry, binds action IDs to canonical request digests, returns bounded observations, and quarantines uncertain outcomes instead of replaying them automatically;
+- checkpoint rollback may restore guest execution state, but host authority epoch, realization revision, and lease generation move monotonically forward;
+- the internal `service://` registry is realization-revision and generation fenced; old readiness never survives a new realization or explicit recovery fence;
+- durable Realm state is append-only, strict, hash-chained, fsynced and single-writer locked; host restart replays historical truth first, while Fabric separately invalidates stale handles/readiness without rewriting history;
+- fail-honest capability reporting distinguishes `verified`, `available-unproven`, `unavailable`, and `not-applicable`; accounting budgets are never presented as proof of kernel enforcement;
+- R0 is internal-only; R1 public-read and R2 supply-chain require a governed Reality gateway and do **not** imply raw Internet access; N3-N5 remain behind the v6/v7 delegated typed-provider authority path;
+- the Cube profile mapper accepts only semantic Realm profiles and fails closed rather than accepting agent-supplied raw network policy;
+- optional `TimedRuntime` performance hooks emit only semantic operation labels plus durations for Acquire/Exec/Spawn/Checkpoint/Resume; request IDs, World IDs, handles, error text, tokens, credentials, and payloads are excluded from the metric sample ABI;
+- Freedom Gauntlet v8 contains exactly 20 stable scenarios exercising real package boundaries for identity, leases, uncertainty, recovery, services, capabilities, Reality crossing, historical evidence nondrift, and `UNAVAILABLE != PASS`;
+- CI generates v8 evidence twice, requires byte identity, scans plaintext/base64/hex forms of the synthetic credential, and publishes a commit-bound `nolane-freedom-v8` artifact without changing the v4/v6/v7 commands.
+
+The deterministic v8 suite proves the host-layer contracts it exercises. It **does not** prove live inter-VM mesh behavior, KVM/hypervisor escape impossibility, kernel resource enforcement, or that an R1/R2 profile has actually reached the public Internet. Those require independent live/substrate evidence; absence of such evidence must remain `UNAVAILABLE` or unverified rather than being upgraded into a PASS claim.
+
 ## Security model
 
 Assume the model, agent, guest root, downloaded packages, webpages, generated code, snapshots, exported files, and agent-provided external-action payloads are hostile.
 
-The Trust Kernel owns authority state outside the guest. A guest snapshot is execution state only; it is never a source of truth for authority epochs, external-effect history, delegation grants/revocation, promotion receipts, or trusted capability records.
+The Trust Kernel owns authority state outside the guest. A guest snapshot is execution state only; it is never a source of truth for authority epochs, external-effect history, delegation grants/revocation, promotion receipts, trusted capability records, Realm policy, lease generations, or recovery readiness.
 
 The central invariant is:
 
@@ -143,11 +162,17 @@ V7 strengthens the provider boundary further:
 
 > **Credentials may cross only from a verified host broker into a typed adapter on a pinned provider route; provider output never defines its own authority or trusted evidence.**
 
+V8 separates internal freedom from external authority:
+
+> **Capability inside a Realm does not imply Reality authority. Host policy, leases, evidence, and typed delegation remain outside guest control.**
+
 ## What is not production-complete yet
 
-Provider Authority Runtime v7 now supplies a host-local credential-broker boundary, hardened HTTPS provider transport, a narrow typed GitHub adapter, uncertainty-safe provider writes, read-only positive reconciliation, and deterministic 20-scenario provider evidence. It still does **not** make `MemoryVault` a production secret store, attest arbitrary broker/KMS/HSM implementations, expose generic authenticated HTTP, implement the full GitHub API, provide distributed consensus, or protect against rollback of the entire host storage device.
+Freedom Plane v8 provides the semantic Realm/runtime/fabric/membrane contracts, durable recovery fencing, fail-honest capability projection, deterministic adversarial evidence, and secret-free timing hooks. Deterministic v8 alone still does **not** establish live inter-VM service reachability, production-grade kernel resource enforcement, KVM escape impossibility, distributed multi-host Realm consensus, or a production scheduler/provider reconciler for every supported substrate.
 
-Live Substrate Gauntlet v5 likewise remains a harness until a `LIVE_PASS` artifact exists for the exact commit on a configured `nolane-kvm` runner. Remaining product gates include a production KMS/HSM-backed broker deployment with backend-specific attestation and rotation policy, additional provider-specific typed adapters where needed, target-backed credential-injection proof on a live KVM runner, durable general artifact-receipt/quarantine storage, hostile artifact corpus testing, and eventually a durable multi-host authority/effect substrate where required.
+Provider Authority Runtime v7 supplies a host-local credential-broker boundary, hardened HTTPS provider transport, a narrow typed GitHub adapter, uncertainty-safe provider writes, read-only positive reconciliation, and deterministic 20-scenario provider evidence. It still does **not** make `MemoryVault` a production secret store, attest arbitrary broker/KMS/HSM implementations, expose generic authenticated HTTP, implement the full GitHub API, provide distributed consensus, or protect against rollback of the entire host storage device.
+
+Live Substrate Gauntlet v5 likewise remains a harness until a `LIVE_PASS` artifact exists for the exact commit on a configured `nolane-kvm` runner. Remaining product gates include a production KMS/HSM-backed broker deployment with backend-specific attestation and rotation policy, additional provider-specific typed adapters where needed, target-backed credential-injection proof on a live KVM runner, live Realm mesh/profile proof, durable general artifact-receipt/quarantine storage, hostile artifact corpus testing, and eventually a durable multi-host authority/effect substrate where required.
 
 None of these deterministic host-layer suites is a claim that the full product is “unescapable” or that every external provider/backend is trusted by default.
 
@@ -161,6 +186,7 @@ See:
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-live-substrate-gauntlet-v5-design.md`
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-delegated-authority-plane-v6-design.md`
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-provider-authority-runtime-v7-design.md`
+- `../docs/superpowers/specs/2026-08-30-nolane-sandbox-freedom-plane-reality-membrane-v8-design.md`
 
 ## Verify
 
@@ -179,6 +205,10 @@ go run ./cmd/nolane-authority-gauntlet --out release-evidence/nolane-authority-v
 # Deterministic typed-provider evidence. CI runs this twice, compares bytes,
 # and rejects plaintext/base64/hex forms of the synthetic credential.
 go run ./cmd/nolane-provider-gauntlet --out release-evidence/nolane-provider-v7.json
+
+# Deterministic Freedom Plane evidence. CI runs this twice, compares bytes,
+# scans plaintext/base64/hex credential forms, and uploads exact-head evidence.
+go run ./cmd/nolane-freedom-gauntlet --out release-evidence/nolane-freedom-v8.json
 
 # Safe on machines without Cube/KVM: must say UNAVAILABLE, never PASS.
 go run ./cmd/nolane-gauntlet-live --mode probe --profile core

@@ -1,0 +1,118 @@
+package fabric
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"sync"
+
+	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/realm"
+)
+
+var (
+	ErrInvalidCapacity    = errors.New("fabric: invalid capacity request")
+	ErrCapacityExhausted  = errors.New("fabric: capacity exhausted")
+	ErrOperationCollision = errors.New("fabric: operation collision")
+)
+
+type Observation struct {
+	Revision     uint64               `json:"revision"`
+	Capacity     realm.ResourceBudget `json:"capacity"`
+	ObservedUnix int64                `json:"observed_unix"`
+}
+
+type ReservationRequest struct {
+	OperationID string
+	RealmID     realm.ID
+	Units       realm.ResourceBudget
+	ExpiresUnix int64
+}
+
+type Reservation struct {
+	ID                  string               `json:"id"`
+	RealmID             realm.ID             `json:"realm_id"`
+	OperationID         string               `json:"operation_id"`
+	RequestDigest       string               `json:"request_digest"`
+	ObservationRevision uint64               `json:"observation_revision"`
+	Units               realm.ResourceBudget `json:"units"`
+	ExpiresUnix         int64                `json:"expires_unix"`
+	EnforcementProven   bool                 `json:"enforcement_proven"`
+}
+
+type Capacity struct {
+	mu           sync.Mutex
+	observation  Observation
+	reservations map[string]Reservation
+	used         realm.ResourceBudget
+}
+
+func NewCapacity() *Capacity {
+	return &Capacity{reservations: make(map[string]Reservation)}
+}
+
+func (c *Capacity) Observe(capacity realm.ResourceBudget) Observation {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.observation.Revision++
+	c.observation.Capacity = capacity
+	return c.observation
+}
+
+func (c *Capacity) Reservation(operationID string) (Reservation, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.reservations[operationID]
+	return r, ok
+}
+
+func (c *Capacity) Reserve(req ReservationRequest) (Reservation, error) {
+	if c == nil || req.OperationID == "" || req.RealmID == "" || !req.Units.Valid() || req.ExpiresUnix <= 0 {
+		return Reservation{}, ErrInvalidCapacity
+	}
+	digest := digestReservation(req)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if prior, ok := c.reservations[req.OperationID]; ok {
+		if prior.RequestDigest != digest {
+			return Reservation{}, ErrOperationCollision
+		}
+		return prior, nil
+	}
+	if c.observation.Revision == 0 || !c.observation.Capacity.Valid() {
+		return Reservation{}, ErrInvalidCapacity
+	}
+	if !fits(c.used, req.Units, c.observation.Capacity) {
+		return Reservation{}, ErrCapacityExhausted
+	}
+	idHash := sha256.Sum256([]byte("nolane.fabric.reservation.v1\x00" + req.OperationID + "\x00" + digest))
+	r := Reservation{
+		ID: hex.EncodeToString(idHash[:]), RealmID: req.RealmID, OperationID: req.OperationID,
+		RequestDigest: digest, ObservationRevision: c.observation.Revision, Units: req.Units,
+		ExpiresUnix: req.ExpiresUnix, EnforcementProven: false,
+	}
+	c.used.CPUUnits += req.Units.CPUUnits
+	c.used.MemoryMiB += req.Units.MemoryMiB
+	c.used.DiskMiB += req.Units.DiskMiB
+	c.reservations[req.OperationID] = r
+	return r, nil
+}
+
+func digestReservation(req ReservationRequest) string {
+	type canonical struct {
+		OperationID string               `json:"operation_id"`
+		RealmID     realm.ID             `json:"realm_id"`
+		Units       realm.ResourceBudget `json:"units"`
+		ExpiresUnix int64                `json:"expires_unix"`
+	}
+	raw, _ := json.Marshal(canonical(req))
+	h := sha256.Sum256(append([]byte("nolane.fabric.reserve.v1\x00"), raw...))
+	return hex.EncodeToString(h[:])
+}
+
+func fits(used, add, cap realm.ResourceBudget) bool {
+	if used.CPUUnits > cap.CPUUnits || used.MemoryMiB > cap.MemoryMiB || used.DiskMiB > cap.DiskMiB {
+		return false
+	}
+	return add.CPUUnits <= cap.CPUUnits-used.CPUUnits && add.MemoryMiB <= cap.MemoryMiB-used.MemoryMiB && add.DiskMiB <= cap.DiskMiB-used.DiskMiB
+}
