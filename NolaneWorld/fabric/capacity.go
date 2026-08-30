@@ -11,9 +11,10 @@ import (
 )
 
 var (
-	ErrInvalidCapacity    = errors.New("fabric: invalid capacity request")
-	ErrCapacityExhausted  = errors.New("fabric: capacity exhausted")
-	ErrOperationCollision = errors.New("fabric: operation collision")
+	ErrInvalidCapacity     = errors.New("fabric: invalid capacity request")
+	ErrCapacityExhausted   = errors.New("fabric: capacity exhausted")
+	ErrRealmBudgetExceeded = errors.New("fabric: realm resource budget exceeded")
+	ErrOperationCollision  = errors.New("fabric: operation collision")
 )
 
 type Observation struct {
@@ -45,10 +46,14 @@ type Capacity struct {
 	observation  Observation
 	reservations map[string]Reservation
 	used         realm.ResourceBudget
+	usedByRealm  map[realm.ID]realm.ResourceBudget
 }
 
 func NewCapacity() *Capacity {
-	return &Capacity{reservations: make(map[string]Reservation)}
+	return &Capacity{
+		reservations: make(map[string]Reservation),
+		usedByRealm:  make(map[realm.ID]realm.ResourceBudget),
+	}
 }
 
 func (c *Capacity) Observe(capacity realm.ResourceBudget) Observation {
@@ -67,12 +72,35 @@ func (c *Capacity) Reservation(operationID string) (Reservation, bool) {
 }
 
 func (c *Capacity) Reserve(req ReservationRequest) (Reservation, error) {
+	return c.reserve(req, nil)
+}
+
+// ReserveWithin applies both host-capacity accounting and the owning Realm's
+// admission budget. The Realm budget is accounting policy, not proof of kernel
+// enforcement; EnforcementProven therefore remains false on the reservation.
+func (c *Capacity) ReserveWithin(req ReservationRequest, realmLimit realm.ResourceBudget) (Reservation, error) {
+	if !realmLimit.Valid() {
+		return Reservation{}, ErrInvalidCapacity
+	}
+	return c.reserve(req, &realmLimit)
+}
+
+func (c *Capacity) reserve(req ReservationRequest, realmLimit *realm.ResourceBudget) (Reservation, error) {
 	if c == nil || req.OperationID == "" || req.RealmID == "" || !req.Units.Valid() || req.ExpiresUnix <= 0 {
 		return Reservation{}, ErrInvalidCapacity
 	}
 	digest := digestReservation(req)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.reservations == nil {
+		c.reservations = make(map[string]Reservation)
+	}
+	if c.usedByRealm == nil {
+		c.usedByRealm = make(map[realm.ID]realm.ResourceBudget)
+	}
+
+	// Replay-before-admission is deliberate. An exact retry returns the
+	// original reservation even if later observations or budgets are tighter.
 	if prior, ok := c.reservations[req.OperationID]; ok {
 		if prior.RequestDigest != digest {
 			return Reservation{}, ErrOperationCollision
@@ -85,15 +113,18 @@ func (c *Capacity) Reserve(req ReservationRequest) (Reservation, error) {
 	if !fits(c.used, req.Units, c.observation.Capacity) {
 		return Reservation{}, ErrCapacityExhausted
 	}
+	if realmLimit != nil && !fits(c.usedByRealm[req.RealmID], req.Units, *realmLimit) {
+		return Reservation{}, ErrRealmBudgetExceeded
+	}
+
 	idHash := sha256.Sum256([]byte("nolane.fabric.reservation.v1\x00" + req.OperationID + "\x00" + digest))
 	r := Reservation{
 		ID: hex.EncodeToString(idHash[:]), RealmID: req.RealmID, OperationID: req.OperationID,
 		RequestDigest: digest, ObservationRevision: c.observation.Revision, Units: req.Units,
 		ExpiresUnix: req.ExpiresUnix, EnforcementProven: false,
 	}
-	c.used.CPUUnits += req.Units.CPUUnits
-	c.used.MemoryMiB += req.Units.MemoryMiB
-	c.used.DiskMiB += req.Units.DiskMiB
+	c.used = addBudget(c.used, req.Units)
+	c.usedByRealm[req.RealmID] = addBudget(c.usedByRealm[req.RealmID], req.Units)
 	c.reservations[req.OperationID] = r
 	return r, nil
 }
@@ -115,4 +146,12 @@ func fits(used, add, cap realm.ResourceBudget) bool {
 		return false
 	}
 	return add.CPUUnits <= cap.CPUUnits-used.CPUUnits && add.MemoryMiB <= cap.MemoryMiB-used.MemoryMiB && add.DiskMiB <= cap.DiskMiB-used.DiskMiB
+}
+
+func addBudget(a, b realm.ResourceBudget) realm.ResourceBudget {
+	return realm.ResourceBudget{
+		CPUUnits:  a.CPUUnits + b.CPUUnits,
+		MemoryMiB: a.MemoryMiB + b.MemoryMiB,
+		DiskMiB:   a.DiskMiB + b.DiskMiB,
+	}
 }
