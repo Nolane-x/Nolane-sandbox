@@ -76,6 +76,10 @@ type CapabilityEvidenceSource interface {
 type CapabilityRequest struct {
 	SessionID     realm.SessionID
 	RealmRevision uint64
+	// Attestation is a legacy compatibility hint surface. Caller-supplied
+	// verification bits and evidence are never trusted; only availability
+	// booleans may be downgraded to AvailableUnproven.
+	Attestation ProviderAttestation
 }
 
 type CapabilityReport struct {
@@ -115,7 +119,7 @@ func (s *Service) Capabilities(ctx context.Context, req CapabilityRequest) (Capa
 		return CapabilityReport{}, err
 	}
 
-	a := ProviderAttestation{}
+	a := untrustedAvailabilityHints(req.Attestation)
 	if s.capabilityEvidence != nil {
 		query := CapabilityEvidenceQuery{RealmID: sess.RealmID, RealmRevision: sess.RealmRevision, PolicyDigest: sess.PolicyDigest}
 		snapshot, found, sourceErr := s.capabilityEvidence.Snapshot(ctx, query)
@@ -155,6 +159,16 @@ func (s *Service) Capabilities(ctx context.Context, req CapabilityRequest) (Capa
 	}
 	report.EvidenceDigest = capabilityDigest(report)
 	return report, nil
+}
+
+func untrustedAvailabilityHints(a ProviderAttestation) ProviderAttestation {
+	return ProviderAttestation{
+		GuestExecAvailable:           a.GuestExecAvailable,
+		SnapshotAvailable:            a.SnapshotAvailable,
+		PublicReadAvailable:          a.PublicReadAvailable,
+		InternalMeshAvailable:        a.InternalMeshAvailable,
+		ResourceEnforcementAvailable: a.ResourceEnforcementAvailable,
+	}
 }
 
 func claim(available, verified bool, evidence string) Claim {
