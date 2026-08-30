@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +17,13 @@ import (
 	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/providerhttp"
 )
 
-const providerResponseLimit int64 = 64 * 1024
+const (
+	providerResponseLimit        int64 = 64 * 1024
+	reconciliationResponseLimit int64 = 8 * 1024 * 1024
+
+	reconcileMaxPages = 10
+	reconcilePageSize = 100
+)
 
 type Config struct {
 	BaseURL string
@@ -77,6 +84,46 @@ func (a *Adapter) Execute(ctx context.Context, request delegation.AdapterRequest
 		return a.executeContents(ctx, request, secret, resource, payload, marker)
 	default:
 		return delegation.Effect{}, ErrInvalidProviderPayload
+	}
+}
+
+func (a *Adapter) Reconcile(ctx context.Context, request delegation.AdapterRequest, secret delegation.Secret) (delegation.ReconcileResult, error) {
+	if a == nil || a.http == nil || ctx == nil || request.IdempotencyKey == "" || len(secret.Bytes()) == 0 {
+		return delegation.ReconcileResult{}, ErrInvalidProviderPayload
+	}
+	marker := actionMarker(request.IdempotencyKey)
+	switch request.Operation {
+	case OpIssueComment:
+		resource, err := parseIssueResource(request.Resource)
+		if err != nil {
+			return delegation.ReconcileResult{}, err
+		}
+		if _, err := decodeCommentPayload(request.Payload); err != nil {
+			return delegation.ReconcileResult{}, err
+		}
+		return a.reconcileComments(ctx, request, secret, resource.Owner, resource.Repo, resource.Number, marker)
+	case OpPullComment:
+		resource, err := parsePullResource(request.Resource)
+		if err != nil {
+			return delegation.ReconcileResult{}, err
+		}
+		if _, err := decodeCommentPayload(request.Payload); err != nil {
+			return delegation.ReconcileResult{}, err
+		}
+		return a.reconcileComments(ctx, request, secret, resource.Owner, resource.Repo, resource.Number, marker)
+	case OpContentsWrite:
+		resource, err := parseContentsResource(request.Resource)
+		if err != nil {
+			return delegation.ReconcileResult{}, err
+		}
+		payload, err := decodeContentsPayload(request.Payload)
+		if err != nil {
+			return delegation.ReconcileResult{}, err
+		}
+		defer zeroBytes(payload.Content)
+		return a.reconcileContents(ctx, request, secret, resource, marker)
+	default:
+		return delegation.ReconcileResult{}, ErrInvalidProviderPayload
 	}
 }
 
@@ -153,6 +200,96 @@ func (a *Adapter) executeContents(ctx context.Context, request delegation.Adapte
 		return delegation.Effect{}, err
 	}
 	return delegation.Effect{Evidence: evidence}, nil
+}
+
+func (a *Adapter) reconcileComments(ctx context.Context, request delegation.AdapterRequest, secret delegation.Secret, owner, repo string, number int64, marker string) (delegation.ReconcileResult, error) {
+	headers := providerHeaders(secret)
+	defer clearHeaders(headers)
+	segments := []string{"repos", owner, repo, "issues", strconv.FormatInt(number, 10), "comments"}
+	needle := "<!-- " + marker + " -->"
+	for page := 1; page <= reconcileMaxPages; page++ {
+		query := url.Values{
+			"page":     []string{strconv.Itoa(page)},
+			"per_page": []string{strconv.Itoa(reconcilePageSize)},
+		}
+		status, response, err := a.http.DoQuery(ctx, http.MethodGet, segments, query, headers, nil, reconciliationResponseLimit)
+		if err != nil {
+			return delegation.ReconcileResult{}, mapTransportError(err)
+		}
+		var comments []struct {
+			ID   int64  `json:"id"`
+			Body string `json:"body"`
+		}
+		decodeErr := decodeProviderJSON(response, &comments)
+		zeroBytes(response)
+		if status != http.StatusOK {
+			return delegation.ReconcileResult{}, ErrProviderRejected
+		}
+		if decodeErr != nil {
+			return delegation.ReconcileResult{}, decodeErr
+		}
+		for _, comment := range comments {
+			if comment.ID > 0 && strings.Contains(comment.Body, needle) {
+				evidence, err := sanitizedEvidence(request.Operation, request.Resource, strconv.FormatInt(comment.ID, 10), marker, status)
+				if err != nil {
+					return delegation.ReconcileResult{}, err
+				}
+				return delegation.ReconcileResult{State: delegation.ReconcileObserved, Evidence: evidence}, nil
+			}
+		}
+	}
+	return delegation.ReconcileResult{State: delegation.ReconcileUnknown}, nil
+}
+
+func (a *Adapter) reconcileContents(ctx context.Context, request delegation.AdapterRequest, secret delegation.Secret, resource ContentsResource, marker string) (delegation.ReconcileResult, error) {
+	headers := providerHeaders(secret)
+	defer clearHeaders(headers)
+	segments := []string{"repos", resource.Owner, resource.Repo, "commits"}
+	for page := 1; page <= reconcileMaxPages; page++ {
+		query := url.Values{
+			"page":     []string{strconv.Itoa(page)},
+			"path":     []string{resource.Path},
+			"per_page": []string{strconv.Itoa(reconcilePageSize)},
+			"sha":      []string{resource.Branch},
+		}
+		status, response, err := a.http.DoQuery(ctx, http.MethodGet, segments, query, headers, nil, reconciliationResponseLimit)
+		if err != nil {
+			return delegation.ReconcileResult{}, mapTransportError(err)
+		}
+		var commits []struct {
+			SHA    string `json:"sha"`
+			Commit struct {
+				Message string `json:"message"`
+			} `json:"commit"`
+		}
+		decodeErr := decodeProviderJSON(response, &commits)
+		zeroBytes(response)
+		if status != http.StatusOK {
+			return delegation.ReconcileResult{}, ErrProviderRejected
+		}
+		if decodeErr != nil {
+			return delegation.ReconcileResult{}, decodeErr
+		}
+		for _, commit := range commits {
+			if validLowerHexSHA(commit.SHA) && hasExactMarkerLine(commit.Commit.Message, marker) {
+				evidence, err := sanitizedEvidence(request.Operation, request.Resource, commit.SHA, marker, status)
+				if err != nil {
+					return delegation.ReconcileResult{}, err
+				}
+				return delegation.ReconcileResult{State: delegation.ReconcileObserved, Evidence: evidence}, nil
+			}
+		}
+	}
+	return delegation.ReconcileResult{State: delegation.ReconcileUnknown}, nil
+}
+
+func hasExactMarkerLine(message, marker string) bool {
+	for _, line := range strings.Split(message, "\n") {
+		if line == marker {
+			return true
+		}
+	}
+	return false
 }
 
 func providerHeaders(secret delegation.Secret) http.Header {
