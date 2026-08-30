@@ -103,6 +103,24 @@ A V5 harness being present in the repository is **not** itself a live/KVM verifi
 - the Delegated Authority Gauntlet v6 contains 15 mandatory scenarios covering resource/operation rebinding, stale epoch, revocation, expiry, adapter confusion, generic authenticated HTTP, action collision, uncertain replay, observed/absent reconciliation, secret echo/absence, and durable journal restart/tamper;
 - `nolane-authority-gauntlet` emits a deterministic, secret-free JSON evidence artifact without altering the Release Gauntlet v4 standard evidence family.
 
+### Provider Authority Runtime v7
+
+- `BrokerVault` turns a host-only opaque `SecretHandle` into a callback-scoped credential lease over a bounded Unix-socket protocol; on Linux it verifies `SO_PEERCRED` **before** sending the handle to the broker;
+- broker messages use one canonical length-prefixed JSON representation, reject unknown/trailing/alternate encodings, enforce credential-size limits, and fail closed on unsupported peer-authentication platforms;
+- `providerhttp` owns its HTTPS client and transport, disables environment proxying and redirects, requires TLS 1.2+, pins one configured origin/base path, validates path segments, and bounds provider responses;
+- host-controlled provider query values are encoded only after the origin/path has been fixed, so query construction cannot rebind the authenticated destination;
+- the first production-shaped typed provider adapter is `github.v1`, limited to `github.repo.contents.write`, `github.issue.comment.create`, and `github.pull_request.comment.create`;
+- GitHub resources and payloads are strict canonical ABIs: parse → typed value → serialize must round-trip exactly, rejecting percent-encoding ambiguity, traversal, delimiter confusion, duplicate/unknown JSON fields, and alternate encodings before provider entry;
+- authenticated writes use fixed GitHub routes, attach a deterministic `nolane-provider-v7:<sha256(request-digest)>` marker, and never retry inside the adapter;
+- provider response bodies are untrusted: successful evidence is rebuilt only from allowlisted bounded object IDs/commit SHAs, while provider failures collapse to stable sentinels without returning raw diagnostics;
+- ambiguous writes remain pending in the existing effect journal, so a retry cannot issue a second provider mutation;
+- GitHub reconciliation is read-only: comments and commits are searched by exact action marker through bounded GET pagination, `Observed` can resolve a pending journal entry, and bounded non-observation remains `Unknown` rather than manufacturing absence;
+- write responses remain capped at 64 KiB while reconciliation has its own bounded 8 MiB page budget; those limits are independently enforced at transport and decoder boundaries;
+- Provider Authority Gauntlet v7 contains 20 mandatory scenarios using real Unix broker sockets, TLS provider servers, typed adapters, the Delegated Authority Plane, and the durable effect journal;
+- v7 evidence is generated twice and byte-compared, is scanned for plaintext/base64/hex forms of the synthetic credential, and includes hash guards proving the canonical V4 and V6 evidence families did not drift.
+
+`BrokerVault` is the host-local trust boundary toward a real secret backend. V7 proves the broker protocol, peer binding, lease semantics, typed provider runtime, uncertainty behavior, reconciliation, and deterministic evidence; it does **not** claim that every broker implementation is a KMS/HSM, or that an unverified external secret backend inherits Nolane trust automatically.
+
 ## Security model
 
 Assume the model, agent, guest root, downloaded packages, webpages, generated code, snapshots, exported files, and agent-provided external-action payloads are hostile.
@@ -121,11 +139,17 @@ V6 strengthens that rule for credentials:
 
 > **The agent requests a typed effect; the host grant chooses the authority and credential. The agent never receives credential material.**
 
+V7 strengthens the provider boundary further:
+
+> **Credentials may cross only from a verified host broker into a typed adapter on a pinned provider route; provider output never defines its own authority or trusted evidence.**
+
 ## What is not production-complete yet
 
-Delegated Authority Plane v6 provides the protocol, durable single-host grant/revocation state, typed adapter boundary, callback-scoped secret lease, reconciliation semantics, and deterministic adversarial evidence. It does **not** claim that `MemoryVault` is production secret storage, does not ship GitHub/AWS/email production adapters, and does not provide distributed consensus or protection against rollback of the entire host storage device.
+Provider Authority Runtime v7 now supplies a host-local credential-broker boundary, hardened HTTPS provider transport, a narrow typed GitHub adapter, uncertainty-safe provider writes, read-only positive reconciliation, and deterministic 20-scenario provider evidence. It still does **not** make `MemoryVault` a production secret store, attest arbitrary broker/KMS/HSM implementations, expose generic authenticated HTTP, implement the full GitHub API, provide distributed consensus, or protect against rollback of the entire host storage device.
 
-Live Substrate Gauntlet v5 likewise remains a harness until a `LIVE_PASS` artifact exists for the exact commit on a configured `nolane-kvm` runner. Remaining product gates include a production KMS/HSM-backed Vault, provider-specific typed adapters with provider idempotency/reconciliation, target-backed credential-injection proof, durable general artifact-receipt/quarantine storage, hostile artifact corpus testing, and eventually a durable multi-host authority/effect substrate where required.
+Live Substrate Gauntlet v5 likewise remains a harness until a `LIVE_PASS` artifact exists for the exact commit on a configured `nolane-kvm` runner. Remaining product gates include a production KMS/HSM-backed broker deployment with backend-specific attestation and rotation policy, additional provider-specific typed adapters where needed, target-backed credential-injection proof on a live KVM runner, durable general artifact-receipt/quarantine storage, hostile artifact corpus testing, and eventually a durable multi-host authority/effect substrate where required.
+
+None of these deterministic host-layer suites is a claim that the full product is “unescapable” or that every external provider/backend is trusted by default.
 
 See:
 
@@ -136,6 +160,7 @@ See:
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-release-gauntlet-v4-design.md`
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-live-substrate-gauntlet-v5-design.md`
 - `../docs/superpowers/specs/2026-08-29-nolane-sandbox-delegated-authority-plane-v6-design.md`
+- `../docs/superpowers/specs/2026-08-29-nolane-sandbox-provider-authority-runtime-v7-design.md`
 
 ## Verify
 
@@ -150,6 +175,10 @@ go run ./cmd/nolane-gauntlet --out release-evidence/nolane-gauntlet-v4.json
 
 # Deterministic delegated-authority evidence. Synthetic secret bytes must not appear.
 go run ./cmd/nolane-authority-gauntlet --out release-evidence/nolane-authority-v6.json
+
+# Deterministic typed-provider evidence. CI runs this twice, compares bytes,
+# and rejects plaintext/base64/hex forms of the synthetic credential.
+go run ./cmd/nolane-provider-gauntlet --out release-evidence/nolane-provider-v7.json
 
 # Safe on machines without Cube/KVM: must say UNAVAILABLE, never PASS.
 go run ./cmd/nolane-gauntlet-live --mode probe --profile core
