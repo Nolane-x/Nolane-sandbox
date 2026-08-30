@@ -39,14 +39,54 @@ func TestSpecValidation(t *testing.T) {
 	}
 }
 
+func TestPolicyDigestBindsExactSpecAndRevision(t *testing.T) {
+	spec := validSpec()
+	first, err := PolicyDigest(spec, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := PolicyDigest(spec, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" || replay != first {
+		t.Fatalf("policy digest is not deterministic: first=%q replay=%q", first, replay)
+	}
+	changedSpec := spec
+	changedSpec.MaxWorlds++
+	changed, err := PolicyDigest(changedSpec, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == first {
+		t.Fatal("policy digest did not change when the host-owned Realm spec changed")
+	}
+	advanced, err := PolicyDigest(spec, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if advanced == first {
+		t.Fatal("policy digest did not bind the exact Realm revision")
+	}
+	if _, err := PolicyDigest(spec, 0); !errors.Is(err, ErrInvalidSpec) {
+		t.Fatalf("zero revision err=%v", err)
+	}
+}
+
 func TestControllerRevisionFenceAndIdentityImmutability(t *testing.T) {
 	store := NewMemoryStore()
 	ctl, err := NewController(store)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	rec, err := ctl.Create(context.Background(), validSpec())
-	if err != nil { t.Fatal(err) }
-	if rec.Revision != 1 { t.Fatalf("revision=%d, want 1", rec.Revision) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Revision != 1 {
+		t.Fatalf("revision=%d, want 1", rec.Revision)
+	}
 
 	changed := rec.Spec
 	changed.MaxWorlds = 8
@@ -61,13 +101,21 @@ func TestControllerRevisionFenceAndIdentityImmutability(t *testing.T) {
 
 	changed.ID = rec.Spec.ID
 	updated, err := ctl.Update(context.Background(), rec.Spec.ID, rec.Revision, changed)
-	if err != nil { t.Fatal(err) }
-	if updated.Revision != 2 { t.Fatalf("revision=%d, want 2", updated.Revision) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Revision != 2 {
+		t.Fatalf("revision=%d, want 2", updated.Revision)
+	}
 
 	if err := ctl.Close(context.Background(), rec.Spec.ID, rec.Revision); !errors.Is(err, ErrStaleRevision) {
 		t.Fatalf("stale close err=%v", err)
 	}
-	if err := ctl.Close(context.Background(), rec.Spec.ID, updated.Revision); err != nil { t.Fatal(err) }
+	if err := ctl.Close(context.Background(), rec.Spec.ID, updated.Revision); err != nil {
+		t.Fatal(err)
+	}
 	closed, ok := store.Realm(rec.Spec.ID)
-	if !ok || !closed.Closed { t.Fatalf("closed=%+v ok=%v", closed, ok) }
+	if !ok || !closed.Closed {
+		t.Fatalf("closed=%+v ok=%v", closed, ok)
+	}
 }
