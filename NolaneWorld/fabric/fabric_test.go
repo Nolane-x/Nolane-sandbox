@@ -47,8 +47,8 @@ func TestAcquireCreatesFreshExactWorldAndReplaysIdempotently(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if first != second { t.Fatalf("replay changed lease: %+v %+v", first, second) }
 	if len(mgr.creates) != 1 || mgr.creates[0] != req.WorldID { t.Fatalf("creates=%v", mgr.creates) }
-	changed := req; changed.Units.MemoryMiB++
-	if _, err := local.Acquire(context.Background(), changed); !errors.Is(err, ErrOperationCollision) { t.Fatalf("collision err=%v", err) }
+	changed:=req; changed.Units.MemoryMiB++
+	if _,err:=local.Acquire(context.Background(),changed);!errors.Is(err,ErrOperationCollision){t.Fatalf("collision err=%v",err)}
 }
 
 func TestAcquireEnforcesAggregateRealmResourceBudgetBeforeRealization(t *testing.T) {
@@ -64,8 +64,8 @@ func TestAcquireEnforcesAggregateRealmResourceBudgetBeforeRealization(t *testing
 	units := realm.ResourceBudget{CPUUnits: 1, MemoryMiB: 768, DiskMiB: 1024}
 	first, err := local.Acquire(context.Background(), AcquireRequest{RealmID: spec.ID, RealmRevision: 1, WorldID: world.ID("world-a"), OperationID: "budget-a", Units: units, ExpiresUnix: now + 60})
 	if err != nil { t.Fatal(err) }
-	if _, err := local.Acquire(context.Background(), AcquireRequest{RealmID: spec.ID, RealmRevision: 1, WorldID: world.ID("world-b"), OperationID: "budget-b", Units: units, ExpiresUnix: now + 60}); err == nil {
-		t.Fatal("aggregate Realm budget was bypassed even though host capacity remained available")
+	if _, err := local.Acquire(context.Background(), AcquireRequest{RealmID: spec.ID, RealmRevision: 1, WorldID: world.ID("world-b"), OperationID: "budget-b", Units: units, ExpiresUnix: now + 60}); !errors.Is(err, ErrRealmBudgetExceeded) {
+		t.Fatalf("over-budget admission err=%v", err)
 	}
 	if len(mgr.creates) != 1 { t.Fatalf("over-budget request entered realization: creates=%v", mgr.creates) }
 	if err := local.Release(context.Background(), spec.ID, first.WorldID, first.Generation); err != nil { t.Fatal(err) }
