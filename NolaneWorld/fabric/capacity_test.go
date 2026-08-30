@@ -101,4 +101,16 @@ func TestReservationIdentityIsScopedByRealm(t *testing.T) {
 	if first.ID == second.ID {
 		t.Fatal("cross-Realm reservations collapsed to one identity")
 	}
+	if _, ok := c.Reservation("shared-op"); ok {
+		t.Fatal("ambiguous compatibility lookup returned a cross-Realm reservation")
+	}
+	if err := c.Release("shared-op"); !errors.Is(err, ErrReservationAmbiguous) {
+		t.Fatalf("ambiguous compatibility release err=%v", err)
+	}
+	if err := c.ReleaseForRealm(a.RealmID, a.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.ReservationForRealm(b.RealmID, b.OperationID); !ok {
+		t.Fatal("releasing Realm A disturbed Realm B reservation")
+	}
 }
