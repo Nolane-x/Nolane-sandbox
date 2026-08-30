@@ -415,7 +415,7 @@ Commit: `feat(nolane): add Provider Authority Gauntlet v7` plus trailer.
 
 **Interfaces:**
 - Existing V4/V6 generation commands remain unchanged.
-- Adds v7 evidence artifact `nolane-provider-v7-${{ github.sha }}`.
+- Adds v7 evidence artifact <code v-pre>nolane-provider-v7-${{ github.sha }}</code>.
 
 - [ ] **Step 1: Extend CI without changing V4/V6 commands**
 
