@@ -51,6 +51,29 @@ func TestAcquireCreatesFreshExactWorldAndReplaysIdempotently(t *testing.T) {
 	if _, err := local.Acquire(context.Background(), changed); !errors.Is(err, ErrOperationCollision) { t.Fatalf("collision err=%v", err) }
 }
 
+func TestAcquireEnforcesAggregateRealmResourceBudgetBeforeRealization(t *testing.T) {
+	store := realm.NewMemoryStore()
+	spec := realm.Spec{ID: realm.ID("realm://budget"), MaxWorlds: 4, DefaultLease: time.Minute, NetworkProfile: realm.R0InternalOnly, ResourceBudget: realm.ResourceBudget{CPUUnits: 2, MemoryMiB: 1024, DiskMiB: 2048}}
+	if _, err := store.CreateRealm(spec); err != nil { t.Fatal(err) }
+	cap := NewCapacity()
+	cap.Observe(realm.ResourceBudget{CPUUnits: 8, MemoryMiB: 8192, DiskMiB: 16384})
+	mgr := newFakeManager()
+	local, err := NewLocal(store, mgr, cap, NewLeaseBook(), NewBaselineCatalog())
+	if err != nil { t.Fatal(err) }
+	now := time.Now().Unix()
+	units := realm.ResourceBudget{CPUUnits: 1, MemoryMiB: 768, DiskMiB: 1024}
+	first, err := local.Acquire(context.Background(), AcquireRequest{RealmID: spec.ID, RealmRevision: 1, WorldID: world.ID("world-a"), OperationID: "budget-a", Units: units, ExpiresUnix: now + 60})
+	if err != nil { t.Fatal(err) }
+	if _, err := local.Acquire(context.Background(), AcquireRequest{RealmID: spec.ID, RealmRevision: 1, WorldID: world.ID("world-b"), OperationID: "budget-b", Units: units, ExpiresUnix: now + 60}); err == nil {
+		t.Fatal("aggregate Realm budget was bypassed even though host capacity remained available")
+	}
+	if len(mgr.creates) != 1 { t.Fatalf("over-budget request entered realization: creates=%v", mgr.creates) }
+	if err := local.Release(context.Background(), spec.ID, first.WorldID, first.Generation); err != nil { t.Fatal(err) }
+	if _, err := local.Acquire(context.Background(), AcquireRequest{RealmID: spec.ID, RealmRevision: 1, WorldID: world.ID("world-b"), OperationID: "budget-b", Units: units, ExpiresUnix: now + 60}); err != nil {
+		t.Fatalf("released Realm budget was not reclaimed: %v", err)
+	}
+}
+
 func TestCheckpointResumeAdvancesAuthorityBeforeNewLease(t *testing.T) {
 	local, _, mgr := testLocal(t)
 	now := time.Now().Unix()
