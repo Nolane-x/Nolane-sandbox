@@ -220,7 +220,7 @@ func (a *Adapter) reconcileComments(ctx context.Context, request delegation.Adap
 			ID   int64  `json:"id"`
 			Body string `json:"body"`
 		}
-		decodeErr := decodeProviderJSON(response, &comments)
+		decodeErr := decodeProviderJSONLimit(response, &comments, reconciliationResponseLimit)
 		zeroBytes(response)
 		if status != http.StatusOK {
 			return delegation.ReconcileResult{}, ErrProviderRejected
@@ -262,7 +262,7 @@ func (a *Adapter) reconcileContents(ctx context.Context, request delegation.Adap
 				Message string `json:"message"`
 			} `json:"commit"`
 		}
-		decodeErr := decodeProviderJSON(response, &commits)
+		decodeErr := decodeProviderJSONLimit(response, &commits, reconciliationResponseLimit)
 		zeroBytes(response)
 		if status != http.StatusOK {
 			return delegation.ReconcileResult{}, ErrProviderRejected
@@ -317,7 +317,11 @@ func mapTransportError(err error) error {
 }
 
 func decodeProviderJSON(raw []byte, out any) error {
-	if len(raw) == 0 || int64(len(raw)) > providerResponseLimit {
+	return decodeProviderJSONLimit(raw, out, providerResponseLimit)
+}
+
+func decodeProviderJSONLimit(raw []byte, out any, limit int64) error {
+	if len(raw) == 0 || limit <= 0 || int64(len(raw)) > limit {
 		return ErrProviderResponse
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
