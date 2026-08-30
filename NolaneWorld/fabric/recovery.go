@@ -1,6 +1,10 @@
 package fabric
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/realm"
+)
 
 var (
 	ErrReservationNotFound      = errors.New("fabric: reservation not found")
@@ -11,13 +15,41 @@ type recoveryFencer interface {
 	FenceRealizationsForRecovery()
 }
 
+// Release is a compatibility path for callers that do not have Realm identity.
+// It fails closed when the same operation ID exists in multiple Realms.
 func (c *Capacity) Release(operationID string) error {
 	if c == nil || operationID == "" {
 		return ErrReservationNotFound
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	r, ok := c.reservations[operationID]
+	key := ""
+	for candidate, r := range c.reservations {
+		if r.OperationID != operationID {
+			continue
+		}
+		if key != "" {
+			return ErrReservationAmbiguous
+		}
+		key = candidate
+	}
+	if key == "" {
+		return ErrReservationNotFound
+	}
+	return c.releaseKeyLocked(key)
+}
+
+func (c *Capacity) ReleaseForRealm(realmID realm.ID, operationID string) error {
+	if c == nil || realmID == "" || operationID == "" {
+		return ErrReservationNotFound
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.releaseKeyLocked(reservationKey(realmID, operationID))
+}
+
+func (c *Capacity) releaseKeyLocked(key string) error {
+	r, ok := c.reservations[key]
 	if !ok {
 		return ErrReservationNotFound
 	}
@@ -39,7 +71,7 @@ func (c *Capacity) Release(operationID string) error {
 	} else {
 		c.usedByRealm[r.RealmID] = realmUsed
 	}
-	delete(c.reservations, operationID)
+	delete(c.reservations, key)
 	return nil
 }
 
