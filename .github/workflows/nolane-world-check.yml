@@ -83,6 +83,26 @@ jobs:
           fi
           rm release-evidence/nolane-provider-v7-repeat.json
 
+      - name: Generate Freedom Plane evidence
+        working-directory: NolaneWorld
+        run: |
+          go run ./cmd/nolane-freedom-gauntlet --out release-evidence/nolane-freedom-v8.json
+          go run ./cmd/nolane-freedom-gauntlet --out release-evidence/nolane-freedom-v8-repeat.json
+          cmp release-evidence/nolane-freedom-v8.json release-evidence/nolane-freedom-v8-repeat.json
+          if grep -Fq 'SYNTHETIC-V8-CREDENTIAL' release-evidence/nolane-freedom-v8.json; then
+            echo 'synthetic credential leaked into v8 evidence as plaintext' >&2
+            exit 1
+          fi
+          if grep -Fq 'U1lOVEhFVElDLVY4LUNSRURFTlRJQUw=' release-evidence/nolane-freedom-v8.json; then
+            echo 'synthetic credential leaked into v8 evidence as base64' >&2
+            exit 1
+          fi
+          if grep -Fq '53594e5448455449432d56382d43524544454e5449414c' release-evidence/nolane-freedom-v8.json; then
+            echo 'synthetic credential leaked into v8 evidence as hex' >&2
+            exit 1
+          fi
+          rm release-evidence/nolane-freedom-v8-repeat.json
+
       - name: Upload Release Gauntlet evidence
         uses: actions/upload-artifact@v4
         with:
@@ -104,5 +124,13 @@ jobs:
         with:
           name: nolane-provider-v7-${{ github.sha }}
           path: NolaneWorld/release-evidence/nolane-provider-v7.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Freedom Plane evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nolane-freedom-v8-${{ github.sha }}
+          path: NolaneWorld/release-evidence/nolane-freedom-v8.json
           if-no-files-found: error
           retention-days: 30
