@@ -1,0 +1,145 @@
+package agentruntime
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+
+	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/membrane"
+	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/realm"
+)
+
+type ClaimState string
+
+const (
+	Verified          ClaimState = "verified"
+	AvailableUnproven ClaimState = "available-unproven"
+	Unavailable       ClaimState = "unavailable"
+	NotApplicable     ClaimState = "not-applicable"
+)
+
+type Claim struct {
+	State    ClaimState `json:"state"`
+	Evidence string     `json:"evidence,omitempty"`
+}
+
+type ProviderAttestation struct {
+	GuestExecAvailable              bool
+	GuestExecVerified               bool
+	GuestExecEvidence               string
+	SnapshotAvailable               bool
+	SnapshotVerified                bool
+	SnapshotEvidence                string
+	PublicReadAvailable             bool
+	PublicReadVerified              bool
+	PublicReadEvidence              string
+	PublicInboundDisabled           bool
+	PublicInboundEvidence           string
+	InternalMeshAvailable           bool
+	InternalMeshVerified            bool
+	InternalMeshEvidence            string
+	FilesystemIsolationVerified     bool
+	FilesystemIsolationEvidence     string
+	ProcessIsolationVerified        bool
+	ProcessIsolationEvidence        string
+	NetworkIsolationVerified        bool
+	NetworkIsolationEvidence        string
+	ResourceEnforcementAvailable    bool
+	ResourceEnforcementVerified     bool
+	ResourceEnforcementEvidence     string
+}
+
+type CapabilityRequest struct {
+	SessionID     realm.SessionID
+	RealmRevision uint64
+	Attestation   ProviderAttestation
+}
+
+type CapabilityReport struct {
+	RealmID               realm.ID             `json:"realm_id"`
+	RealmRevision         uint64               `json:"realm_revision"`
+	NetworkProfile        realm.NetworkProfile `json:"network_profile"`
+	GuestExec             Claim                `json:"guest_exec"`
+	SnapshotRollback      Claim                `json:"snapshot_rollback"`
+	PublicRead            Claim                `json:"public_read"`
+	PublicInbound         Claim                `json:"public_inbound"`
+	InternalMesh          Claim                `json:"internal_mesh"`
+	FilesystemIsolation   Claim                `json:"filesystem_isolation"`
+	ProcessIsolation      Claim                `json:"process_isolation"`
+	NetworkIsolation      Claim                `json:"network_isolation"`
+	ResourceEnforcement   Claim                `json:"resource_enforcement"`
+	AccountingBudget      realm.ResourceBudget `json:"accounting_budget"`
+	EvidenceDigest        string               `json:"evidence_digest"`
+}
+
+func (s *Service) Capabilities(ctx context.Context, req CapabilityRequest) (CapabilityReport, error) {
+	if s == nil {
+		return CapabilityReport{}, ErrInvalidRuntime
+	}
+	sess, err := s.validateSession(req.SessionID, req.RealmRevision)
+	if err != nil {
+		return CapabilityReport{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return CapabilityReport{}, err
+	}
+	rr, ok := s.store.Realm(sess.RealmID)
+	if !ok {
+		return CapabilityReport{}, ErrStaleSession
+	}
+	plan, err := membrane.Plan(rr.Spec.NetworkProfile)
+	if err != nil {
+		return CapabilityReport{}, err
+	}
+	a := req.Attestation
+	report := CapabilityReport{
+		RealmID: sess.RealmID, RealmRevision: sess.RealmRevision, NetworkProfile: rr.Spec.NetworkProfile,
+		GuestExec: claim(a.GuestExecAvailable, a.GuestExecVerified, a.GuestExecEvidence),
+		SnapshotRollback: claim(a.SnapshotAvailable, a.SnapshotVerified, a.SnapshotEvidence),
+		InternalMesh: claim(a.InternalMeshAvailable, a.InternalMeshVerified, a.InternalMeshEvidence),
+		FilesystemIsolation: verifiedOnly(a.FilesystemIsolationVerified, a.FilesystemIsolationEvidence),
+		ProcessIsolation: verifiedOnly(a.ProcessIsolationVerified, a.ProcessIsolationEvidence),
+		NetworkIsolation: verifiedOnly(a.NetworkIsolationVerified, a.NetworkIsolationEvidence),
+		ResourceEnforcement: claim(a.ResourceEnforcementAvailable, a.ResourceEnforcementVerified, a.ResourceEnforcementEvidence),
+		AccountingBudget: rr.Spec.ResourceBudget,
+	}
+	if plan.RequiresRealityGateway {
+		report.PublicRead = claim(a.PublicReadAvailable, a.PublicReadVerified, a.PublicReadEvidence)
+	} else {
+		report.PublicRead = Claim{State: NotApplicable}
+	}
+	if a.PublicInboundDisabled && a.PublicInboundEvidence != "" {
+		report.PublicInbound = Claim{State: Verified, Evidence: a.PublicInboundEvidence}
+	} else if !plan.PublicInboundAllowed {
+		report.PublicInbound = Claim{State: AvailableUnproven}
+	} else {
+		report.PublicInbound = Claim{State: Unavailable}
+	}
+	report.EvidenceDigest = capabilityDigest(report)
+	return report, nil
+}
+
+func claim(available, verified bool, evidence string) Claim {
+	if verified && evidence != "" {
+		return Claim{State: Verified, Evidence: evidence}
+	}
+	if available {
+		return Claim{State: AvailableUnproven}
+	}
+	return Claim{State: Unavailable}
+}
+
+func verifiedOnly(verified bool, evidence string) Claim {
+	if verified && evidence != "" {
+		return Claim{State: Verified, Evidence: evidence}
+	}
+	return Claim{State: Unavailable}
+}
+
+func capabilityDigest(report CapabilityReport) string {
+	report.EvidenceDigest = ""
+	raw, _ := json.Marshal(report)
+	h := sha256.Sum256(append([]byte("nolane.capability-report.v8\x00"), raw...))
+	return hex.EncodeToString(h[:])
+}
