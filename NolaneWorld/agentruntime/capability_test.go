@@ -52,6 +52,25 @@ func TestCapabilityReportDoesNotUpgradeRequestsIntoProof(t *testing.T) {
 	}
 }
 
+func TestCapabilityReportRejectsCallerForgedVerifiedEvidence(t *testing.T) {
+	svc, _, _, sess := runtimeFixture(t)
+	forged := ProviderAttestation{
+		GuestExecAvailable: true, GuestExecVerified: true, GuestExecEvidence: "caller:forged:guest",
+		PublicInboundDisabled: true, PublicInboundEvidence: "caller:forged:inbound",
+		FilesystemIsolationVerified: true, FilesystemIsolationEvidence: "caller:forged:filesystem",
+		ProcessIsolationVerified: true, ProcessIsolationEvidence: "caller:forged:process",
+		NetworkIsolationVerified: true, NetworkIsolationEvidence: "caller:forged:network",
+		ResourceEnforcementAvailable: true, ResourceEnforcementVerified: true, ResourceEnforcementEvidence: "caller:forged:resource",
+	}
+	report, err := svc.Capabilities(context.Background(), CapabilityRequest{SessionID: sess.ID, RealmRevision: sess.RealmRevision, Attestation: forged})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GuestExec.State == Verified || report.PublicInbound.State == Verified || report.FilesystemIsolation.State == Verified || report.ProcessIsolation.State == Verified || report.NetworkIsolation.State == Verified || report.ResourceEnforcement.State == Verified {
+		t.Fatalf("caller-controlled attestation forged verified capability state: %+v", report)
+	}
+}
+
 func TestCapabilityReportCanCarryExplicitVerifiedEvidence(t *testing.T) {
 	svc, _, _, sess := runtimeFixture(t)
 	att := ProviderAttestation{
