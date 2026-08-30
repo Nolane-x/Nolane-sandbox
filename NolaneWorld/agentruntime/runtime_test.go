@@ -12,6 +12,8 @@ func TestAgentFacingTypesDoNotExposeRealizationAuthority(t *testing.T) {
 		reflect.TypeOf(WorldLease{}),
 		reflect.TypeOf(ExecReceipt{}),
 		reflect.TypeOf(CheckpointReceipt{}),
+		reflect.TypeOf(ServiceReceipt{}),
+		reflect.TypeOf(CapabilityReport{}),
 	}
 	for _, typ := range types {
 		for i := 0; i < typ.NumField(); i++ {
@@ -26,12 +28,32 @@ func TestAgentFacingTypesDoNotExposeRealizationAuthority(t *testing.T) {
 	}
 }
 
-func TestRuntimeInterfaceHasNoRealmAdministration(t *testing.T) {
+func TestRuntimeInterfaceIsCompleteAndHasNoRealmAdministration(t *testing.T) {
 	typ := reflect.TypeOf((*Runtime)(nil)).Elem()
+	required := map[string]bool{
+		"Enter": false,
+		"Acquire": false,
+		"Exec": false,
+		"Spawn": false,
+		"Checkpoint": false,
+		"Resume": false,
+		"RegisterService": false,
+		"Capabilities": false,
+		"Release": false,
+	}
 	for i := 0; i < typ.NumMethod(); i++ {
-		name := strings.ToLower(typ.Method(i).Name)
-		if strings.Contains(name, "createrealm") || strings.Contains(name, "updaterealm") || strings.Contains(name, "closerealm") {
-			t.Fatalf("agent Runtime exposes Realm administration: %s", typ.Method(i).Name)
+		name := typ.Method(i).Name
+		lower := strings.ToLower(name)
+		if strings.Contains(lower, "createrealm") || strings.Contains(lower, "updaterealm") || strings.Contains(lower, "closerealm") {
+			t.Fatalf("agent Runtime exposes Realm administration: %s", name)
+		}
+		if _, ok := required[name]; ok {
+			required[name] = true
+		}
+	}
+	for method, present := range required {
+		if !present {
+			t.Errorf("Runtime missing semantic operation %s", method)
 		}
 	}
 }
