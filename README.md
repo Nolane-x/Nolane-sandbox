@@ -92,7 +92,7 @@ Cube Sandbox is a high-performance, out-of-the-box secure sandbox service built 
       <strong>v0.5: AutoPause, Terraform deployer, ARM64 &amp; network policy hardening</strong><br/>
       <b>AutoPause/AutoResume</b> — idle sandboxes auto-suspend and wake on the next request. <b>Terraform one-click cluster deploy</b> <b>ARM64</b> native full-stack support <b>network policy hardening</b> — per-sandbox traffic tokens, policy-routing egress.<br/>
       <a href="./docs/changelog/v0.5.0.md">Changelog →</a> ·
-      <a href="./docs/guide/tencentcloud-terraform-deploy.md">Terraform deploy →</a>
+      <a href="./docs/guide/tencentcloud-terraform-deploy.md">Terraform one-click cluster deploy →</a>
     </td>
   </tr>
   <tr>
@@ -118,7 +118,7 @@ Cube Sandbox is a high-performance, out-of-the-box secure sandbox service built 
     <td valign="top">
       <strong>Snapshot, Clone &amp; Rollback at hundred-millisecond granularity</strong><br/>
       CubeSandbox 0.3.0 introduces the <b>CubeCoW</b> Copy-on-Write snapshot engine, enabling event-level snapshots, instant cloning, and rollback to any saved state.
-      <a href="./docs/changelog/v0.3.0.md">Changelog →</a>
+      <a href="./docs/changelog/v0.3.0.md">v0.3 changelog →</a>
     </td>
   </tr>
   <tr>
@@ -181,7 +181,7 @@ Cube Sandbox is a high-performance, out-of-the-box secure sandbox service built 
     <td width="33%">
       <strong>🚀 Production Deployment</strong><br/><br/>
       Deploy production clusters on Tencent Cloud with one click using Terraform. Also supports deployment on standard Kubernetes clusters (preview).<br/><br/>
-      <a href="./docs/guide/tencentcloud-terraform-deploy.md">Terraform deploy →</a> ·
+      <a href="./docs/guide/tencentcloud-terraform-deploy.md">Terraform one-click cluster deploy →</a> ·
       <a href="./docs/guide/kubernetes/">K8s deploy →</a>
     </td>
     <td width="33%">
@@ -459,3 +459,9 @@ The birth of CubeSandbox stands on the shoulders of open-source giants. Special 
 <p align="center">
   Cube Sandbox is listed in the <a href="https://landscape.cncf.io/?landscape=observability-and-analysis&group=ai-native&item=ai-native-infra--workload-runtime--cubesandbox">CNCF Landscape</a>.
 </p>
+
+## Nolane Sandbox Trust Kernel fork extension
+
+This fork carries the host-owned `NolaneWorld` Trust Kernel above CubeSandbox. Freedom Realm network profiles are semantic host policy, not self-certifying isolation claims. Live Realm Proof v9 requires observed post-profile guest execution, raw-public denial, authenticated ingress positive control followed by unauthenticated denial, and observed cleanup before a report can become host-owned capability evidence. Missing live infrastructure remains `UNAVAILABLE`, never PASS.
+
+See [`NolaneWorld/README.md`](./NolaneWorld/README.md) and [`NolaneWorld/LIVE-REALM-PROOF-V9.md`](./NolaneWorld/LIVE-REALM-PROOF-V9.md) for the architecture, capability truth table, evidence chain, non-claims, and verification commands.
