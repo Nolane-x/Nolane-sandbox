@@ -52,6 +52,7 @@ func TestAdapterIssueCommentWritesOnceWithFixedRouteAndMarker(t *testing.T) {
 			t.Fatalf("body=%q", body.Body)
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"id":123,"body":"SYNTHETIC-V7-SECRET"}`))
 	}))
 	defer server.Close()
