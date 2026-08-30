@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	ErrInvalidCapacity     = errors.New("fabric: invalid capacity request")
-	ErrCapacityExhausted   = errors.New("fabric: capacity exhausted")
-	ErrRealmBudgetExceeded = errors.New("fabric: realm resource budget exceeded")
-	ErrOperationCollision  = errors.New("fabric: operation collision")
+	ErrInvalidCapacity      = errors.New("fabric: invalid capacity request")
+	ErrCapacityExhausted    = errors.New("fabric: capacity exhausted")
+	ErrRealmBudgetExceeded  = errors.New("fabric: realm resource budget exceeded")
+	ErrOperationCollision   = errors.New("fabric: operation collision")
+	ErrReservationAmbiguous = errors.New("fabric: reservation operation ID is ambiguous across Realms")
 )
 
 type Observation struct {
@@ -64,10 +65,37 @@ func (c *Capacity) Observe(capacity realm.ResourceBudget) Observation {
 	return c.observation
 }
 
+// Reservation is retained as a compatibility lookup. It succeeds only when an
+// operation ID is unique across all Realms; callers that know Realm identity
+// should use ReservationForRealm so cross-Realm names can never alias.
 func (c *Capacity) Reservation(operationID string) (Reservation, bool) {
+	if c == nil || operationID == "" {
+		return Reservation{}, false
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	r, ok := c.reservations[operationID]
+	var found Reservation
+	matches := 0
+	for _, r := range c.reservations {
+		if r.OperationID != operationID {
+			continue
+		}
+		found = r
+		matches++
+		if matches > 1 {
+			return Reservation{}, false
+		}
+	}
+	return found, matches == 1
+}
+
+func (c *Capacity) ReservationForRealm(realmID realm.ID, operationID string) (Reservation, bool) {
+	if c == nil || realmID == "" || operationID == "" {
+		return Reservation{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r, ok := c.reservations[reservationKey(realmID, operationID)]
 	return r, ok
 }
 
@@ -90,6 +118,7 @@ func (c *Capacity) reserve(req ReservationRequest, realmLimit *realm.ResourceBud
 		return Reservation{}, ErrInvalidCapacity
 	}
 	digest := digestReservation(req)
+	key := reservationKey(req.RealmID, req.OperationID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.reservations == nil {
@@ -101,7 +130,7 @@ func (c *Capacity) reserve(req ReservationRequest, realmLimit *realm.ResourceBud
 
 	// Replay-before-admission is deliberate. An exact retry returns the
 	// original reservation even if later observations or budgets are tighter.
-	if prior, ok := c.reservations[req.OperationID]; ok {
+	if prior, ok := c.reservations[key]; ok {
 		if prior.RequestDigest != digest {
 			return Reservation{}, ErrOperationCollision
 		}
@@ -117,7 +146,7 @@ func (c *Capacity) reserve(req ReservationRequest, realmLimit *realm.ResourceBud
 		return Reservation{}, ErrRealmBudgetExceeded
 	}
 
-	idHash := sha256.Sum256([]byte("nolane.fabric.reservation.v1\x00" + req.OperationID + "\x00" + digest))
+	idHash := sha256.Sum256([]byte("nolane.fabric.reservation.v1\x00" + string(req.RealmID) + "\x00" + req.OperationID + "\x00" + digest))
 	r := Reservation{
 		ID: hex.EncodeToString(idHash[:]), RealmID: req.RealmID, OperationID: req.OperationID,
 		RequestDigest: digest, ObservationRevision: c.observation.Revision, Units: req.Units,
@@ -125,8 +154,12 @@ func (c *Capacity) reserve(req ReservationRequest, realmLimit *realm.ResourceBud
 	}
 	c.used = addBudget(c.used, req.Units)
 	c.usedByRealm[req.RealmID] = addBudget(c.usedByRealm[req.RealmID], req.Units)
-	c.reservations[req.OperationID] = r
+	c.reservations[key] = r
 	return r, nil
+}
+
+func reservationKey(realmID realm.ID, operationID string) string {
+	return string(realmID) + "\x00" + operationID
 }
 
 func digestReservation(req ReservationRequest) string {
