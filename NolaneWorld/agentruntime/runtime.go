@@ -86,17 +86,29 @@ type ReleaseRequest struct {
 }
 
 type Service struct {
-	store         realm.Store
-	fabric        Fabric
-	guest         substrate.GuestRuntime
-	mu            sync.RWMutex
-	sessions      map[realm.SessionID]Session
-	exec          map[string]ExecReceipt
-	seq           atomic.Uint64
-	instanceNonce [32]byte
+	store              realm.Store
+	fabric             Fabric
+	guest              substrate.GuestRuntime
+	capabilityEvidence CapabilityEvidenceSource
+	mu                 sync.RWMutex
+	sessions           map[realm.SessionID]Session
+	exec               map[string]ExecReceipt
+	seq                atomic.Uint64
+	instanceNonce      [32]byte
 }
 
 func New(store realm.Store, fabricRuntime Fabric, guest substrate.GuestRuntime) (*Service, error) {
+	return newService(store, fabricRuntime, guest, nil)
+}
+
+func NewWithCapabilityEvidenceSource(store realm.Store, fabricRuntime Fabric, guest substrate.GuestRuntime, source CapabilityEvidenceSource) (*Service, error) {
+	if source == nil {
+		return nil, ErrInvalidRuntime
+	}
+	return newService(store, fabricRuntime, guest, source)
+}
+
+func newService(store realm.Store, fabricRuntime Fabric, guest substrate.GuestRuntime, source CapabilityEvidenceSource) (*Service, error) {
 	if store == nil || fabricRuntime == nil || guest == nil {
 		return nil, ErrInvalidRuntime
 	}
@@ -105,12 +117,13 @@ func New(store realm.Store, fabricRuntime Fabric, guest substrate.GuestRuntime) 
 		return nil, fmt.Errorf("%w: session entropy unavailable", ErrInvalidRuntime)
 	}
 	return &Service{
-		store:         store,
-		fabric:        fabricRuntime,
-		guest:         guest,
-		sessions:      make(map[realm.SessionID]Session),
-		exec:          make(map[string]ExecReceipt),
-		instanceNonce: instanceNonce,
+		store:              store,
+		fabric:             fabricRuntime,
+		guest:              guest,
+		capabilityEvidence: source,
+		sessions:           make(map[realm.SessionID]Session),
+		exec:               make(map[string]ExecReceipt),
+		instanceNonce:      instanceNonce,
 	}, nil
 }
 
