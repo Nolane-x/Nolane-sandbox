@@ -122,7 +122,9 @@ func newHarness(profile realm.NetworkProfile) (*harness, error) {
 	guest := &simGuest{}
 	runtime, err := agentruntime.New(store, local, guest)
 	if err != nil { return nil, err }
-	session, err := runtime.Enter(context.Background(), agentruntime.EnterRequest{RealmID: spec.ID, ExpectedRevision: 1, PolicyDigest: "freedom-policy-v8"})
+	policyDigest, err := realm.PolicyDigest(spec, 1)
+	if err != nil { return nil, err }
+	session, err := runtime.Enter(context.Background(), agentruntime.EnterRequest{RealmID: spec.ID, ExpectedRevision: 1, PolicyDigest: policyDigest})
 	if err != nil { return nil, err }
 	return &harness{store: store, local: local, manager: manager, guest: guest, runtime: runtime, session: session, spec: spec}, nil
 }
@@ -163,8 +165,8 @@ func agentProjectionSecretFree(_ context.Context, p *gauntlet.Probe) error {
 	return defend(p, "semantic-projection-boundary", "agent-projection-secret-free", "agent-facing types remained semantic and contained no realization handle or credential-bearing field")
 }
 
-func realmPolicyHostOnly(_ context.Context, p *gauntlet.Probe) error {
-	if err := attack(p, "runtime-admin-surface-inspection", "the agent Runtime interface was inspected for Realm policy administration methods"); err != nil { return err }
+func realmPolicyHostOnly(ctx context.Context, p *gauntlet.Probe) error {
+	if err := attack(p, "runtime-policy-broadening-attempt", "the agent attempted Realm administration, a forged session-policy binding, and aggregate resource admission beyond the Realm budget"); err != nil { return err }
 	typ := reflect.TypeOf((*agentruntime.Runtime)(nil)).Elem()
 	required := map[string]bool{"Enter": false, "Acquire": false, "Exec": false, "Spawn": false, "Checkpoint": false, "Resume": false, "RegisterService": false, "Capabilities": false, "Release": false}
 	for i := 0; i < typ.NumMethod(); i++ {
@@ -174,7 +176,31 @@ func realmPolicyHostOnly(_ context.Context, p *gauntlet.Probe) error {
 		if _, ok := required[name]; ok { required[name] = true }
 	}
 	for _, ok := range required { if !ok { return errors.New("semantic Runtime surface incomplete") } }
-	return defend(p, "host-owned-realm-controller", "realm-policy-host-only", "agent runtime exposed Realm use operations but no Realm create/update/close policy authority")
+
+	h, err := newHarness(realm.R0InternalOnly)
+	if err != nil { return err }
+	if _, err := h.runtime.Enter(ctx, agentruntime.EnterRequest{RealmID: h.spec.ID, ExpectedRevision: h.session.RealmRevision, PolicyDigest: "forged-policy"}); !errors.Is(err, agentruntime.ErrPolicyMismatch) {
+		return errors.New("caller-forged policy digest was accepted")
+	}
+
+	store := realm.NewMemoryStore()
+	spec := realm.Spec{ID: realm.ID("realm://budget-evidence"), MaxWorlds: 4, DefaultLease: time.Minute, NetworkProfile: realm.R0InternalOnly, ResourceBudget: realm.ResourceBudget{CPUUnits: 2, MemoryMiB: 1024, DiskMiB: 2048}}
+	if _, err := store.CreateRealm(spec); err != nil { return err }
+	capacity := fabric.NewCapacity()
+	capacity.Observe(realm.ResourceBudget{CPUUnits: 8, MemoryMiB: 8192, DiskMiB: 16384})
+	manager := newSimManager()
+	local, err := fabric.NewLocal(store, manager, capacity, fabric.NewLeaseBook(), fabric.NewBaselineCatalog())
+	if err != nil { return err }
+	units := realm.ResourceBudget{CPUUnits: 1, MemoryMiB: 768, DiskMiB: 1024}
+	expires := time.Now().Add(time.Minute).Unix()
+	first, err := local.Acquire(ctx, fabric.AcquireRequest{RealmID: spec.ID, RealmRevision: 1, WorldID: world.ID("world-a"), OperationID: "budget-a", Units: units, ExpiresUnix: expires})
+	if err != nil { return err }
+	_, err = local.Acquire(ctx, fabric.AcquireRequest{RealmID: spec.ID, RealmRevision: 1, WorldID: world.ID("world-b"), OperationID: "budget-b", Units: units, ExpiresUnix: expires})
+	if !errors.Is(err, fabric.ErrRealmBudgetExceeded) || len(manager.creates) != 1 {
+		return errors.New("Realm resource budget was bypassed before realization")
+	}
+	if err := local.Release(ctx, spec.ID, first.WorldID, first.Generation); err != nil { return err }
+	return defend(p, "host-owned-realm-policy-and-budget", "realm-policy-broadening-denied", "Runtime exposed no policy administration, session policy used the host-derived digest, and aggregate Realm admission stayed within the host-owned budget")
 }
 
 func acquireIdempotency(ctx context.Context, p *gauntlet.Probe) error {
