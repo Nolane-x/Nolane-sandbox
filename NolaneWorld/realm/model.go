@@ -11,20 +11,20 @@ import (
 )
 
 var (
-	ErrInvalidSpec      = errors.New("realm: invalid spec")
-	ErrRealmExists      = errors.New("realm: already exists")
-	ErrRealmNotFound    = errors.New("realm: not found")
-	ErrRealmClosed      = errors.New("realm: closed")
-	ErrStaleRevision    = errors.New("realm: stale revision")
-	ErrIdentityRebind   = errors.New("realm: identity rebind")
-	ErrInvalidWorld     = errors.New("realm: invalid world record")
-	ErrInvalidService   = errors.New("realm: invalid service record")
-	ErrInvalidOperation = errors.New("realm: invalid operation record")
+	ErrInvalidSpec       = errors.New("realm: invalid spec")
+	ErrRealmExists       = errors.New("realm: already exists")
+	ErrRealmNotFound     = errors.New("realm: not found")
+	ErrRealmClosed       = errors.New("realm: closed")
+	ErrStaleRevision     = errors.New("realm: stale revision")
+	ErrIdentityRebind    = errors.New("realm: identity rebind")
+	ErrInvalidWorld      = errors.New("realm: invalid world record")
+	ErrInvalidService    = errors.New("realm: invalid service record")
+	ErrInvalidOperation  = errors.New("realm: invalid operation record")
 	ErrInvalidCheckpoint = errors.New("realm: invalid checkpoint record")
-	ErrStoreClosed      = errors.New("realm: store closed")
-	ErrStoreCorrupt     = errors.New("realm: store corrupt")
-	ErrStoreLocked      = errors.New("realm: store locked")
-	ErrLockUnsupported  = errors.New("realm: store lock unsupported")
+	ErrStoreClosed       = errors.New("realm: store closed")
+	ErrStoreCorrupt      = errors.New("realm: store corrupt")
+	ErrStoreLocked       = errors.New("realm: store locked")
+	ErrLockUnsupported   = errors.New("realm: store lock unsupported")
 )
 
 type ID string
@@ -111,14 +111,16 @@ func (p WorldPhase) Valid() bool {
 }
 
 type WorldRecord struct {
-	RealmID             ID               `json:"realm_id"`
-	WorldID             world.ID         `json:"world_id"`
-	RealizationRevision uint64           `json:"realization_revision"`
-	Phase               WorldPhase       `json:"phase"`
-	LeaseGeneration     uint64           `json:"lease_generation"`
-	LeaseExpiresUnix    int64            `json:"lease_expires_unix"`
+	RealmID             ID                `json:"realm_id"`
+	WorldID             world.ID          `json:"world_id"`
+	RealizationRevision uint64            `json:"realization_revision"`
+	Phase               WorldPhase        `json:"phase"`
+	LeaseGeneration     uint64            `json:"lease_generation"`
+	LeaseExpiresUnix    int64             `json:"lease_expires_unix"`
 	Handle               substrate.Handle `json:"handle,omitempty"`
-	CapabilityDigest     string           `json:"capability_digest,omitempty"`
+	CapabilityDigest    string            `json:"capability_digest,omitempty"`
+	AcquireOperationID  string            `json:"acquire_operation_id,omitempty"`
+	BaselineID          string            `json:"baseline_id,omitempty"`
 }
 
 func (r WorldRecord) Validate() error {
@@ -129,15 +131,15 @@ func (r WorldRecord) Validate() error {
 }
 
 type CheckpointRecord struct {
-	ID                  CheckpointID      `json:"id"`
-	RealmID             ID                `json:"realm_id"`
-	RealmRevision       uint64            `json:"realm_revision"`
-	WorldID             world.ID          `json:"world_id"`
-	RealizationRevision uint64            `json:"realization_revision"`
-	AuthorityEpoch      world.Epoch       `json:"authority_epoch"`
+	ID                  CheckpointID       `json:"id"`
+	RealmID             ID                 `json:"realm_id"`
+	RealmRevision       uint64             `json:"realm_revision"`
+	WorldID             world.ID           `json:"world_id"`
+	RealizationRevision uint64             `json:"realization_revision"`
+	AuthorityEpoch      world.Epoch        `json:"authority_epoch"`
 	Snapshot            substrate.Snapshot `json:"snapshot"`
-	CapabilityDigest    string            `json:"capability_digest,omitempty"`
-	PolicyDigest        string            `json:"policy_digest,omitempty"`
+	CapabilityDigest    string             `json:"capability_digest,omitempty"`
+	PolicyDigest        string             `json:"policy_digest,omitempty"`
 }
 
 func (r CheckpointRecord) Validate() error {
@@ -170,6 +172,6 @@ type OperationRecord struct {
 	RealmID       ID     `json:"realm_id"`
 	OperationID   string `json:"operation_id"`
 	RequestDigest string `json:"request_digest"`
-	Status         string `json:"status"`
-	ReceiptDigest  string `json:"receipt_digest,omitempty"`
+	Status        string `json:"status"`
+	ReceiptDigest string `json:"receipt_digest,omitempty"`
 }
