@@ -1,6 +1,9 @@
 package realm
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
@@ -82,6 +85,25 @@ func (s Spec) Validate() error {
 		return ErrInvalidSpec
 	}
 	return nil
+}
+
+// PolicyDigest canonically binds a host-owned Realm specification to its exact
+// revision. Callers may present this value as an expectation, but they cannot
+// choose the policy bytes that a Session is bound to.
+func PolicyDigest(spec Spec, revision uint64) (string, error) {
+	if revision == 0 || spec.Validate() != nil {
+		return "", ErrInvalidSpec
+	}
+	type canonical struct {
+		Revision uint64 `json:"revision"`
+		Spec     Spec   `json:"spec"`
+	}
+	raw, err := json.Marshal(canonical{Revision: revision, Spec: spec})
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(append([]byte("nolane.realm.policy.v1\x00"), raw...))
+	return hex.EncodeToString(h[:]), nil
 }
 
 type RealmRecord struct {
