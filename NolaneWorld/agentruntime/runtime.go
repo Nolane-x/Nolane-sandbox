@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -85,20 +86,32 @@ type ReleaseRequest struct {
 }
 
 type Service struct {
-	store    realm.Store
-	fabric   Fabric
-	guest    substrate.GuestRuntime
-	mu       sync.RWMutex
-	sessions map[realm.SessionID]Session
-	exec     map[string]ExecReceipt
-	seq      atomic.Uint64
+	store         realm.Store
+	fabric        Fabric
+	guest         substrate.GuestRuntime
+	mu            sync.RWMutex
+	sessions      map[realm.SessionID]Session
+	exec          map[string]ExecReceipt
+	seq           atomic.Uint64
+	instanceNonce [32]byte
 }
 
 func New(store realm.Store, fabricRuntime Fabric, guest substrate.GuestRuntime) (*Service, error) {
 	if store == nil || fabricRuntime == nil || guest == nil {
 		return nil, ErrInvalidRuntime
 	}
-	return &Service{store: store, fabric: fabricRuntime, guest: guest, sessions: make(map[realm.SessionID]Session), exec: make(map[string]ExecReceipt)}, nil
+	var instanceNonce [32]byte
+	if _, err := rand.Read(instanceNonce[:]); err != nil {
+		return nil, fmt.Errorf("%w: session entropy unavailable", ErrInvalidRuntime)
+	}
+	return &Service{
+		store:         store,
+		fabric:        fabricRuntime,
+		guest:         guest,
+		sessions:      make(map[realm.SessionID]Session),
+		exec:          make(map[string]ExecReceipt),
+		instanceNonce: instanceNonce,
+	}, nil
 }
 
 func (s *Service) Enter(ctx context.Context, req EnterRequest) (Session, error) {
@@ -126,7 +139,7 @@ func (s *Service) Enter(ctx context.Context, req EnterRequest) (Session, error) 
 		return Session{}, ErrPolicyMismatch
 	}
 	n := s.seq.Add(1)
-	raw := fmt.Sprintf("nolane.session.v1\x00%s\x00%d\x00%s\x00%d", req.RealmID, rec.Revision, policyDigest, n)
+	raw := fmt.Sprintf("nolane.session.v2\x00%x\x00%s\x00%d\x00%s\x00%d", s.instanceNonce, req.RealmID, rec.Revision, policyDigest, n)
 	h := sha256.Sum256([]byte(raw))
 	session := Session{ID: realm.SessionID("session://" + hex.EncodeToString(h[:])), RealmID: req.RealmID, RealmRevision: rec.Revision, PolicyDigest: policyDigest}
 	s.mu.Lock()
