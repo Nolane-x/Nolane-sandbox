@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 
 	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/membrane"
 	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/realm"
@@ -17,6 +18,11 @@ const (
 	AvailableUnproven ClaimState = "available-unproven"
 	Unavailable       ClaimState = "unavailable"
 	NotApplicable     ClaimState = "not-applicable"
+)
+
+var (
+	ErrCapabilityEvidenceMismatch  = errors.New("agentruntime: capability evidence binding mismatch")
+	ErrCapabilityEvidenceUnavailable = errors.New("agentruntime: capability evidence unavailable")
 )
 
 type Claim struct {
@@ -50,10 +56,26 @@ type ProviderAttestation struct {
 	ResourceEnforcementEvidence     string
 }
 
+type CapabilityEvidenceQuery struct {
+	RealmID       realm.ID
+	RealmRevision uint64
+	PolicyDigest  string
+}
+
+type CapabilityEvidenceSnapshot struct {
+	RealmID       realm.ID
+	RealmRevision uint64
+	PolicyDigest  string
+	Attestation   ProviderAttestation
+}
+
+type CapabilityEvidenceSource interface {
+	Snapshot(context.Context, CapabilityEvidenceQuery) (CapabilityEvidenceSnapshot, bool, error)
+}
+
 type CapabilityRequest struct {
 	SessionID     realm.SessionID
 	RealmRevision uint64
-	Attestation   ProviderAttestation
 }
 
 type CapabilityReport struct {
@@ -92,7 +114,22 @@ func (s *Service) Capabilities(ctx context.Context, req CapabilityRequest) (Capa
 	if err != nil {
 		return CapabilityReport{}, err
 	}
-	a := req.Attestation
+
+	a := ProviderAttestation{}
+	if s.capabilityEvidence != nil {
+		query := CapabilityEvidenceQuery{RealmID: sess.RealmID, RealmRevision: sess.RealmRevision, PolicyDigest: sess.PolicyDigest}
+		snapshot, found, sourceErr := s.capabilityEvidence.Snapshot(ctx, query)
+		if sourceErr != nil {
+			return CapabilityReport{}, errors.Join(ErrCapabilityEvidenceUnavailable, sourceErr)
+		}
+		if found {
+			if snapshot.RealmID != query.RealmID || snapshot.RealmRevision != query.RealmRevision || snapshot.PolicyDigest != query.PolicyDigest {
+				return CapabilityReport{}, ErrCapabilityEvidenceMismatch
+			}
+			a = snapshot.Attestation
+		}
+	}
+
 	report := CapabilityReport{
 		RealmID: sess.RealmID, RealmRevision: sess.RealmRevision, NetworkProfile: rr.Spec.NetworkProfile,
 		GuestExec: claim(a.GuestExecAvailable, a.GuestExecVerified, a.GuestExecEvidence),
