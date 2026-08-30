@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -58,7 +59,7 @@ func TestFreedomGauntletApprovesAndIsByteDeterministic(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !first.Approved || !second.Approved {
-		t.Fatalf("freedom gauntlet not approved: first=%v second=%v", first.Approved, second.Approved)
+		t.Fatalf("freedom gauntlet not approved: first=%v failures=%s second=%v failures=%s", first.Approved, failureSummary(first), second.Approved, failureSummary(second))
 	}
 	if len(first.Scenarios) != 20 || len(second.Scenarios) != 20 {
 		t.Fatalf("unexpected report size: %d %d", len(first.Scenarios), len(second.Scenarios))
@@ -81,11 +82,24 @@ func TestFreedomGauntletApprovesAndIsByteDeterministic(t *testing.T) {
 	}
 }
 
+func failureSummary(report gauntlet.Report) string {
+	parts := make([]string, 0)
+	for _, ev := range report.Scenarios {
+		if ev.Outcome != gauntlet.OutcomePass {
+			parts = append(parts, fmt.Sprintf("%s[%s:%s events=%v]", ev.ID, ev.FailureCode, ev.FailureMessage, ev.Events))
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
 func TestFreedomEvidenceContainsNoSyntheticCredentialOrReversibleEncoding(t *testing.T) {
 	policy := gauntlet.Policy{ProductID: gauntlet.ProductNolaneSandbox, ScenarioTimeout: 5 * time.Second}
 	report, err := RunStandard(context.Background(), policy)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !report.Approved {
+		t.Fatalf("cannot scan rejected report: %s", failureSummary(report))
 	}
 	raw, err := gauntlet.MarshalReport(report)
 	if err != nil {
