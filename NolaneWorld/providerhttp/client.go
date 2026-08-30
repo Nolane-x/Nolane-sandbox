@@ -10,12 +10,13 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+	"unicode/utf8"
 )
 
 var (
-	ErrInvalidProviderConfig  = errors.New("provider http: invalid configuration")
-	ErrInvalidProviderRoute   = errors.New("provider http: invalid route")
-	ErrProviderTransport      = errors.New("provider http: transport failure")
+	ErrInvalidProviderConfig    = errors.New("provider http: invalid configuration")
+	ErrInvalidProviderRoute     = errors.New("provider http: invalid route")
+	ErrProviderTransport        = errors.New("provider http: transport failure")
 	ErrProviderResponseTooLarge = errors.New("provider http: response too large")
 )
 
@@ -64,6 +65,17 @@ func New(cfg Config) (*Client, error) {
 }
 
 func (c *Client) Do(ctx context.Context, method string, segments []string, headers http.Header, body []byte, maxResponseBytes int64) (int, []byte, error) {
+	return c.do(ctx, method, segments, nil, headers, body, maxResponseBytes)
+}
+
+func (c *Client) DoQuery(ctx context.Context, method string, segments []string, query url.Values, headers http.Header, body []byte, maxResponseBytes int64) (int, []byte, error) {
+	if err := validateQuery(query); err != nil {
+		return 0, nil, err
+	}
+	return c.do(ctx, method, segments, query, headers, body, maxResponseBytes)
+}
+
+func (c *Client) do(ctx context.Context, method string, segments []string, query url.Values, headers http.Header, body []byte, maxResponseBytes int64) (int, []byte, error) {
 	if c == nil || c.client == nil || c.base == nil || ctx == nil {
 		return 0, nil, ErrInvalidProviderConfig
 	}
@@ -78,6 +90,9 @@ func (c *Client) Do(ctx context.Context, method string, segments []string, heade
 	u, err := buildURL(c.base, c.basePath, segments)
 	if err != nil {
 		return 0, nil, err
+	}
+	if query != nil {
+		u.RawQuery = query.Encode()
 	}
 	var reader io.Reader
 	if body != nil {
@@ -110,4 +125,42 @@ func (c *Client) Do(ctx context.Context, method string, segments []string, heade
 		return resp.StatusCode, nil, ErrProviderResponseTooLarge
 	}
 	return resp.StatusCode, raw, nil
+}
+
+func validateQuery(query url.Values) error {
+	if len(query) > 32 {
+		return ErrInvalidProviderRoute
+	}
+	for key, values := range query {
+		if !validQueryKey(key) || len(values) != 1 || !validQueryValue(values[0]) {
+			return ErrInvalidProviderRoute
+		}
+	}
+	return nil
+}
+
+func validQueryKey(key string) bool {
+	if len(key) < 1 || len(key) > 128 {
+		return false
+	}
+	for i := 0; i < len(key); i++ {
+		c := key[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validQueryValue(value string) bool {
+	if len(value) > 4096 || !utf8.ValidString(value) {
+		return false
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
