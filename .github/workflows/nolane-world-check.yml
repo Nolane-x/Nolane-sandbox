@@ -107,6 +107,40 @@ jobs:
           fi
           rm release-evidence/nolane-freedom-v8-repeat.json
 
+      - name: Generate Live Realm Proof v9 negative-control evidence
+        working-directory: NolaneWorld
+        env:
+          NOLANE_CUBE_API_KEY: SYNTHETIC-V9-CUBE-CREDENTIAL
+        run: |
+          go run ./cmd/nolane-realm-gauntlet-live \
+            --mode probe \
+            --profile R0_INTERNAL_ONLY \
+            --raw-public-kind http \
+            --raw-public-target https://example.invalid/nolane-v9-negative-control \
+            --out release-evidence/nolane-realm-live-v9-unavailable.json
+          go run ./cmd/nolane-realm-gauntlet-live \
+            --mode probe \
+            --profile R0_INTERNAL_ONLY \
+            --raw-public-kind http \
+            --raw-public-target https://example.invalid/nolane-v9-negative-control \
+            --out release-evidence/nolane-realm-live-v9-unavailable-repeat.json
+          cmp release-evidence/nolane-realm-live-v9-unavailable.json release-evidence/nolane-realm-live-v9-unavailable-repeat.json
+          grep -Fq '"status": "UNAVAILABLE"' release-evidence/nolane-realm-live-v9-unavailable.json
+          grep -Fq '"approved": false' release-evidence/nolane-realm-live-v9-unavailable.json
+          if grep -Fq 'SYNTHETIC-V9-CUBE-CREDENTIAL' release-evidence/nolane-realm-live-v9-unavailable.json; then
+            echo 'synthetic credential leaked into v9 evidence as plaintext' >&2
+            exit 1
+          fi
+          if grep -Fq 'U1lOVEhFVElDLVY5LUNVQkUtQ1JFREVOVElBTA==' release-evidence/nolane-realm-live-v9-unavailable.json; then
+            echo 'synthetic credential leaked into v9 evidence as base64' >&2
+            exit 1
+          fi
+          if grep -Fq '53594e5448455449432d56392d435542452d43524544454e5449414c' release-evidence/nolane-realm-live-v9-unavailable.json; then
+            echo 'synthetic credential leaked into v9 evidence as hex' >&2
+            exit 1
+          fi
+          rm release-evidence/nolane-realm-live-v9-unavailable-repeat.json
+
       - name: Upload Release Gauntlet evidence
         uses: actions/upload-artifact@v4
         with:
@@ -136,5 +170,13 @@ jobs:
         with:
           name: nolane-freedom-v8-${{ github.sha }}
           path: NolaneWorld/release-evidence/nolane-freedom-v8.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Live Realm Proof v9 negative-control evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nolane-realm-live-v9-unavailable-${{ github.sha }}
+          path: NolaneWorld/release-evidence/nolane-realm-live-v9-unavailable.json
           if-no-files-found: error
           retention-days: 30
