@@ -81,3 +81,24 @@ func TestReserveWithinFencesPerRealmBudgetAndReleaseReclaimsIt(t *testing.T) {
 		t.Fatalf("released Realm budget was not reclaimed: %v", err)
 	}
 }
+
+func TestReservationIdentityIsScopedByRealm(t *testing.T) {
+	c := NewCapacity()
+	c.Observe(realm.ResourceBudget{CPUUnits: 8, MemoryMiB: 8192, DiskMiB: 16384})
+	limit := realm.ResourceBudget{CPUUnits: 4, MemoryMiB: 4096, DiskMiB: 8192}
+	units := realm.ResourceBudget{CPUUnits: 1, MemoryMiB: 512, DiskMiB: 1024}
+	expires := time.Now().Add(time.Minute).Unix()
+	a := ReservationRequest{OperationID: "shared-op", RealmID: realm.ID("realm://a"), Units: units, ExpiresUnix: expires}
+	b := ReservationRequest{OperationID: "shared-op", RealmID: realm.ID("realm://b"), Units: units, ExpiresUnix: expires}
+	first, err := c.ReserveWithin(a, limit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := c.ReserveWithin(b, limit)
+	if err != nil {
+		t.Fatalf("independent Realm operation IDs collided: %v", err)
+	}
+	if first.ID == second.ID {
+		t.Fatal("cross-Realm reservations collapsed to one identity")
+	}
+}
