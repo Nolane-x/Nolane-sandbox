@@ -31,6 +31,8 @@ type Runtime interface {
 	Spawn(context.Context, SpawnRequest) (WorldLease, error)
 	Checkpoint(context.Context, CheckpointRequest) (CheckpointReceipt, error)
 	Resume(context.Context, ResumeRequest) (WorldLease, error)
+	RegisterService(context.Context, ServiceRequest) (ServiceReceipt, error)
+	Capabilities(context.Context, CapabilityRequest) (CapabilityReport, error)
 	Release(context.Context, ReleaseRequest) error
 }
 
