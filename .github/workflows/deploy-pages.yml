@@ -6,23 +6,31 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/deploy-pages.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
 # Allow only one concurrent deployment; do not cancel in-progress runs so
 # that production deployments are always allowed to finish.
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
-# Workflow-level permissions: read source + write Pages artifact + OIDC token
+# Default to source read only. Jobs opt into the minimum Pages permissions
+# required for observation or deployment.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      pages_enabled: ${{ steps.pages.outputs.enabled }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,8 +44,42 @@ jobs:
           cache: npm
           cache-dependency-path: docs/package-lock.json
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+      # A fork may legitimately have no GitHub Pages site. Probe that state
+      # explicitly instead of letting configure-pages turn a 404 into a false
+      # docs-build failure. Unexpected statuses remain hard failures.
+      - name: Detect Pages configuration
+        id: pages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          response_file="${RUNNER_TEMP}/github-pages-site.json"
+          status="$({
+            curl --silent --show-error \
+              --output "${response_file}" \
+              --write-out '%{http_code}' \
+              --header 'Accept: application/vnd.github+json' \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages"
+          })"
+
+          case "${status}" in
+            200)
+              echo 'enabled=true' >> "${GITHUB_OUTPUT}"
+              ;;
+            404)
+              echo 'enabled=false' >> "${GITHUB_OUTPUT}"
+              echo '::notice title=GitHub Pages disabled::Docs build remains mandatory; configure, upload, and deploy are skipped for this repository state.'
+              ;;
+            *)
+              echo "::error title=GitHub Pages probe failed::Unexpected HTTP status ${status}."
+              cat "${response_file}"
+              exit 1
+              ;;
+          esac
 
       - name: Install dependencies
         run: npm ci
@@ -47,14 +89,23 @@ jobs:
         run: npm run docs:build
         working-directory: docs
 
+      - name: Setup Pages
+        if: steps.pages.outputs.enabled == 'true'
+        uses: actions/configure-pages@v5
+
       - name: Upload Pages artifact
+        if: steps.pages.outputs.enabled == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/.vitepress/dist
 
   deploy:
     needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && needs.build.outputs.pages_enabled == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
