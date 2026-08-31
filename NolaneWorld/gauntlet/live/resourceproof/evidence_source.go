@@ -25,11 +25,17 @@ type capabilityEvidenceSource struct {
 	snapshot agentruntime.CapabilityEvidenceSnapshot
 }
 
-// NewCapabilityEvidenceSource converts one sealed v11 LIVE_PASS into immutable
-// host-owned capability evidence bound to the exact Realm policy and runtime
-// realization that produced the causal CPU and memory observations.
-func NewCapabilityEvidenceSource(report Report, binding CapabilityEvidenceBinding) (agentruntime.CapabilityEvidenceSource, error) {
-	if err := VerifyReport(report); err != nil || report.Status != live.StatusLivePass || !report.Approved {
+// NewCapabilityEvidenceSource converts one package-owned trusted v11 LIVE_PASS
+// into immutable capability evidence bound to the exact Realm policy and
+// runtime realization that produced the causal CPU and memory observations.
+// Plain Report documents are intentionally not accepted here: canonical bytes
+// alone cannot prove host provenance.
+func NewCapabilityEvidenceSource(trusted TrustedReport, binding CapabilityEvidenceBinding) (agentruntime.CapabilityEvidenceSource, error) {
+	if err := VerifyTrustedReport(trusted); err != nil {
+		return nil, ErrInvalidCapabilityEvidence
+	}
+	report := trusted.Report()
+	if report.Status != live.StatusLivePass || !report.Approved {
 		return nil, ErrInvalidCapabilityEvidence
 	}
 	if binding.RealmID == "" || binding.RealmRevision == 0 || strings.TrimSpace(binding.PolicyDigest) == "" ||
