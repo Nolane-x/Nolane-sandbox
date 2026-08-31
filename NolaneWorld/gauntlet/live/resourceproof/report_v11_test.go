@@ -46,8 +46,9 @@ func validMemoryObservation() MemoryObservation {
 	}
 }
 
-func TestBuildReportVerifiesCPUAndMemoryWithoutOverclaimingDisk(t *testing.T) {
-	report := BuildReport(live.ModeRequireLive, validBinding(), validCPUObservation(), validMemoryObservation())
+func TestTrustedReportVerifiesCPUAndMemoryWithoutOverclaimingDisk(t *testing.T) {
+	trusted := buildTrustedReport(live.ModeRequireLive, validBinding(), validCPUObservation(), validMemoryObservation())
+	report := trusted.Report()
 	if report.Status != live.StatusLivePass || !report.Approved {
 		t.Fatalf("causal live resource proof did not pass: %+v", report)
 	}
@@ -63,15 +64,18 @@ func TestBuildReportVerifiesCPUAndMemoryWithoutOverclaimingDisk(t *testing.T) {
 	if report.Digest == "" {
 		t.Fatal("missing canonical report digest")
 	}
-	if err := VerifyReport(report); err != nil {
-		t.Fatalf("valid report rejected: %v", err)
+	if err := VerifyTrustedReport(trusted); err != nil {
+		t.Fatalf("valid trusted report rejected: %v", err)
+	}
+	if err := VerifyReport(report); err == nil {
+		t.Fatal("plain report document retained trusted provenance authority")
 	}
 }
 
 func TestVoluntaryExit137CannotManufactureMemoryProof(t *testing.T) {
 	memory := validMemoryObservation()
 	memory.OOMEventsAfter = memory.OOMEventsBefore
-	report := BuildReport(live.ModeRequireLive, validBinding(), validCPUObservation(), memory)
+	report := buildTrustedReport(live.ModeRequireLive, validBinding(), validCPUObservation(), memory).Report()
 	if report.Status == live.StatusLivePass || report.Approved || report.Memory.State == agentruntime.Verified {
 		t.Fatalf("exit 137 without authoritative OOM delta manufactured proof: %+v", report)
 	}
@@ -81,7 +85,7 @@ func TestCPUPressureWithoutThrottleDeltaCannotManufactureProof(t *testing.T) {
 	cpu := validCPUObservation()
 	cpu.NrThrottledAfter = cpu.NrThrottledBefore
 	cpu.ThrottledUsecAfter = cpu.ThrottledUsecBefore
-	report := BuildReport(live.ModeRequireLive, validBinding(), cpu, validMemoryObservation())
+	report := buildTrustedReport(live.ModeRequireLive, validBinding(), cpu, validMemoryObservation()).Report()
 	if report.Status == live.StatusLivePass || report.Approved || report.CPU.State == agentruntime.Verified {
 		t.Fatalf("CPU pressure without authoritative throttle delta manufactured proof: %+v", report)
 	}
@@ -90,14 +94,14 @@ func TestCPUPressureWithoutThrottleDeltaCannotManufactureProof(t *testing.T) {
 func TestEffectiveLimitMismatchFailsClosed(t *testing.T) {
 	cpu := validCPUObservation()
 	cpu.EffectiveQuotaMicros++
-	report := BuildReport(live.ModeRequireLive, validBinding(), cpu, validMemoryObservation())
+	report := buildTrustedReport(live.ModeRequireLive, validBinding(), cpu, validMemoryObservation()).Report()
 	if report.Status != live.StatusLiveFail || report.Approved {
 		t.Fatalf("CPU readback mismatch did not fail closed: %+v", report)
 	}
 
 	memory := validMemoryObservation()
 	memory.EffectiveLimitBytes++
-	report = BuildReport(live.ModeRequireLive, validBinding(), validCPUObservation(), memory)
+	report = buildTrustedReport(live.ModeRequireLive, validBinding(), validCPUObservation(), memory).Report()
 	if report.Status != live.StatusLiveFail || report.Approved {
 		t.Fatalf("memory readback mismatch did not fail closed: %+v", report)
 	}
@@ -108,7 +112,7 @@ func TestFixtureEvidenceIsUnavailableNotPass(t *testing.T) {
 	cpu.Source = SourceFixture
 	memory := validMemoryObservation()
 	memory.Source = SourceFixture
-	report := BuildReport(live.ModeRequireLive, validBinding(), cpu, memory)
+	report := buildTrustedReport(live.ModeRequireLive, validBinding(), cpu, memory).Report()
 	if report.Status != live.StatusUnavailable || report.Approved {
 		t.Fatalf("fixture evidence must remain UNAVAILABLE, got %+v", report)
 	}
@@ -117,13 +121,27 @@ func TestFixtureEvidenceIsUnavailableNotPass(t *testing.T) {
 	}
 }
 
-func TestTamperedResourceReportDigestIsRejected(t *testing.T) {
-	report := BuildReport(live.ModeRequireLive, validBinding(), validCPUObservation(), validMemoryObservation())
-	if err := VerifyReport(report); err != nil {
+func TestTamperedTrustedResourceReportDigestIsRejected(t *testing.T) {
+	trusted := buildTrustedReport(live.ModeRequireLive, validBinding(), validCPUObservation(), validMemoryObservation())
+	if err := VerifyTrustedReport(trusted); err != nil {
 		t.Fatal(err)
 	}
-	report.CPU.Observation.NrThrottledAfter++
-	if err := VerifyReport(report); err == nil {
-		t.Fatal("tampered report was accepted")
+	tampered := trusted.Report()
+	tampered.CPU.Observation.NrThrottledAfter++
+	if err := verifyTrustedDocument(tampered); err == nil {
+		t.Fatal("tampered trusted report document was accepted")
+	}
+}
+
+func TestPublicBuildReportTreatsLiveHostLabelAsUntrustedMetadata(t *testing.T) {
+	report := BuildReport(live.ModeRequireLive, validBinding(), validCPUObservation(), validMemoryObservation())
+	if report.Status != live.StatusUnavailable || report.Approved {
+		t.Fatalf("public report builder elevated a copyable provenance label: %+v", report)
+	}
+	if report.CPU.State == agentruntime.Verified || report.Memory.State == agentruntime.Verified {
+		t.Fatalf("public report builder minted verified enforcement: %+v", report)
+	}
+	if err := VerifyReport(report); err != nil {
+		t.Fatalf("canonical untrusted report was rejected: %v", err)
 	}
 }
