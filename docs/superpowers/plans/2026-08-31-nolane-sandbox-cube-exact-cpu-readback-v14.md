@@ -21,7 +21,18 @@ Contracts:
 
 Expected RED: exact quota/period metric assertions fail because `prometheus.go` currently exports only the derived cores ratio.
 
-Verification gate: `Unit Test Check` must select Cubelet (and existing CubeCow companion target) for both amd64 and arm64 because the changed path is under `Cubelet/**`.
+### Producer CI authority discovered during RED
+
+The repository's existing `Unit Test Check` does select Cubelet for changes under `Cubelet/**`, but its `cubelet-pkg-test` make target executes only `go test -short ./pkg/...`. The producer boundary for this wave lives under `Cubelet/plugins/cube/internals/resourcemetrics`, so a green broad Cubelet job did **not** prove the new producer contract had executed.
+
+Wave 14 therefore adds `.github/workflows/cube-host-resource-contract.yml` as the durable focused authority for this boundary. It runs:
+
+```text
+cd Cubelet
+go test -short ./plugins/cube/internals/resourcemetrics
+```
+
+on both amd64 and arm64. RED is accepted only when this focused workflow executes the real package and fails on the missing exact quota/period series. The existing broad Cubelet Unit Test Check remains valuable regression coverage, but it is not treated as substitute evidence for this producer package.
 
 ## Task 2 — Prove RED at the Nolane consumer boundary
 
@@ -51,7 +62,7 @@ Modify `Cubelet/plugins/cube/internals/resourcemetrics/prometheus.go`:
 - retain existing `cpu_limit_cores` for compatibility;
 - do not export `CGroupPath` or any private host locator.
 
-Run focused producer tests and full Cubelet CI.
+Run the focused producer contract on both amd64 and arm64. Retain the repository's existing broad Cubelet checks as additional regression coverage.
 
 ## Task 4 — Implement consumer GREEN
 
@@ -77,15 +88,18 @@ Verify that:
 - no v13 compatibility field was silently renamed;
 - no OOM/task provenance claim was introduced.
 
+The exact quota/period fields are producer readback scalars, not a general arbitrary-`uint64` serialization claim and not enforcement attestation. Prometheus transports gauge values through floating-point representation; v14 does not expand this boundary into a generic integer evidence protocol.
+
 ## Task 6 — Exact-SHA release closure
 
 1. Confirm every applicable fresh PR workflow for the final SHA.
 2. Inspect PR review comments/threads and resolve payload findings.
 3. Ensure all commits carry accepted contribution provenance; never fabricate human DCO.
-4. Merge with `expected_head_sha` locked to the reviewed candidate.
-5. Verify `master` points to the merge result and the merged tree contains the reviewed v14 changes.
-6. Verify fresh push-to-master Cubelet Unit Test Check and Nolane World Check.
-7. Only then mark Wave 14 closed.
+4. Require a fresh successful `Cube Host Resource Contract` run for the final production-code tree on both amd64 and arm64, plus full Nolane World unit/race/vet evidence.
+5. Merge with `expected_head_sha` locked to the reviewed candidate.
+6. Verify `master` points to the merge result and the merged tree contains the reviewed v14 changes.
+7. Verify fresh push-to-master `Cube Host Resource Contract` and Nolane World Check. Retain broad Cubelet Unit Test Check as additional regression coverage when it is scheduled.
+8. Only then mark Wave 14 closed.
 
 ## Deferred next wave
 
