@@ -19,6 +19,9 @@ type SourceKind string
 type ReasonCode string
 
 const (
+	// SourceLiveHost is descriptive provenance metadata only. It is deliberately
+	// not an authority token: public callers may copy this value, so BuildReport
+	// must never upgrade a claim merely because this label is present.
 	SourceLiveHost SourceKind = "live-host"
 	SourceFixture  SourceKind = "fixture"
 
@@ -98,7 +101,35 @@ type Report struct {
 	Digest        string         `json:"digest"`
 }
 
+// TrustedReport separates a serializable report document from the authority to
+// consume that document as live capability evidence. Its state is intentionally
+// unexported, so code outside this package cannot mint one from caller-supplied
+// observations. A future concrete host adapter must live inside this trust
+// boundary and may call buildTrustedReport only after it has obtained the
+// corresponding host-owned observations.
+type TrustedReport struct {
+	report Report
+}
+
+// Report returns a copy suitable for logging or artifact serialization. The
+// returned document is evidence data, not an authority-bearing capability.
+func (t TrustedReport) Report() Report { return t.report }
+
+// BuildReport classifies public/caller-supplied observations. Even if a caller
+// labels them "live-host", provenance is not established by a copyable string,
+// so this path is fail-honest and can never mint VERIFIED live enforcement.
 func BuildReport(mode live.Mode, binding Binding, cpu CPUObservation, memory MemoryObservation) Report {
+	return buildReport(mode, binding, cpu, memory, false)
+}
+
+// buildTrustedReport is package-owned on purpose. It is the only path that may
+// classify causal CPU/memory observations as live proof. Production callers
+// must not receive a public constructor for this authority boundary.
+func buildTrustedReport(mode live.Mode, binding Binding, cpu CPUObservation, memory MemoryObservation) TrustedReport {
+	return TrustedReport{report: buildReport(mode, binding, cpu, memory, true)}
+}
+
+func buildReport(mode live.Mode, binding Binding, cpu CPUObservation, memory MemoryObservation, trusted bool) Report {
 	report := Report{
 		SchemaVersion: SchemaVersion,
 		Mode:          mode,
@@ -112,7 +143,7 @@ func BuildReport(mode live.Mode, binding Binding, cpu CPUObservation, memory Mem
 	if !bindingValid(binding) || (mode != live.ModeProbe && mode != live.ModeRequireLive) {
 		return seal(report)
 	}
-	if cpu.Source != SourceLiveHost || memory.Source != SourceLiveHost {
+	if !trusted || cpu.Source != SourceLiveHost || memory.Source != SourceLiveHost {
 		report.Status = live.StatusUnavailable
 		report.Reason = ReasonEvidenceUnavailable
 		report.CPU.Reason = ReasonEvidenceUnavailable
@@ -147,11 +178,32 @@ func BuildReport(mode live.Mode, binding Binding, cpu CPUObservation, memory Mem
 	return seal(report)
 }
 
+// VerifyReport validates only the public, untrusted report domain. In
+// particular it rejects a forged LIVE_PASS document even when every numeric
+// field is internally consistent.
 func VerifyReport(report Report) error {
 	if report.SchemaVersion != SchemaVersion {
 		return ErrInvalidReport
 	}
 	expected := BuildReport(report.Mode, report.Binding, report.CPU.Observation, report.Memory.Observation)
+	if !reflect.DeepEqual(report, expected) {
+		return ErrInvalidReport
+	}
+	return nil
+}
+
+// VerifyTrustedReport validates a package-owned authority wrapper. This is the
+// verification primitive used by capability projection; plain Report values
+// are never accepted as proof of provenance.
+func VerifyTrustedReport(trusted TrustedReport) error {
+	return verifyTrustedDocument(trusted.report)
+}
+
+func verifyTrustedDocument(report Report) error {
+	if report.SchemaVersion != SchemaVersion {
+		return ErrInvalidReport
+	}
+	expected := buildReport(report.Mode, report.Binding, report.CPU.Observation, report.Memory.Observation, true)
 	if !reflect.DeepEqual(report, expected) {
 		return ErrInvalidReport
 	}
