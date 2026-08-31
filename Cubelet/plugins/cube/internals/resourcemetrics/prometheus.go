@@ -35,6 +35,8 @@ var (
 	hostCPUPeriods          = prometheus.NewDesc("cubesandbox_host_sandbox_cpu_periods_total", "CPU scheduling periods for the current sandbox since its host cgroup assignment baseline.", hostLabels, nil)
 	hostCPUThrottledPeriods = prometheus.NewDesc("cubesandbox_host_sandbox_cpu_throttled_periods_total", "Throttled CPU periods for the current sandbox since its host cgroup assignment baseline.", hostLabels, nil)
 	hostCPULimit            = prometheus.NewDesc("cubesandbox_host_sandbox_cpu_limit_cores", "Configured CPU limit for the host sandbox cgroup in cores.", hostLabels, nil)
+	hostCPULimitQuota       = prometheus.NewDesc("cubesandbox_host_sandbox_cpu_limit_quota_microseconds", "Configured CPU quota for the host sandbox cgroup in microseconds.", hostLabels, nil)
+	hostCPULimitPeriod      = prometheus.NewDesc("cubesandbox_host_sandbox_cpu_limit_period_microseconds", "Configured CPU period for the host sandbox cgroup in microseconds.", hostLabels, nil)
 	hostMemoryCurrent       = prometheus.NewDesc("cubesandbox_host_sandbox_memory_current_bytes", "Current memory charged to the host sandbox cgroup.", hostLabels, nil)
 	hostMemoryLimit         = prometheus.NewDesc("cubesandbox_host_sandbox_memory_limit_bytes", "Configured memory limit for the host sandbox cgroup.", hostLabels, nil)
 	hostMemoryFailures      = prometheus.NewDesc("cubesandbox_host_sandbox_memory_failures_total", "Host cgroup memory limit failures for the current sandbox since its assignment baseline.", hostLabels, nil)
@@ -63,6 +65,7 @@ func (c *prometheusCollector) Describe(ch chan<- *prometheus.Desc) {
 		guestEpoch, guestEpochStarted,
 		hostCPUUsage, hostCPUUser, hostCPUSystem, hostCPUThrottled,
 		hostCPUPeriods, hostCPUThrottledPeriods, hostCPULimit,
+		hostCPULimitQuota, hostCPULimitPeriod,
 		hostMemoryCurrent, hostMemoryLimit, hostMemoryFailures,
 	} {
 		ch <- desc
@@ -130,8 +133,10 @@ func collectHostPrometheus(ch chan<- prometheus.Metric, latest HostSandboxLatest
 	ch <- prometheus.MustNewConstMetric(hostCPUThrottled, prometheus.CounterValue, seconds(snapshot.CPUThrottledTotalNS), labels...)
 	ch <- prometheus.MustNewConstMetric(hostCPUPeriods, prometheus.CounterValue, float64(snapshot.CPUPeriodsTotal), labels...)
 	ch <- prometheus.MustNewConstMetric(hostCPUThrottledPeriods, prometheus.CounterValue, float64(snapshot.CPUThrottledPeriodsTotal), labels...)
-	if !snapshot.CPULimitUnlimited && snapshot.CPULimitPeriodUS > 0 {
+	if !snapshot.CPULimitUnlimited && snapshot.CPULimitQuotaUS > 0 && snapshot.CPULimitPeriodUS > 0 {
 		ch <- prometheus.MustNewConstMetric(hostCPULimit, prometheus.GaugeValue, float64(snapshot.CPULimitQuotaUS)/float64(snapshot.CPULimitPeriodUS), labels...)
+		ch <- prometheus.MustNewConstMetric(hostCPULimitQuota, prometheus.GaugeValue, float64(snapshot.CPULimitQuotaUS), labels...)
+		ch <- prometheus.MustNewConstMetric(hostCPULimitPeriod, prometheus.GaugeValue, float64(snapshot.CPULimitPeriodUS), labels...)
 	}
 	ch <- prometheus.MustNewConstMetric(hostMemoryCurrent, prometheus.GaugeValue, float64(snapshot.MemoryCurrentBytes), labels...)
 	if !snapshot.MemoryLimitUnlimited {
