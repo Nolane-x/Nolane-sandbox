@@ -141,6 +141,45 @@ jobs:
           fi
           rm release-evidence/nolane-realm-live-v9-unavailable-repeat.json
 
+      - name: Generate State Continuity Evidence Fusion v10 negative-control evidence
+        working-directory: NolaneWorld
+        env:
+          NOLANE_CUBE_API_KEY: SYNTHETIC-V10-CUBE-CREDENTIAL
+          NOLANE_CUBE_API_URL: ''
+          NOLANE_CUBE_TEMPLATE_ID: ''
+          NOLANE_CUBE_SANDBOX_DOMAIN: ''
+          NOLANE_CUBE_PROXY_SCHEME: ''
+        run: |
+          go run ./cmd/nolane-capability-gauntlet-live \
+            --mode probe \
+            --profile R0_INTERNAL_ONLY \
+            --raw-public-kind http \
+            --raw-public-target https://example.invalid/nolane-v10-negative-control \
+            --out release-evidence/nolane-capability-live-v10-unavailable.json
+          go run ./cmd/nolane-capability-gauntlet-live \
+            --mode probe \
+            --profile R0_INTERNAL_ONLY \
+            --raw-public-kind http \
+            --raw-public-target https://example.invalid/nolane-v10-negative-control \
+            --out release-evidence/nolane-capability-live-v10-unavailable-repeat.json
+          cmp release-evidence/nolane-capability-live-v10-unavailable.json release-evidence/nolane-capability-live-v10-unavailable-repeat.json
+          grep -Fq '"status": "UNAVAILABLE"' release-evidence/nolane-capability-live-v10-unavailable.json
+          grep -Fq '"approved": false' release-evidence/nolane-capability-live-v10-unavailable.json
+          grep -Fq '"reason": "config_missing"' release-evidence/nolane-capability-live-v10-unavailable.json
+          if grep -Fq 'SYNTHETIC-V10-CUBE-CREDENTIAL' release-evidence/nolane-capability-live-v10-unavailable.json; then
+            echo 'synthetic credential leaked into v10 evidence as plaintext' >&2
+            exit 1
+          fi
+          if grep -Fq 'U1lOVEhFVElDLVYxMC1DVUJFLUNSRURFTlRJQUw=' release-evidence/nolane-capability-live-v10-unavailable.json; then
+            echo 'synthetic credential leaked into v10 evidence as base64' >&2
+            exit 1
+          fi
+          if grep -Fq '53594e5448455449432d5631302d435542452d43524544454e5449414c' release-evidence/nolane-capability-live-v10-unavailable.json; then
+            echo 'synthetic credential leaked into v10 evidence as hex' >&2
+            exit 1
+          fi
+          rm release-evidence/nolane-capability-live-v10-unavailable-repeat.json
+
       - name: Upload Release Gauntlet evidence
         uses: actions/upload-artifact@v4
         with:
@@ -178,5 +217,13 @@ jobs:
         with:
           name: nolane-realm-live-v9-unavailable-${{ github.sha }}
           path: NolaneWorld/release-evidence/nolane-realm-live-v9-unavailable.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload State Continuity Evidence Fusion v10 negative-control evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: nolane-capability-live-v10-unavailable-${{ github.sha }}
+          path: NolaneWorld/release-evidence/nolane-capability-live-v10-unavailable.json
           if-no-files-found: error
           retention-days: 30
