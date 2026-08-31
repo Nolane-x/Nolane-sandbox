@@ -9,8 +9,8 @@ import (
 	live "github.com/Nolane-x/Nolane-sandbox/NolaneWorld/gauntlet/live"
 )
 
-func passingResourceReport() Report {
-	return BuildReport(live.ModeRequireLive, validBinding(), validCPUObservation(), validMemoryObservation())
+func passingResourceReport() TrustedReport {
+	return buildTrustedReport(live.ModeRequireLive, validBinding(), validCPUObservation(), validMemoryObservation())
 }
 
 func exactCapabilityBinding() CapabilityEvidenceBinding {
@@ -25,8 +25,8 @@ func exactCapabilityBinding() CapabilityEvidenceBinding {
 }
 
 func TestResourceEvidenceSourceProjectsOnlyProvedDimensions(t *testing.T) {
-	report := passingResourceReport()
-	source, err := NewCapabilityEvidenceSource(report, exactCapabilityBinding())
+	trusted := passingResourceReport()
+	source, err := NewCapabilityEvidenceSource(trusted, exactCapabilityBinding())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,40 +53,46 @@ func TestResourceEvidenceSourceProjectsOnlyProvedDimensions(t *testing.T) {
 }
 
 func TestResourceEvidenceSourceRejectsStaleRealizationOrRuntimeBinding(t *testing.T) {
-	report := passingResourceReport()
+	trusted := passingResourceReport()
 	binding := exactCapabilityBinding()
 	binding.RealizationRevision++
-	if _, err := NewCapabilityEvidenceSource(report, binding); !errors.Is(err, ErrInvalidCapabilityEvidence) {
+	if _, err := NewCapabilityEvidenceSource(trusted, binding); !errors.Is(err, ErrInvalidCapabilityEvidence) {
 		t.Fatalf("stale realization binding err=%v", err)
 	}
 	binding = exactCapabilityBinding()
 	binding.RuntimeDigest = "different-runtime"
-	if _, err := NewCapabilityEvidenceSource(report, binding); !errors.Is(err, ErrInvalidCapabilityEvidence) {
+	if _, err := NewCapabilityEvidenceSource(trusted, binding); !errors.Is(err, ErrInvalidCapabilityEvidence) {
 		t.Fatalf("stale runtime binding err=%v", err)
 	}
 }
 
-func TestResourceEvidenceSourceRejectsUnavailableAndTamperedReports(t *testing.T) {
+func TestResourceEvidenceSourceRejectsUnavailableAndTamperedTrustedReports(t *testing.T) {
 	cpu := validCPUObservation()
 	cpu.Source = SourceFixture
 	memory := validMemoryObservation()
 	memory.Source = SourceFixture
-	unavailable := BuildReport(live.ModeRequireLive, validBinding(), cpu, memory)
+	unavailable := buildTrustedReport(live.ModeRequireLive, validBinding(), cpu, memory)
 	if _, err := NewCapabilityEvidenceSource(unavailable, exactCapabilityBinding()); !errors.Is(err, ErrInvalidCapabilityEvidence) {
 		t.Fatalf("unavailable report err=%v", err)
 	}
 
-	tampered := passingResourceReport()
+	trusted := passingResourceReport()
+	tampered := trusted.Report()
 	tampered.Memory.Observation.OOMEventsAfter++
-	if _, err := NewCapabilityEvidenceSource(tampered, exactCapabilityBinding()); !errors.Is(err, ErrInvalidCapabilityEvidence) {
-		t.Fatalf("tampered report err=%v", err)
+	forgedWrapper := TrustedReport{report: tampered}
+	if _, err := NewCapabilityEvidenceSource(forgedWrapper, exactCapabilityBinding()); !errors.Is(err, ErrInvalidCapabilityEvidence) {
+		t.Fatalf("tampered trusted report err=%v", err)
+	}
+
+	if _, err := NewCapabilityEvidenceSource(TrustedReport{}, exactCapabilityBinding()); !errors.Is(err, ErrInvalidCapabilityEvidence) {
+		t.Fatalf("zero trusted report err=%v", err)
 	}
 }
 
 func TestResourceEvidenceSourceReturnsNothingForRealmPolicyMismatch(t *testing.T) {
-	report := passingResourceReport()
+	trusted := passingResourceReport()
 	binding := exactCapabilityBinding()
-	source, err := NewCapabilityEvidenceSource(report, binding)
+	source, err := NewCapabilityEvidenceSource(trusted, binding)
 	if err != nil {
 		t.Fatal(err)
 	}
