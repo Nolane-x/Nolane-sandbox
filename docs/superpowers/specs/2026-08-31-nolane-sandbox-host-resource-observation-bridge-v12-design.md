@@ -1,93 +1,110 @@
 # Nolane Sandbox Host Resource Observation Bridge v12 — Design
 
 ## Status
-Approved implementation design for the v12 wave. This wave builds on Typed Resource Enforcement Proof v11 without changing v11 proof semantics.
+Implementation design for the v12 wave, revised after RED uncovered the v11 provenance boundary. v12 builds on Typed Resource Enforcement Proof v11 without changing v11 report semantics or schema version.
 
 ## Problem
-v11 can verify typed CPU and memory enforcement only when it receives trusted host observations. The repository still lacks a production host observer that obtains those observations from the Linux cgroup substrate. Without that bridge, hosted fixtures remain `UNAVAILABLE` and live CPU/memory claims cannot be minted from the real host.
+v11 can verify typed CPU and memory enforcement only from a package-owned `TrustedReport`. The repository lacked the mechanical host observer that normalizes Linux cgroup readback/counters and causal pressure outcomes into the exact v11 scalar proof contract.
+
+The first design placed those mechanics in a child package. RED review showed that this is unsafe as an authority boundary: a child package cannot construct the unexported state of `resourceproof.TrustedReport`, while exporting a constructor that accepts caller-provided observations/callbacks would reintroduce provenance laundering.
 
 ## Goal
-Add a host-only observer that converts real cgroup readback/counters plus host-controlled pressure/task status into the exact scalar `resourceproof.Observation` contract used by v11.
+Add a host-observation bridge that:
 
-The bridge MUST NOT expose cgroup paths, task handles, provider handles, secrets, or write authority to the agent/runtime capability surface.
+- normalizes real Linux cgroup v1/v2 CPU and memory state;
+- requires causal throttling and OOM evidence around host-controlled pressure;
+- preserves the package-owned trusted-report mint boundary;
+- emits only the scalar v11 observation contract;
+- never exposes host locators, task handles, provider handles, credentials, or write authority to the agent/runtime capability surface.
 
-## Architecture
+## Corrected authority architecture
 
-### Dependency direction
-`resourceproof` remains the semantic verifier. A new child package `resourceproof/hostobserver` owns Linux/cgroup observation mechanics and depends only on the Go standard library plus the parent proof contract.
+### Semantic and authority ownership
+`resourceproof` owns both verification semantics and the authority-bearing observer composition. The production observer implementation therefore lives in the parent `resourceproof` package.
 
-It MUST NOT import the Cubelet module or its large dependency graph. Cubelet/live-host integration supplies only host-owned callbacks/roots to the observer.
+Parsing helpers may be split later, but no child/sibling package is allowed to receive a public path that converts caller-controlled host observations into `TrustedReport`.
 
-### Host-only inputs
-The observer receives:
+### Why there is no generic public live constructor in v12
+The current Cube live API does not expose an opaque host realization handle that simultaneously binds:
+
+1. the exact Realm/revision/policy/runtime realization;
+2. the corresponding host cgroup;
+3. host-controlled CPU/memory pressure execution; and
+4. authoritative task termination reason (`OOMKilled`, not merely exit 137).
+
+A CLI that accepts arbitrary `runtime_digest`, cgroup path, file source, or pressure callback would look live while allowing the caller to self-assert the provenance relation. v12 intentionally does not add such a surface.
+
+The next host-integration wave must begin with an opaque Cube-host realization binding contract. Until that exists, missing integration remains `UNAVAILABLE`, never a fabricated live PASS.
+
+## Host-only mechanical inputs
+The package-owned observer composes:
 
 - a private cgroup filesystem root/path;
 - a read-only file source abstraction;
-- a host-owned pressure runner for CPU and memory probes;
-- a host-owned task-status source that distinguishes authoritative OOM termination from voluntary exit 137;
-- the exact v11 `RunSpec` / requested limits.
+- a host-owned CPU/memory pressure runner;
+- authoritative memory-task status;
+- exact requested resource limits; and
+- the already-defined v11 binding.
 
-None of these host locators or handles are copied into canonical proof documents.
+These abstractions are test seams/mechanical dependencies, not public provenance tokens. The constructor and trusted observation operation remain unexported.
 
-### Cgroup dialects
-Support Linux cgroup v2 and v1 normalization.
+## Cgroup dialects
 
-For v2:
-
-- CPU limit: `cpu.max` (`quota period`);
+### cgroup v2
+- CPU limit: `cpu.max` (`quota period`), rejecting `max` for a bounded request;
 - CPU throttling: `cpu.stat`, requiring a positive `nr_throttled` or `throttled_usec` delta;
-- memory limit: `memory.max`;
-- OOM counter: `memory.events` (`oom_kill` preferred; `oom` may be recorded separately but cannot substitute for an authoritative kill when the task did not terminate as OOMKilled).
+- memory limit: `memory.max`, rejecting `max` for a bounded request;
+- OOM counter: `memory.events`, preferring `oom_kill` and falling back to `oom` only as a counter; the task must still be authoritatively `OOMKilled/137`.
 
-For v1:
+### cgroup v1
+- CPU limit: `cpu.cfs_quota_us` + `cpu.cfs_period_us`, rejecting unlimited quota (`-1`);
+- CPU throttling: `cpu.stat`; `throttled_time` nanoseconds are normalized to microseconds before entering v11;
+- memory limit: `memory.limit_in_bytes`; Linux effectively-unlimited sentinel values are rejected for bounded proof;
+- OOM/failure counter: `memory.failcnt`, which still cannot substitute for authoritative task OOM status.
 
-- CPU limit: `cpu.cfs_quota_us` + `cpu.cfs_period_us`;
-- CPU throttling: `cpu.stat`, requiring a positive `nr_throttled` / throttled-time delta;
-- memory limit: `memory.limit_in_bytes`;
-- OOM/failure observation: normalized from cgroup memory counters plus authoritative task status. A counter alone cannot manufacture `OOMKilled`.
-
-### Causal sequence
+## Causal sequence
 For one exact realization:
 
-1. read exact CPU and memory limits;
-2. snapshot CPU throttling and memory OOM counters;
-3. invoke host-owned CPU pressure;
-4. snapshot CPU throttling again;
-5. invoke host-owned memory pressure;
-6. obtain authoritative task exit status;
+1. validate mode, binding and requested bounded limits;
+2. read exact effective CPU and memory limits;
+3. snapshot CPU throttling and memory OOM counters;
+4. invoke host-owned CPU pressure;
+5. snapshot CPU throttling again;
+6. invoke host-owned memory pressure and obtain authoritative task status;
 7. snapshot memory OOM counter again;
-8. emit only typed scalar observations to v11.
+8. build v11 scalar observations;
+9. delegate semantic classification to the existing v11 package-owned verifier.
 
-Any unavailable read, dialect ambiguity, stale realization, pressure uncertainty, parse error, or task-status uncertainty fails honest: no live PASS is manufactured.
+Readback mismatch is not rewritten as infrastructure failure: the observed effective value is carried into v11 so the semantic verifier returns the appropriate mismatch reason.
+
+Any unavailable read, malformed/unlimited bounded value, dialect ambiguity, pressure failure, task-status uncertainty, invalid binding, or cancellation fails honest and cannot become PASS.
 
 ## Security invariants
-
 1. **Readback before trust.** Requested limits alone are not evidence.
 2. **Causal counters.** CPU pressure without a throttle delta is not CPU proof.
-3. **Authoritative OOM.** Exit 137 without host OOM status + counter delta is not memory proof.
-4. **No provenance laundering.** Fixture/synthetic observations cannot be labelled live by copying a string.
-5. **No locator leakage.** Cgroup roots, task IDs/handles, tokens, endpoints and provider handles never enter canonical reports/evidence.
-6. **No new agent authority.** Agent-facing runtime receives only immutable capability evidence produced after v11 verification.
-7. **No disk overclaim.** v12 does not prove disk enforcement.
-8. **No aggregate overclaim.** CPU+memory proof alone cannot elevate broad `ResourceEnforcement` while the Realm budget still includes disk.
-9. **UNAVAILABLE != PASS.** Missing live cgroup/task infrastructure stays unavailable.
-10. **Historical nondrift.** v4–v11 canonical evidence semantics remain unchanged.
+3. **Authoritative OOM.** Exit 137 without OOM status plus counter delta is not memory proof.
+4. **No provenance laundering.** Copyable labels, plain reports, arbitrary paths, callbacks, or CLI flags cannot mint trusted provenance.
+5. **Package-owned mint.** `buildTrustedReport`, observer construction and trusted observation remain inside `resourceproof`.
+6. **No locator leakage.** Cgroup roots, task IDs/handles, tokens, endpoints and provider handles never enter canonical reports/evidence.
+7. **No new agent authority.** Agent runtime receives only immutable capability evidence after trusted verification.
+8. **No disk overclaim.** v12 does not prove disk enforcement.
+9. **No aggregate overclaim.** CPU+memory proof alone cannot elevate broad `ResourceEnforcement` while disk remains unverified.
+10. **UNAVAILABLE != PASS.** Missing live host integration remains unavailable.
+11. **Historical nondrift.** v4–v11 canonical evidence semantics remain unchanged.
 
 ## RED contracts
+The v12 RED suite proves:
 
-The first implementation tests must prove:
-
-- v2 CPU/memory files normalize correctly;
-- v1 CPU/memory files normalize correctly;
-- malformed or unlimited limits fail closed for bounded-proof requests;
+- cgroup v2 bounded CPU/memory normalization;
+- cgroup v1 bounded CPU/memory normalization, including ns→µs throttled-time conversion;
+- malformed/unlimited bounded limits fail closed;
 - pressure without throttle delta cannot verify CPU;
-- voluntary exit 137 without authoritative OOM cannot verify memory;
-- OOM counter without task OOM status cannot verify memory;
-- exact readback mismatch is carried to v11 and fails there;
-- observer errors produce `UNAVAILABLE`, never PASS;
-- host locator/secret sentinel strings cannot appear in marshalled reports/evidence;
-- CPU+memory proof leaves Disk and broad ResourceEnforcement non-verified.
+- voluntary exit 137 cannot verify memory;
+- OOM counter without authoritative task OOM status cannot verify memory;
+- exact readback mismatch is delegated to v11;
+- observer/pressure errors are unavailable, never PASS;
+- private host locator/sentinel strings do not appear in trusted serialization;
+- existing v11 disk and aggregate non-overclaim semantics remain unchanged.
 
 ## Non-claims
-
-v12 does not prove disk quota enforcement, network bandwidth enforcement, PID limits, universal cgroup correctness, or live KVM execution when the required host runner is absent.
+v12 does not claim Cube-host realization binding, generic production CLI live proof, disk quota enforcement, network bandwidth enforcement, PID limits, universal cgroup correctness, or live KVM execution when the required opaque host authority is absent.
