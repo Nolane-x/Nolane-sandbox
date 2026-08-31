@@ -109,7 +109,7 @@ func BuildReport(mode live.Mode, binding Binding, cpu CPUObservation, memory Mem
 		Memory:        MemoryProof{State: agentruntime.Unavailable, Reason: ReasonInvalidBinding, Observation: memory},
 		Disk:          DimensionProof{State: agentruntime.Unavailable, Reason: ReasonEvidenceUnavailable},
 	}
-	if !validBinding(binding) || (mode != live.ModeProbe && mode != live.ModeRequireLive) {
+	if !bindingValid(binding) || (mode != live.ModeProbe && mode != live.ModeRequireLive) {
 		return seal(report)
 	}
 	if cpu.Source != SourceLiveHost || memory.Source != SourceLiveHost {
@@ -124,19 +124,13 @@ func BuildReport(mode live.Mode, binding Binding, cpu CPUObservation, memory Mem
 	memoryReason := verifyMemory(memory)
 	if cpuReason != ReasonNone || memoryReason != ReasonNone {
 		report.Status = live.StatusLiveFail
+		report.Reason = ReasonNone
+		report.CPU.Reason = cpuReason
+		report.Memory.Reason = memoryReason
 		if cpuReason != ReasonNone {
 			report.Reason = cpuReason
-			report.CPU.Reason = cpuReason
 		} else {
-			report.CPU.Reason = ReasonNone
-		}
-		if memoryReason != ReasonNone {
-			if report.Reason == ReasonNone {
-				report.Reason = memoryReason
-			}
-			report.Memory.Reason = memoryReason
-		} else {
-			report.Memory.Reason = ReasonNone
+			report.Reason = memoryReason
 		}
 		return seal(report)
 	}
@@ -164,7 +158,7 @@ func VerifyReport(report Report) error {
 	return nil
 }
 
-func validBinding(binding Binding) bool {
+func bindingValid(binding Binding) bool {
 	return binding.RealmID != "" && binding.RealmRevision > 0 && binding.RealizationRevision > 0 &&
 		strings.TrimSpace(binding.PolicyDigest) != "" && strings.TrimSpace(binding.RuntimeDigest) != ""
 }
