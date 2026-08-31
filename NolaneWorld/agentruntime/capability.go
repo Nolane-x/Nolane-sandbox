@@ -21,7 +21,7 @@ const (
 )
 
 var (
-	ErrCapabilityEvidenceMismatch  = errors.New("agentruntime: capability evidence binding mismatch")
+	ErrCapabilityEvidenceMismatch    = errors.New("agentruntime: capability evidence binding mismatch")
 	ErrCapabilityEvidenceUnavailable = errors.New("agentruntime: capability evidence unavailable")
 )
 
@@ -51,6 +51,15 @@ type ProviderAttestation struct {
 	ProcessIsolationEvidence        string
 	NetworkIsolationVerified        bool
 	NetworkIsolationEvidence        string
+	CPUEnforcementAvailable         bool
+	CPUEnforcementVerified          bool
+	CPUEnforcementEvidence          string
+	MemoryEnforcementAvailable      bool
+	MemoryEnforcementVerified       bool
+	MemoryEnforcementEvidence       string
+	DiskEnforcementAvailable        bool
+	DiskEnforcementVerified         bool
+	DiskEnforcementEvidence         string
 	ResourceEnforcementAvailable    bool
 	ResourceEnforcementVerified     bool
 	ResourceEnforcementEvidence     string
@@ -83,20 +92,23 @@ type CapabilityRequest struct {
 }
 
 type CapabilityReport struct {
-	RealmID               realm.ID             `json:"realm_id"`
-	RealmRevision         uint64               `json:"realm_revision"`
-	NetworkProfile        realm.NetworkProfile `json:"network_profile"`
-	GuestExec             Claim                `json:"guest_exec"`
-	SnapshotRollback      Claim                `json:"snapshot_rollback"`
-	PublicRead            Claim                `json:"public_read"`
-	PublicInbound         Claim                `json:"public_inbound"`
-	InternalMesh          Claim                `json:"internal_mesh"`
-	FilesystemIsolation   Claim                `json:"filesystem_isolation"`
-	ProcessIsolation      Claim                `json:"process_isolation"`
-	NetworkIsolation      Claim                `json:"network_isolation"`
-	ResourceEnforcement   Claim                `json:"resource_enforcement"`
-	AccountingBudget      realm.ResourceBudget `json:"accounting_budget"`
-	EvidenceDigest        string               `json:"evidence_digest"`
+	RealmID             realm.ID             `json:"realm_id"`
+	RealmRevision       uint64               `json:"realm_revision"`
+	NetworkProfile      realm.NetworkProfile `json:"network_profile"`
+	GuestExec           Claim                `json:"guest_exec"`
+	SnapshotRollback    Claim                `json:"snapshot_rollback"`
+	PublicRead          Claim                `json:"public_read"`
+	PublicInbound       Claim                `json:"public_inbound"`
+	InternalMesh        Claim                `json:"internal_mesh"`
+	FilesystemIsolation Claim                `json:"filesystem_isolation"`
+	ProcessIsolation    Claim                `json:"process_isolation"`
+	NetworkIsolation    Claim                `json:"network_isolation"`
+	CPUEnforcement      Claim                `json:"cpu_enforcement"`
+	MemoryEnforcement   Claim                `json:"memory_enforcement"`
+	DiskEnforcement     Claim                `json:"disk_enforcement"`
+	ResourceEnforcement Claim                `json:"resource_enforcement"`
+	AccountingBudget    realm.ResourceBudget `json:"accounting_budget"`
+	EvidenceDigest      string               `json:"evidence_digest"`
 }
 
 func (s *Service) Capabilities(ctx context.Context, req CapabilityRequest) (CapabilityReport, error) {
@@ -134,16 +146,24 @@ func (s *Service) Capabilities(ctx context.Context, req CapabilityRequest) (Capa
 		}
 	}
 
+	cpu := claim(a.CPUEnforcementAvailable, a.CPUEnforcementVerified, a.CPUEnforcementEvidence)
+	memory := claim(a.MemoryEnforcementAvailable, a.MemoryEnforcementVerified, a.MemoryEnforcementEvidence)
+	disk := claim(a.DiskEnforcementAvailable, a.DiskEnforcementVerified, a.DiskEnforcementEvidence)
 	report := CapabilityReport{
-		RealmID: sess.RealmID, RealmRevision: sess.RealmRevision, NetworkProfile: rr.Spec.NetworkProfile,
-		GuestExec: claim(a.GuestExecAvailable, a.GuestExecVerified, a.GuestExecEvidence),
-		SnapshotRollback: claim(a.SnapshotAvailable, a.SnapshotVerified, a.SnapshotEvidence),
-		InternalMesh: claim(a.InternalMeshAvailable, a.InternalMeshVerified, a.InternalMeshEvidence),
-		FilesystemIsolation: verifiedOnly(a.FilesystemIsolationVerified, a.FilesystemIsolationEvidence),
-		ProcessIsolation: verifiedOnly(a.ProcessIsolationVerified, a.ProcessIsolationEvidence),
-		NetworkIsolation: verifiedOnly(a.NetworkIsolationVerified, a.NetworkIsolationEvidence),
-		ResourceEnforcement: claim(a.ResourceEnforcementAvailable, a.ResourceEnforcementVerified, a.ResourceEnforcementEvidence),
-		AccountingBudget: rr.Spec.ResourceBudget,
+		RealmID:               sess.RealmID,
+		RealmRevision:         sess.RealmRevision,
+		NetworkProfile:        rr.Spec.NetworkProfile,
+		GuestExec:             claim(a.GuestExecAvailable, a.GuestExecVerified, a.GuestExecEvidence),
+		SnapshotRollback:      claim(a.SnapshotAvailable, a.SnapshotVerified, a.SnapshotEvidence),
+		InternalMesh:          claim(a.InternalMeshAvailable, a.InternalMeshVerified, a.InternalMeshEvidence),
+		FilesystemIsolation:   verifiedOnly(a.FilesystemIsolationVerified, a.FilesystemIsolationEvidence),
+		ProcessIsolation:      verifiedOnly(a.ProcessIsolationVerified, a.ProcessIsolationEvidence),
+		NetworkIsolation:      verifiedOnly(a.NetworkIsolationVerified, a.NetworkIsolationEvidence),
+		CPUEnforcement:        cpu,
+		MemoryEnforcement:     memory,
+		DiskEnforcement:       disk,
+		ResourceEnforcement:   aggregateResourceEnforcement(a.ResourceEnforcementAvailable, cpu, memory, disk),
+		AccountingBudget:      rr.Spec.ResourceBudget,
 	}
 	if plan.RequiresRealityGateway {
 		report.PublicRead = claim(a.PublicReadAvailable, a.PublicReadVerified, a.PublicReadEvidence)
@@ -167,6 +187,9 @@ func untrustedAvailabilityHints(a ProviderAttestation) ProviderAttestation {
 		SnapshotAvailable:            a.SnapshotAvailable,
 		PublicReadAvailable:          a.PublicReadAvailable,
 		InternalMeshAvailable:        a.InternalMeshAvailable,
+		CPUEnforcementAvailable:      a.CPUEnforcementAvailable,
+		MemoryEnforcementAvailable:   a.MemoryEnforcementAvailable,
+		DiskEnforcementAvailable:     a.DiskEnforcementAvailable,
 		ResourceEnforcementAvailable: a.ResourceEnforcementAvailable,
 	}
 }
@@ -188,9 +211,21 @@ func verifiedOnly(verified bool, evidence string) Claim {
 	return Claim{State: Unavailable}
 }
 
+func aggregateResourceEnforcement(legacyAvailable bool, cpu, memory, disk Claim) Claim {
+	if cpu.State == Verified && memory.State == Verified && disk.State == Verified {
+		raw := []byte(cpu.Evidence + "\x00" + memory.Evidence + "\x00" + disk.Evidence)
+		h := sha256.Sum256(append([]byte("nolane.resource-enforcement.aggregate.v11\x00"), raw...))
+		return Claim{State: Verified, Evidence: "resource-v11:aggregate:" + hex.EncodeToString(h[:])}
+	}
+	if legacyAvailable || cpu.State != Unavailable || memory.State != Unavailable || disk.State != Unavailable {
+		return Claim{State: AvailableUnproven}
+	}
+	return Claim{State: Unavailable}
+}
+
 func capabilityDigest(report CapabilityReport) string {
 	report.EvidenceDigest = ""
 	raw, _ := json.Marshal(report)
-	h := sha256.Sum256(append([]byte("nolane.capability-report.v8\x00"), raw...))
+	h := sha256.Sum256(append([]byte("nolane.capability-report.v11\x00"), raw...))
 	return hex.EncodeToString(h[:])
 }
