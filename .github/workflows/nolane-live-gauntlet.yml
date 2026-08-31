@@ -5,9 +5,17 @@ on:
     paths:
       - 'NolaneWorld/gauntlet/live/**'
       - 'NolaneWorld/cmd/nolane-gauntlet-live/**'
+      - 'NolaneWorld/cmd/nolane-realm-gauntlet-live/**'
+      - 'NolaneWorld/cmd/nolane-capability-gauntlet-live/**'
       - 'NolaneWorld/substrate/cube/**'
+      - 'NolaneWorld/LIVE-REALM-PROOF-V9.md'
+      - 'NolaneWorld/STATE-CONTINUITY-EVIDENCE-FUSION-V10.md'
       - 'docs/superpowers/specs/**live-substrate-gauntlet-v5**'
+      - 'docs/superpowers/specs/**live-realm-proof-v9**'
+      - 'docs/superpowers/specs/**state-continuity-evidence-fusion-v10**'
       - 'docs/superpowers/plans/**live-substrate-gauntlet-v5**'
+      - 'docs/superpowers/plans/**live-realm-proof-v9**'
+      - 'docs/superpowers/plans/**state-continuity-evidence-fusion-v10**'
       - '.github/workflows/nolane-live-gauntlet.yml'
   workflow_dispatch:
 
@@ -34,11 +42,11 @@ jobs:
 
       - name: Unit and race tests
         working-directory: NolaneWorld
-        run: go test -race ./gauntlet/live/... ./cmd/nolane-gauntlet-live ./substrate/cube
+        run: go test -race ./gauntlet/live/... ./cmd/nolane-gauntlet-live ./cmd/nolane-realm-gauntlet-live ./cmd/nolane-capability-gauntlet-live ./substrate/cube
 
       - name: Vet
         working-directory: NolaneWorld
-        run: go vet ./gauntlet/live/... ./cmd/nolane-gauntlet-live ./substrate/cube
+        run: go vet ./gauntlet/live/... ./cmd/nolane-gauntlet-live ./cmd/nolane-realm-gauntlet-live ./cmd/nolane-capability-gauntlet-live ./substrate/cube
 
       - name: Prove missing live infrastructure cannot become PASS
         working-directory: NolaneWorld
@@ -49,20 +57,31 @@ jobs:
           NOLANE_CUBE_SANDBOX_DOMAIN: ''
         run: |
           go run ./cmd/nolane-gauntlet-live --mode probe --profile core --out release-evidence/nolane-live-v5-unavailable.json
+          go run ./cmd/nolane-capability-gauntlet-live \
+            --mode probe \
+            --profile R0_INTERNAL_ONLY \
+            --raw-public-kind http \
+            --raw-public-target https://example.invalid/nolane-v10-harness-negative-control \
+            --out release-evidence/nolane-capability-live-v10-unavailable.json
           python3 - <<'PY'
           import json
-          p = 'release-evidence/nolane-live-v5-unavailable.json'
-          r = json.load(open(p, encoding='utf-8'))
-          assert r['status'] == 'UNAVAILABLE', r
-          assert r['approved'] is False, r
-          assert r['reason'] == 'config_missing', r
+          for p in (
+              'release-evidence/nolane-live-v5-unavailable.json',
+              'release-evidence/nolane-capability-live-v10-unavailable.json',
+          ):
+              r = json.load(open(p, encoding='utf-8'))
+              assert r['status'] == 'UNAVAILABLE', r
+              assert r['approved'] is False, r
+              assert r['reason'] == 'config_missing', r
           PY
 
       - name: Upload harness negative-control evidence
         uses: actions/upload-artifact@v4
         with:
-          name: nolane-live-v5-unavailable-${{ github.sha }}
-          path: NolaneWorld/release-evidence/nolane-live-v5-unavailable.json
+          name: nolane-live-harness-unavailable-${{ github.sha }}
+          path: |
+            NolaneWorld/release-evidence/nolane-live-v5-unavailable.json
+            NolaneWorld/release-evidence/nolane-capability-live-v10-unavailable.json
           if-no-files-found: error
           retention-days: 30
 
