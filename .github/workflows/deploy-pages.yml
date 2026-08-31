@@ -6,23 +6,23 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/deploy-pages.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
-# Allow only one concurrent deployment; do not cancel in-progress runs so
-# that production deployments are always allowed to finish.
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
-# Workflow-level permissions: read source + write Pages artifact + OIDC token
+# Build/validation needs only read access. Deployment authority is granted
+# narrowly to the deploy job below, after Pages availability is established.
 permissions:
   contents: read
-  pages: write
-  id-token: write
+  pages: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      pages-enabled: ${{ steps.pages.outputs.enabled }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,8 +36,37 @@ jobs:
           cache: npm
           cache-dependency-path: docs/package-lock.json
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+      - name: Check Pages availability
+        id: pages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          response="${RUNNER_TEMP}/pages.json"
+          status="$(curl --silent --show-error \
+            --output "${response}" \
+            --write-out '%{http_code}' \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${REPOSITORY}/pages")"
+
+          case "${status}" in
+            200)
+              echo 'enabled=true' >> "${GITHUB_OUTPUT}"
+              ;;
+            404)
+              echo 'enabled=false' >> "${GITHUB_OUTPUT}"
+              echo "::notice::GitHub Pages is not enabled for ${REPOSITORY}; docs will still be built and deployment will be skipped."
+              ;;
+            *)
+              echo "::error::Unable to determine GitHub Pages status (HTTP ${status})."
+              cat "${response}" || true
+              exit 1
+              ;;
+          esac
 
       - name: Install dependencies
         run: npm ci
@@ -48,13 +77,21 @@ jobs:
         working-directory: docs
 
       - name: Upload Pages artifact
+        if: steps.pages.outputs.enabled == 'true' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/.vitepress/dist
 
   deploy:
     needs: build
+    if: needs.build.outputs.pages-enabled == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
