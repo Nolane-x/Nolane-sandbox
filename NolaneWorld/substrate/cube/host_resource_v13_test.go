@@ -19,6 +19,14 @@ cubesandbox_host_sandbox_memory_current_bytes{sandbox_id="sandbox-123"} 33554432
 cubesandbox_host_sandbox_memory_failures_total{sandbox_id="sandbox-123"} 3
 `
 
+func upstreamHostMetricsWithExactCPU() string {
+	return strings.Replace(upstreamHostMetricsFixture,
+		`cubesandbox_host_sandbox_cpu_limit_cores{sandbox_id="sandbox-123"} 0.5`,
+		`cubesandbox_host_sandbox_cpu_limit_cores{sandbox_id="sandbox-123"} 0.5
+cubesandbox_host_sandbox_cpu_limit_quota_microseconds{sandbox_id="sandbox-123"} 25000
+cubesandbox_host_sandbox_cpu_limit_period_microseconds{sandbox_id="sandbox-123"} 50000`, 1)
+}
+
 func TestV13GuestSessionMintsOpaqueResourceBinding(t *testing.T) {
 	session := &GuestSession{sandboxID: "sandbox-123"}
 	binding := session.ResourceBinding()
@@ -33,7 +41,7 @@ func TestV13HostResourceObserverMatchesUpstreamCubeletContract(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte(upstreamHostMetricsFixture))
+		_, _ = w.Write([]byte(upstreamHostMetricsWithExactCPU()))
 	}))
 	defer server.Close()
 
@@ -55,7 +63,7 @@ func TestV13HostResourceObserverMatchesUpstreamCubeletContract(t *testing.T) {
 }
 
 func TestV13HostResourceObserverRejectsDuplicateMetricForBinding(t *testing.T) {
-	metrics := strings.Replace(upstreamHostMetricsFixture,
+	metrics := strings.Replace(upstreamHostMetricsWithExactCPU(),
 		`cubesandbox_host_sandbox_cpu_limit_cores{sandbox_id="sandbox-123"} 0.5`,
 		`cubesandbox_host_sandbox_cpu_limit_cores{sandbox_id="sandbox-123"} 0.5
 cubesandbox_host_sandbox_cpu_limit_cores{sandbox_id="sandbox-123"} 0.6`, 1)
@@ -106,7 +114,7 @@ cubesandbox_host_sandbox_memory_failures_total{sandbox_id="sandbox-123"} 3
 }
 
 func TestV13HostResourceObserverRejectsFractionalIntegerMetric(t *testing.T) {
-	metrics := strings.Replace(upstreamHostMetricsFixture,
+	metrics := strings.Replace(upstreamHostMetricsWithExactCPU(),
 		`cubesandbox_host_sandbox_memory_current_bytes{sandbox_id="sandbox-123"} 33554432`,
 		`cubesandbox_host_sandbox_memory_current_bytes{sandbox_id="sandbox-123"} 1.5`, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(metrics)) }))
@@ -121,7 +129,7 @@ func TestV13HostResourceObserverRejectsFractionalIntegerMetric(t *testing.T) {
 }
 
 func TestV13HostResourceObserverRejectsNonFiniteSeconds(t *testing.T) {
-	metrics := strings.Replace(upstreamHostMetricsFixture,
+	metrics := strings.Replace(upstreamHostMetricsWithExactCPU(),
 		`cubesandbox_host_sandbox_cpu_throttled_seconds_total{sandbox_id="sandbox-123"} 0.0009`,
 		`cubesandbox_host_sandbox_cpu_throttled_seconds_total{sandbox_id="sandbox-123"} +Inf`, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(metrics)) }))
@@ -136,7 +144,7 @@ func TestV13HostResourceObserverRejectsNonFiniteSeconds(t *testing.T) {
 }
 
 func TestV13MetricParserRejectsDuplicateLabelKeys(t *testing.T) {
-	metrics := strings.Replace(upstreamHostMetricsFixture,
+	metrics := strings.Replace(upstreamHostMetricsWithExactCPU(),
 		`cubesandbox_host_sandbox_cpu_limit_cores{sandbox_id="sandbox-123"} 0.5`,
 		`cubesandbox_host_sandbox_cpu_limit_cores{sandbox_id="other",sandbox_id="sandbox-123"} 0.5`, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(metrics)) }))
