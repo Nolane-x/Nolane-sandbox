@@ -49,14 +49,14 @@ type HostResourceConfig struct {
 // memory_failures_total counter is not equivalent to authoritative task exit
 // status.
 type HostResourceSnapshot struct {
-	SandboxID                  string
-	CapturedAt                 time.Time
-	CPULimitCores              float64
-	CPUThrottledPeriods        uint64
-	CPUThrottledUsec           uint64
-	MemoryLimitBytes           uint64
-	MemoryWorkingSetBytes      uint64
-	MemoryFailures             uint64
+	SandboxID             string
+	CapturedAt            time.Time
+	CPULimitCores         float64
+	CPUThrottledPeriods   uint64
+	CPUThrottledUsec      uint64
+	MemoryLimitBytes      uint64
+	MemoryWorkingSetBytes uint64
+	MemoryFailures        uint64
 }
 
 type HostResourceObserver struct {
@@ -145,12 +145,12 @@ func (o *HostResourceObserver) Observe(ctx context.Context, binding ResourceBind
 }
 
 var hostResourceMetricNames = map[string]struct{}{
-	"cubesandbox_host_sandbox_cpu_limit":                         {},
-	"cubesandbox_host_sandbox_cpu_throttled_periods_total":       {},
-	"cubesandbox_host_sandbox_cpu_throttled_useconds_total":      {},
-	"cubesandbox_host_sandbox_memory_limit":                      {},
-	"cubesandbox_host_sandbox_memory_working_set_bytes":          {},
-	"cubesandbox_host_sandbox_memory_failures_total":             {},
+	"cubesandbox_host_sandbox_cpu_limit":                    {},
+	"cubesandbox_host_sandbox_cpu_throttled_periods_total":  {},
+	"cubesandbox_host_sandbox_cpu_throttled_useconds_total": {},
+	"cubesandbox_host_sandbox_memory_limit":                 {},
+	"cubesandbox_host_sandbox_memory_working_set_bytes":     {},
+	"cubesandbox_host_sandbox_memory_failures_total":        {},
 }
 
 func parseHostResourceMetrics(r io.Reader, sandboxID string) (map[string]float64, error) {
@@ -224,7 +224,10 @@ func positiveFinite(v float64) (float64, error) {
 }
 
 func exactUint(v float64) (uint64, error) {
-	if v < 0 || v > math.MaxUint64 || math.Trunc(v) != v {
+	// math.MaxUint64 rounds to 2^64 when converted to float64. Reject that
+	// rounded boundary as well; accepting it and converting to uint64 would
+	// overflow instead of failing closed.
+	if v < 0 || v >= float64(math.MaxUint64) || math.Trunc(v) != v {
 		return 0, errors.New("must be an exact non-negative integer")
 	}
 	return uint64(v), nil
