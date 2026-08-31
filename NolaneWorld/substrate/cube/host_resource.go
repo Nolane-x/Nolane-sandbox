@@ -47,16 +47,17 @@ type HostResourceConfig struct {
 // HostResourceSnapshot is observational host data. It is intentionally not a
 // resourceproof.TrustedReport and contains no OOMKilled claim: Cubelet's
 // memory_failures_total counter is not equivalent to authoritative task exit
-// status.
+// status. CPUThrottledSeconds is the producer's cumulative seconds counter;
+// MemoryCurrentBytes is current cgroup charge, not a working-set estimate.
 type HostResourceSnapshot struct {
-	SandboxID             string
-	CapturedAt            time.Time
-	CPULimitCores         float64
-	CPUThrottledPeriods   uint64
-	CPUThrottledUsec      uint64
-	MemoryLimitBytes      uint64
-	MemoryWorkingSetBytes uint64
-	MemoryFailures        uint64
+	SandboxID           string
+	CapturedAt          time.Time
+	CPULimitCores       float64
+	CPUThrottledPeriods uint64
+	CPUThrottledSeconds float64
+	MemoryLimitBytes    uint64
+	MemoryCurrentBytes  uint64
+	MemoryFailures      uint64
 }
 
 type HostResourceObserver struct {
@@ -107,7 +108,7 @@ func (o *HostResourceObserver) Observe(ctx context.Context, binding ResourceBind
 	if err != nil {
 		return HostResourceSnapshot{}, err
 	}
-	cpuLimit, err := positiveFinite(values["cubesandbox_host_sandbox_cpu_limit"])
+	cpuLimit, err := positiveFinite(values["cubesandbox_host_sandbox_cpu_limit_cores"])
 	if err != nil {
 		return HostResourceSnapshot{}, fmt.Errorf("%w: cpu limit: %v", ErrHostResourceUnavailable, err)
 	}
@@ -115,17 +116,17 @@ func (o *HostResourceObserver) Observe(ctx context.Context, binding ResourceBind
 	if err != nil {
 		return HostResourceSnapshot{}, fmt.Errorf("%w: throttled periods: %v", ErrHostResourceUnavailable, err)
 	}
-	throttledUsec, err := exactUint(values["cubesandbox_host_sandbox_cpu_throttled_useconds_total"])
+	throttledSeconds, err := nonNegativeFinite(values["cubesandbox_host_sandbox_cpu_throttled_seconds_total"])
 	if err != nil {
-		return HostResourceSnapshot{}, fmt.Errorf("%w: throttled usec: %v", ErrHostResourceUnavailable, err)
+		return HostResourceSnapshot{}, fmt.Errorf("%w: throttled seconds: %v", ErrHostResourceUnavailable, err)
 	}
-	memoryLimit, err := positiveUint(values["cubesandbox_host_sandbox_memory_limit"])
+	memoryLimit, err := positiveUint(values["cubesandbox_host_sandbox_memory_limit_bytes"])
 	if err != nil {
 		return HostResourceSnapshot{}, fmt.Errorf("%w: memory limit: %v", ErrHostResourceUnavailable, err)
 	}
-	workingSet, err := exactUint(values["cubesandbox_host_sandbox_memory_working_set_bytes"])
+	memoryCurrent, err := exactUint(values["cubesandbox_host_sandbox_memory_current_bytes"])
 	if err != nil {
-		return HostResourceSnapshot{}, fmt.Errorf("%w: working set: %v", ErrHostResourceUnavailable, err)
+		return HostResourceSnapshot{}, fmt.Errorf("%w: current memory: %v", ErrHostResourceUnavailable, err)
 	}
 	failures, err := exactUint(values["cubesandbox_host_sandbox_memory_failures_total"])
 	if err != nil {
@@ -133,23 +134,23 @@ func (o *HostResourceObserver) Observe(ctx context.Context, binding ResourceBind
 	}
 
 	return HostResourceSnapshot{
-		SandboxID:             sandboxID,
-		CapturedAt:            o.clock().UTC(),
-		CPULimitCores:         cpuLimit,
-		CPUThrottledPeriods:   throttledPeriods,
-		CPUThrottledUsec:      throttledUsec,
-		MemoryLimitBytes:      memoryLimit,
-		MemoryWorkingSetBytes: workingSet,
-		MemoryFailures:        failures,
+		SandboxID:           sandboxID,
+		CapturedAt:          o.clock().UTC(),
+		CPULimitCores:       cpuLimit,
+		CPUThrottledPeriods: throttledPeriods,
+		CPUThrottledSeconds: throttledSeconds,
+		MemoryLimitBytes:    memoryLimit,
+		MemoryCurrentBytes:  memoryCurrent,
+		MemoryFailures:      failures,
 	}, nil
 }
 
 var hostResourceMetricNames = map[string]struct{}{
-	"cubesandbox_host_sandbox_cpu_limit":                    {},
+	"cubesandbox_host_sandbox_cpu_limit_cores":              {},
 	"cubesandbox_host_sandbox_cpu_throttled_periods_total":  {},
-	"cubesandbox_host_sandbox_cpu_throttled_useconds_total": {},
-	"cubesandbox_host_sandbox_memory_limit":                 {},
-	"cubesandbox_host_sandbox_memory_working_set_bytes":     {},
+	"cubesandbox_host_sandbox_cpu_throttled_seconds_total":  {},
+	"cubesandbox_host_sandbox_memory_limit_bytes":           {},
+	"cubesandbox_host_sandbox_memory_current_bytes":         {},
 	"cubesandbox_host_sandbox_memory_failures_total":        {},
 }
 
@@ -164,14 +165,17 @@ func parseHostResourceMetrics(r io.Reader, sandboxID string) (map[string]float64
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		if len(fields) == 0 {
 			continue
 		}
 		name, labels, ok := splitMetricToken(fields[0])
-		if !ok {
+		if _, wanted := hostResourceMetricNames[name]; !wanted {
 			continue
 		}
-		if _, wanted := hostResourceMetricNames[name]; !wanted || labels["sandbox_id"] != sandboxID {
+		if !ok || len(fields) != 2 {
+			return nil, fmt.Errorf("%w: malformed %s metric", ErrHostResourceUnavailable, name)
+		}
+		if labels["sandbox_id"] != sandboxID {
 			continue
 		}
 		if _, duplicate := values[name]; duplicate {
@@ -196,29 +200,75 @@ func parseHostResourceMetrics(r io.Reader, sandboxID string) (map[string]float64
 
 func splitMetricToken(token string) (string, map[string]string, bool) {
 	open := strings.IndexByte(token, '{')
-	close := strings.LastIndexByte(token, '}')
-	if open <= 0 || close != len(token)-1 || close <= open+1 {
+	if open <= 0 {
 		return "", nil, false
 	}
-	labels := map[string]string{}
-	for _, raw := range strings.Split(token[open+1:close], ",") {
+	name := token[:open]
+	close := strings.LastIndexByte(token, '}')
+	if close != len(token)-1 || close <= open+1 {
+		return name, nil, false
+	}
+	rawLabels, ok := splitPrometheusLabels(token[open+1 : close])
+	if !ok {
+		return name, nil, false
+	}
+	labels := make(map[string]string, len(rawLabels))
+	for _, raw := range rawLabels {
 		parts := strings.SplitN(raw, "=", 2)
 		if len(parts) != 2 {
-			return "", nil, false
+			return name, nil, false
 		}
 		key := strings.TrimSpace(parts[0])
 		value, err := strconv.Unquote(strings.TrimSpace(parts[1]))
 		if err != nil || key == "" {
-			return "", nil, false
+			return name, nil, false
+		}
+		if _, duplicate := labels[key]; duplicate {
+			return name, nil, false
 		}
 		labels[key] = value
 	}
-	return token[:open], labels, true
+	return name, labels, true
+}
+
+func splitPrometheusLabels(raw string) ([]string, bool) {
+	var labels []string
+	start := 0
+	inQuotes := false
+	escaped := false
+	for i := 0; i < len(raw); i++ {
+		switch c := raw[i]; {
+		case escaped:
+			escaped = false
+		case inQuotes && c == '\\':
+			escaped = true
+		case c == '"':
+			inQuotes = !inQuotes
+		case c == ',' && !inQuotes:
+			if i == start {
+				return nil, false
+			}
+			labels = append(labels, raw[start:i])
+			start = i + 1
+		}
+	}
+	if inQuotes || escaped || start >= len(raw) {
+		return nil, false
+	}
+	labels = append(labels, raw[start:])
+	return labels, true
 }
 
 func positiveFinite(v float64) (float64, error) {
 	if v <= 0 || math.IsNaN(v) || math.IsInf(v, 0) {
 		return 0, errors.New("must be finite and positive")
+	}
+	return v, nil
+}
+
+func nonNegativeFinite(v float64) (float64, error) {
+	if v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, errors.New("must be finite and non-negative")
 	}
 	return v, nil
 }
