@@ -1,0 +1,46 @@
+name: Cube Host Resource Contract
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'Cubelet/plugins/cube/internals/resourcemetrics/**'
+      - '.github/workflows/cube-host-resource-contract.yml'
+  pull_request:
+    paths:
+      - 'Cubelet/plugins/cube/internals/resourcemetrics/**'
+      - '.github/workflows/cube-host-resource-contract.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: cube-host-resource-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  producer-contract:
+    name: Producer contract (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: Cubelet/go.mod
+          cache-dependency-path: Cubelet/go.sum
+
+      - name: Run host resource producer contracts
+        working-directory: Cubelet
+        run: go test -short ./plugins/cube/internals/resourcemetrics

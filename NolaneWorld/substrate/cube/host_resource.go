@@ -15,6 +15,7 @@ import (
 )
 
 const hostResourceMetricsPath = "/v1/metrics/resource"
+const cpuLimitRatioTolerance = 1e-12
 
 var (
 	ErrHostResourceUnavailable = errors.New("cube host resource observation unavailable")
@@ -49,10 +50,14 @@ type HostResourceConfig struct {
 // memory_failures_total counter is not equivalent to authoritative task exit
 // status. CPUThrottledSeconds is the producer's cumulative seconds counter;
 // MemoryCurrentBytes is current cgroup charge, not a working-set estimate.
+// CPULimitQuotaUS and CPULimitPeriodUS are exact producer readback scalars;
+// retaining them does not itself prove that the configured limit was enforced.
 type HostResourceSnapshot struct {
 	SandboxID           string
 	CapturedAt          time.Time
 	CPULimitCores       float64
+	CPULimitQuotaUS     uint64
+	CPULimitPeriodUS    uint64
 	CPUThrottledPeriods uint64
 	CPUThrottledSeconds float64
 	MemoryLimitBytes    uint64
@@ -112,6 +117,17 @@ func (o *HostResourceObserver) Observe(ctx context.Context, binding ResourceBind
 	if err != nil {
 		return HostResourceSnapshot{}, fmt.Errorf("%w: cpu limit: %v", ErrHostResourceUnavailable, err)
 	}
+	cpuQuota, err := positiveUint(values["cubesandbox_host_sandbox_cpu_limit_quota_microseconds"])
+	if err != nil {
+		return HostResourceSnapshot{}, fmt.Errorf("%w: cpu quota: %v", ErrHostResourceUnavailable, err)
+	}
+	cpuPeriod, err := positiveUint(values["cubesandbox_host_sandbox_cpu_limit_period_microseconds"])
+	if err != nil {
+		return HostResourceSnapshot{}, fmt.Errorf("%w: cpu period: %v", ErrHostResourceUnavailable, err)
+	}
+	if !cpuLimitRatioMatches(cpuLimit, cpuQuota, cpuPeriod) {
+		return HostResourceSnapshot{}, fmt.Errorf("%w: cpu limit cores disagree with exact quota/period", ErrHostResourceUnavailable)
+	}
 	throttledPeriods, err := exactUint(values["cubesandbox_host_sandbox_cpu_throttled_periods_total"])
 	if err != nil {
 		return HostResourceSnapshot{}, fmt.Errorf("%w: throttled periods: %v", ErrHostResourceUnavailable, err)
@@ -137,6 +153,8 @@ func (o *HostResourceObserver) Observe(ctx context.Context, binding ResourceBind
 		SandboxID:           sandboxID,
 		CapturedAt:          o.clock().UTC(),
 		CPULimitCores:       cpuLimit,
+		CPULimitQuotaUS:     cpuQuota,
+		CPULimitPeriodUS:    cpuPeriod,
 		CPUThrottledPeriods: throttledPeriods,
 		CPUThrottledSeconds: throttledSeconds,
 		MemoryLimitBytes:    memoryLimit,
@@ -146,12 +164,14 @@ func (o *HostResourceObserver) Observe(ctx context.Context, binding ResourceBind
 }
 
 var hostResourceMetricNames = map[string]struct{}{
-	"cubesandbox_host_sandbox_cpu_limit_cores":              {},
-	"cubesandbox_host_sandbox_cpu_throttled_periods_total":  {},
-	"cubesandbox_host_sandbox_cpu_throttled_seconds_total":  {},
-	"cubesandbox_host_sandbox_memory_limit_bytes":           {},
-	"cubesandbox_host_sandbox_memory_current_bytes":         {},
-	"cubesandbox_host_sandbox_memory_failures_total":        {},
+	"cubesandbox_host_sandbox_cpu_limit_cores":                    {},
+	"cubesandbox_host_sandbox_cpu_limit_quota_microseconds":       {},
+	"cubesandbox_host_sandbox_cpu_limit_period_microseconds":      {},
+	"cubesandbox_host_sandbox_cpu_throttled_periods_total":        {},
+	"cubesandbox_host_sandbox_cpu_throttled_seconds_total":        {},
+	"cubesandbox_host_sandbox_memory_limit_bytes":                 {},
+	"cubesandbox_host_sandbox_memory_current_bytes":               {},
+	"cubesandbox_host_sandbox_memory_failures_total":              {},
 }
 
 func parseHostResourceMetrics(r io.Reader, sandboxID string) (map[string]float64, error) {
@@ -289,4 +309,10 @@ func positiveUint(v float64) (uint64, error) {
 		return 0, errors.New("must be a positive integer")
 	}
 	return n, nil
+}
+
+func cpuLimitRatioMatches(cores float64, quota, period uint64) bool {
+	expected := float64(quota) / float64(period)
+	scale := math.Max(1, math.Max(math.Abs(cores), math.Abs(expected)))
+	return math.Abs(cores-expected) <= cpuLimitRatioTolerance*scale
 }
