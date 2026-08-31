@@ -1,512 +1,139 @@
 # State Continuity / Evidence Fusion v10 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Execution method:** Superpowers planning + TDD + systematic debugging + exact-head verification.
 
 **Goal:** Fuse the existing v5 live snapshot proof and v9 live Realm proof produced by one immutable Cube driver into a deterministic v10 receipt and an exact-bound host capability evidence source that can safely verify snapshot/rollback.
 
-**Architecture:** Add a new `gauntlet/live/capabilityproof` package that orchestrates existing v5 and v9 runners through the same `live.Driver`, locks the driver's endpoint/template fingerprint, embeds and verifies both nested reports, and derives only conservative capability facts. Add a host-only exact-bound evidence adapter, a CLI, deterministic CI negative control, and documentation without changing any v4–v9 report schema or canonical evidence family.
-
-**Tech Stack:** Go 1.23, existing `NolaneWorld/gauntlet/live`, `realmproof`, `agentruntime`, Cube live driver, GitHub Actions.
+**Architecture:** `gauntlet/live/capabilityproof` orchestrates v5 and v9 through the same `live.Driver`, locks the driver's endpoint/template fingerprint, embeds and verifies both nested reports, derives only conservative capability facts, and exposes an immutable exact-bound `CapabilityEvidenceSource`. A dedicated CLI and two CI surfaces provide fail-honest negative-control evidence without changing v4-v9 evidence schemas.
 
 **Spec:** `docs/superpowers/specs/2026-08-31-nolane-sandbox-state-continuity-evidence-fusion-v10-design.md`
 
-## Global Constraints
+## Global constraints
 
 - `UNAVAILABLE != PASS`.
-- Human DCO is optional; AI commits MUST carry `Autonomously-by: ChatGPT:GPT-5.6-Sol` and MUST NOT fabricate `Signed-off-by`.
-- V4–v9 report schemas and canonical evidence bytes are immutable for this wave.
-- V10 MUST NOT expose Cube API keys, envd/traffic tokens, sandbox handles, endpoint URLs, template IDs, WorldIDs, or raw target plaintext.
-- V10 MUST NOT infer public read, filesystem isolation, process isolation, resource enforcement, or universal private mesh.
+- Human DCO is optional; AI commits carry `Autonomously-by: ChatGPT:GPT-5.6-Sol` and never fabricate `Signed-off-by`.
+- V4-v9 report schemas and canonical evidence bytes are immutable for this wave.
+- V10 evidence must not expose Cube API keys, envd/traffic tokens, sandbox handles, endpoint URLs, template IDs, WorldIDs, or raw target plaintext.
+- V10 does not infer public read, filesystem isolation, process isolation, resource enforcement, or universal private mesh.
 - `Verified` requires a sealed v10 `LIVE_PASS` plus exact Realm ID/revision/policy binding.
 
 ---
 
-### Task 1: RED — Composite report and runner contracts
+## Task 1 — Composite contract, RED first
 
 **Files:**
-- Create: `NolaneWorld/gauntlet/live/capabilityproof/types.go`
-- Create: `NolaneWorld/gauntlet/live/capabilityproof/runner_test.go`
-- Create: `NolaneWorld/gauntlet/live/capabilityproof/report_test.go`
+- `NolaneWorld/gauntlet/live/capabilityproof/types.go`
+- `NolaneWorld/gauntlet/live/capabilityproof/runner_test.go`
+- `NolaneWorld/gauntlet/live/capabilityproof/report_test.go`
 
-**Interfaces:**
-- Consumes: `live.Driver`, `live.Report`, `realmproof.Report`, `realm.NetworkProfile`, `live.Target`.
-- Produces:
-  - `type Runner struct { Mode live.Mode; Profile realm.NetworkProfile; RawPublicTarget live.Target }`
-  - `func (Runner) Run(context.Context, live.Driver) (Report, error)`
-  - `func VerifyReport(Report) error`
-  - `func MarshalReport(Report, ...string) ([]byte, error)`
-
-- [ ] **Step 1: Define the public v10 types needed by tests**
-
-```go
-type ReasonCode string
-
-const (
-    ReasonNone                 ReasonCode = "none"
-    ReasonConfigMissing        ReasonCode = "config_missing"
-    ReasonFingerprintInvalid   ReasonCode = "fingerprint_invalid"
-    ReasonEvidenceMismatch     ReasonCode = "evidence_mismatch"
-    ReasonSubstrateUnavailable ReasonCode = "substrate_unavailable"
-    ReasonRealmUnavailable     ReasonCode = "realm_unavailable"
-    ReasonSubstrateFailed      ReasonCode = "substrate_failed"
-    ReasonRealmFailed          ReasonCode = "realm_failed"
-)
-
-type Capabilities struct {
-    GuestExecution       bool `json:"guest_execution"`
-    SnapshotRollback     bool `json:"snapshot_rollback"`
-    PublicIngressDenied  bool `json:"public_ingress_denied"`
-    NetworkIsolation     bool `json:"network_isolation"`
-    InternalMeshVerified bool `json:"internal_mesh_verified"`
-}
-
-type Report struct {
-    SchemaVersion  int                  `json:"schema_version"`
-    Profile        realm.NetworkProfile `json:"profile"`
-    Mode           live.Mode            `json:"mode"`
-    Substrate      string               `json:"substrate"`
-    Status         live.Status          `json:"status"`
-    Reason         ReasonCode           `json:"reason"`
-    Approved       bool                 `json:"approved"`
-    EndpointDigest string               `json:"endpoint_digest,omitempty"`
-    TemplateDigest string               `json:"template_digest,omitempty"`
-    SubstrateProof live.Report          `json:"substrate_proof"`
-    RealmProof     realmproof.Report    `json:"realm_proof"`
-    Capabilities   Capabilities         `json:"capabilities"`
-    Digest         string               `json:"digest"`
-}
-```
-
-- [ ] **Step 2: Write RED runner tests**
-
-Cover all of these exact behaviors:
-
-```go
-func TestRunnerNilDriverIsUnavailable(t *testing.T)
-func TestRunnerRequireLiveRejectsUnavailable(t *testing.T)
-func TestRunnerRejectsEmptyConfiguredFingerprint(t *testing.T)
-func TestRunnerPropagatesSubstrateFailure(t *testing.T)
-func TestRunnerPropagatesRealmFailure(t *testing.T)
-func TestRunnerRejectsFingerprintMismatch(t *testing.T)
-func TestRunnerPassesOnlyWhenBothNestedProofsPass(t *testing.T)
-```
-
-Use a fake driver implementing the same live interfaces already used by v5/v9 tests. The PASS fixture must prove snapshot restoration and Realm network semantics, not return pre-sealed reports from caller input.
-
-- [ ] **Step 3: Write RED report tests**
-
-```go
-func TestVerifyReportRejectsTamperedNestedSubstrateProof(t *testing.T)
-func TestVerifyReportRejectsTamperedNestedRealmProof(t *testing.T)
-func TestVerifyReportRejectsForgedCapabilityBits(t *testing.T)
-func TestVerifyReportRejectsFingerprintMismatch(t *testing.T)
-func TestMarshalReportIsDeterministicAndSecretSafe(t *testing.T)
-```
-
-- [ ] **Step 4: Run focused tests and confirm RED**
-
-Run:
-
-```bash
-cd NolaneWorld
-go test ./gauntlet/live/capabilityproof -count=1
-```
-
-Expected: compile/test failure because runner/report implementation is absent.
-
-- [ ] **Step 5: Commit RED proof**
-
-```bash
-git add NolaneWorld/gauntlet/live/capabilityproof
-git commit -m "test(nolane): prove v10 evidence-fusion contracts
-
-Autonomously-by: ChatGPT:GPT-5.6-Sol"
-```
+- [x] Define v10 report/status/reason/capability types.
+- [x] Add fake live driver that materially exercises v5 snapshot state restoration and v9 Realm behavior instead of returning prebuilt reports.
+- [x] Add RED tests for nil driver, require-live unavailability, empty fingerprint, substrate failure, Realm failure, fingerprint rotation, dual-pass behavior, nested tamper, forged capability bits, and deterministic secret-safe marshaling.
+- [x] Prove RED in GitHub Actions. Failure was exactly missing `Runner.Run`, `VerifyReport`, and `MarshalReport`; existing v5/Cube/v9 packages remained green.
 
 ---
 
-### Task 2: GREEN — Same-driver runner and deterministic composite report
+## Task 2 — Same-driver runner and deterministic report
 
 **Files:**
-- Modify: `NolaneWorld/gauntlet/live/capabilityproof/types.go`
-- Create: `NolaneWorld/gauntlet/live/capabilityproof/report.go`
-- Create: `NolaneWorld/gauntlet/live/capabilityproof/runner.go`
-- Modify tests from Task 1.
+- `NolaneWorld/gauntlet/live/capabilityproof/report.go`
+- `NolaneWorld/gauntlet/live/capabilityproof/runner.go`
 
-**Interfaces:**
-- Consumes: the Task 1 public types and existing `live.Runner`, `realmproof.Runner`.
-- Produces a fully self-verifying `Report` that embeds the two nested sanitized reports.
-
-- [ ] **Step 1: Implement domain-separated hashing and report sealing**
-
-Use length-prefixed SHA-256 fields under new v10 domains only:
-
-```go
-func proofHash(domain string, fields ...string) string
-func reportDigest(r Report) string
-func sealReport(r *Report) error
-func VerifyReport(r Report) error
-func MarshalReport(r Report, forbidden ...string) ([]byte, error)
-```
-
-`VerifyReport` MUST call both `live.VerifyReport(r.SubstrateProof)` and `realmproof.VerifyReport(r.RealmProof)`.
-
-- [ ] **Step 2: Derive capability bits from nested proof facts, never caller booleans**
-
-For `LIVE_PASS`, require:
-
-```go
-r.SubstrateProof.Status == live.StatusLivePass
-r.SubstrateProof.Approved
-r.SubstrateProof.Capabilities.GuestExecution
-r.SubstrateProof.Capabilities.SnapshotRollback
-r.SubstrateProof.Capabilities.CleanupObserved
-r.RealmProof.Status == live.StatusLivePass
-r.RealmProof.Approved
-r.RealmProof.Capabilities.GuestExecution
-r.RealmProof.Capabilities.RawPublicDenied
-r.RealmProof.Capabilities.PublicIngressDenied
-```
-
-Set v10 capability bits only from those verified nested facts. Any mismatch between stored bits and derived bits is invalid.
-
-- [ ] **Step 3: Implement the same-driver runner**
-
-Algorithm:
-
-```go
-func (r Runner) Run(ctx context.Context, driver live.Driver) (Report, error) {
-    mode := normalizedMode(r.Mode)
-    profile := normalizedProfile(r.Profile)
-
-    if driver == nil {
-        // Run deterministic nil-driver nested probes and return sealed UNAVAILABLE.
-    }
-
-    fp := driver.Fingerprint()
-    if fp.EndpointDigest == "" || fp.TemplateDigest == "" {
-        // LIVE_FAIL / fingerprint_invalid.
-    }
-
-    substrateReport, substrateErr := (live.Runner{
-        Mode: live.ModeProbe,
-        Profile: live.ProfileCore,
-    }).Run(ctx, driver)
-
-    realmReport, realmErr := (realmproof.Runner{
-        Mode: live.ModeProbe,
-        Profile: profile,
-        RawPublicTarget: r.RawPublicTarget,
-    }).Run(ctx, driver)
-
-    // Validate reports, classify LIVE_FAIL before UNAVAILABLE,
-    // bind endpoint/template digests to the pre-run fingerprint,
-    // derive capabilities, seal, then apply outer mode error semantics.
-}
-```
-
-Nested runners use probe mode so v10 can always inspect and seal valid unavailable receipts; outer mode owns `require-live` behavior.
-
-- [ ] **Step 4: Preserve exact status precedence**
-
-Order:
-
-1. invalid/tampered evidence or fingerprint mismatch -> `LIVE_FAIL`;
-2. nested `LIVE_FAIL` -> `LIVE_FAIL`;
-3. nested `UNAVAILABLE` -> `UNAVAILABLE`;
-4. both nested `LIVE_PASS` -> `LIVE_PASS`.
-
-- [ ] **Step 5: Run focused tests**
-
-```bash
-cd NolaneWorld
-go test ./gauntlet/live/capabilityproof -count=1
-```
-
-Expected: PASS.
-
-- [ ] **Step 6: Run live-package regression**
-
-```bash
-cd NolaneWorld
-go test ./gauntlet/live/... -count=1
-```
-
-Expected: PASS with no v5/v9 test changes required.
-
-- [ ] **Step 7: Commit GREEN runner/report**
-
-```bash
-git add NolaneWorld/gauntlet/live/capabilityproof
-git commit -m "feat(nolane): add v10 same-driver capability proof
-
-Autonomously-by: ChatGPT:GPT-5.6-Sol"
-```
+- [x] Add length-prefixed SHA-256 v10 domains.
+- [x] Verify both nested evidence families with their existing verifiers.
+- [x] Require nested v5 core and v9 Realm reports to be probe-mode evidence while the outer v10 mode owns require-live semantics.
+- [x] Lock one pre-run driver fingerprint.
+- [x] Require v5 endpoint + template digests and v9 endpoint digest to match the lock.
+- [x] Fail closed on fingerprint rotation/rebind.
+- [x] Derive capability bits only from verified nested facts.
+- [x] Clear all capability bits from every non-PASS composite receipt.
+- [x] Preserve precedence: evidence mismatch/failure before unavailability.
+- [x] Prove GREEN with live-package race tests and vet.
 
 ---
 
-### Task 3: RED/GREEN — Exact-bound v10 capability evidence source
+## Task 3 — Exact-bound immutable capability evidence
 
 **Files:**
-- Create: `NolaneWorld/gauntlet/live/capabilityproof/evidence_source_test.go`
-- Create: `NolaneWorld/gauntlet/live/capabilityproof/evidence_source.go`
+- `NolaneWorld/gauntlet/live/capabilityproof/evidence_source_test.go`
+- `NolaneWorld/gauntlet/live/capabilityproof/evidence_source.go`
 
-**Interfaces:**
-- Consumes: verified v10 `Report`, `agentruntime.CapabilityEvidenceQuery`.
-- Produces:
+- [x] Add RED tests for unavailable/tampered reports, invalid bindings, exact mismatch, snapshot/network/guest projection, no invented claims, and no unsupported mesh upgrade.
+- [x] Prove RED in Actions with only the constructor/binding symbols absent.
+- [x] Require a sealed v10 `LIVE_PASS` and valid Realm binding at construction.
+- [x] Bind to exact Realm ID, nonzero Realm revision, and canonical policy digest.
+- [x] Require PASS scenario evidence from v5 guest execution + snapshot authority and v9 guest-after-profile + raw-public denial + public-ingress denial.
+- [x] Project only guest execution, snapshot rollback, public-inbound-disabled, observed network isolation, and optional genuinely verified mesh.
+- [x] Use digest-only `live-capability-v10:*` evidence references.
+- [x] Expose no mutable setter/registration authority.
+- [x] Prove GREEN with race tests, vet, and missing-infrastructure negative control.
 
-```go
-type CapabilityEvidenceBinding struct {
-    RealmID       realm.ID
-    RealmRevision uint64
-    PolicyDigest  string
-}
+---
 
-func NewCapabilityEvidenceSource(
-    report Report,
-    binding CapabilityEvidenceBinding,
-) (agentruntime.CapabilityEvidenceSource, error)
-```
+## Task 4 — V10 CLI
 
-- [ ] **Step 1: Write RED evidence tests**
+**Files:**
+- `NolaneWorld/cmd/nolane-capability-gauntlet-live/main_test.go`
+- `NolaneWorld/cmd/nolane-capability-gauntlet-live/main.go`
 
-```go
-func TestEvidenceSourceRejectsUnavailableReport(t *testing.T)
-func TestEvidenceSourceRejectsTamperedReport(t *testing.T)
-func TestEvidenceSourceRejectsInvalidBinding(t *testing.T)
-func TestEvidenceSourceReturnsNothingForBindingMismatch(t *testing.T)
-func TestEvidenceSourceProjectsSnapshotNetworkAndGuestProof(t *testing.T)
-func TestEvidenceSourceDoesNotInventPublicReadFilesystemProcessOrResourceClaims(t *testing.T)
-func TestEvidenceSourceCannotUpgradeInternalMeshWithoutV9MeshPass(t *testing.T)
-```
+- [x] Add RED tests for probe-mode unavailability, require-live exit semantics, invalid mode/profile/target kind, plaintext/base64/hex credential exclusion, and atomic `--out` behavior.
+- [x] Prove RED in full World Check; `capabilityproof` itself stayed green.
+- [x] Parse host-owned Cube configuration and validate semantic flags.
+- [x] Construct at most one Cube live driver and pass that exact object to the v10 runner.
+- [x] Emit verified canonical JSON.
+- [x] Use exit code 0 for PASS or probe-mode UNAVAILABLE, 2 for usage/require-live UNAVAILABLE, and 1 for LIVE_FAIL/evidence/output errors.
+- [x] Scan caller-provided credential plaintext/base64/hex before evidence output.
+- [x] Write files atomically.
+- [x] Prove GREEN with `go test ./...`, `go test -race ./...`, `go vet ./...`, and existing v4-v9 generators.
 
-- [ ] **Step 2: Confirm RED**
+---
 
-```bash
-cd NolaneWorld
-go test ./gauntlet/live/capabilityproof -run EvidenceSource -count=1
-```
+## Task 5 — CI, release documentation, nondrift, and integration
 
-Expected: FAIL because constructor is absent.
+**Files:**
+- `.github/workflows/nolane-world-check.yml`
+- `.github/workflows/nolane-live-gauntlet.yml`
+- `NolaneWorld/STATE-CONTINUITY-EVIDENCE-FUSION-V10.md`
 
-- [ ] **Step 3: Implement immutable exact-bound source**
+- [x] Extend Live Substrate harness path filters to v9/v10 packages, CLIs, specs, plans, and release doc.
+- [x] Race-test and vet v5/v9/v10 live packages and all three live CLIs.
+- [x] Generate v5 and v10 missing-infrastructure negative controls on ordinary GitHub-hosted runners and require `UNAVAILABLE`, `approved=false`, `config_missing`.
+- [x] Keep the self-hosted live/KVM job explicit and manual; do not manufacture a live v10 PASS on hosted runners.
+- [x] Extend World Check with deterministic v10 negative-control generation twice + byte comparison.
+- [x] Require v10 `UNAVAILABLE`, `approved=false`, `config_missing` in CI.
+- [x] Scan exact plaintext/base64/hex forms of `SYNTHETIC-V10-CUBE-CREDENTIAL`.
+- [x] Upload commit-bound v10 negative-control evidence without changing v4-v9 generator commands.
+- [x] Document same-driver correlation, nested evidence requirements, exact Realm binding, snapshot authority non-rewind, status semantics, capability truth table, CLI/CI meaning, historical nondrift, and explicit non-claims.
+- [x] Full World Check is GREEN through unit/race/vet, v4-v9 generation, v10 generation, and all evidence uploads.
+- [x] Live harness is GREEN through race/vet and both missing-infrastructure negative controls.
+- [ ] Docs Build Check GREEN after removing VitePress-sensitive GitHub Actions moustache syntax from this plan.
+- [ ] Format Check GREEN on amd64/arm64.
+- [ ] Audit exact-head v4-v10 artifacts and historical canonical hashes.
+- [ ] Preserve full RED/GREEN history on a backup branch.
+- [ ] Compact final feature candidate to one direct-child commit of unchanged `master` with the exact final tree.
+- [ ] Require fresh exact-head provenance, World, Live, Docs, and Format gates on the compact candidate.
+- [ ] Audit compact-candidate artifacts again.
+- [ ] Confirm no blocking review findings.
+- [ ] Integrate by fast-forward if `master` is unchanged and the candidate is its direct child.
+- [ ] Confirm PR #13 is merged and `master` points to the exact v10 commit.
+- [ ] Require fresh post-merge World Check success on the exact master SHA.
 
-The stored query is exactly:
+## Release evidence names
 
-```go
-agentruntime.CapabilityEvidenceQuery{
-    RealmID: binding.RealmID,
-    RealmRevision: binding.RealmRevision,
-    PolicyDigest: binding.PolicyDigest,
-}
-```
-
-The snapshot attestation sets only:
-
-```go
-GuestExecAvailable: true
-GuestExecVerified: true
-SnapshotAvailable: true
-SnapshotVerified: true
-PublicInboundDisabled: true
-NetworkIsolationVerified: true
-```
-
-and optional internal mesh when the nested v9 report genuinely proves it.
-
-Evidence values are digest references such as:
+Historical artifacts retain their existing names. The new v10 negative-control artifact is conceptually named:
 
 ```text
-live-capability-v10:snapshot:<digest>
-live-capability-v10:network:<digest>
+nolane-capability-live-v10-unavailable-<exact-ci-sha>
 ```
 
-No mutable setter or registration method is added.
+The placeholder above is intentionally documentation-safe; the real GitHub Actions workflow uses its native commit-SHA expression directly.
 
-- [ ] **Step 4: Run focused and agentruntime integration tests**
+## Closure rule
 
-```bash
-cd NolaneWorld
-go test ./gauntlet/live/capabilityproof ./agentruntime -count=1
-```
+Do not call v10 complete merely because code compiles or deterministic CI is green. Closure requires:
 
-Expected: PASS.
-
-- [ ] **Step 5: Commit evidence source**
-
-```bash
-git add NolaneWorld/gauntlet/live/capabilityproof
-git commit -m "feat(nolane): bind v10 snapshot evidence to Realm truth
-
-Autonomously-by: ChatGPT:GPT-5.6-Sol"
-```
-
----
-
-### Task 4: RED/GREEN — V10 CLI and fail-honest negative control
-
-**Files:**
-- Create: `NolaneWorld/cmd/nolane-capability-gauntlet-live/main.go`
-- Create: `NolaneWorld/cmd/nolane-capability-gauntlet-live/main_test.go`
-
-**Interfaces:**
-- Consumes: Cube environment/config, v10 `Runner` and `MarshalReport`.
-- Produces canonical JSON on stdout or `--out` with stable exit semantics.
-
-- [ ] **Step 1: Write RED CLI tests**
-
-Cover:
-
-```go
-func TestProbeWithoutCubeConfigWritesUnavailable(t *testing.T)
-func TestRequireLiveWithoutCubeConfigReturnsTwo(t *testing.T)
-func TestInvalidModeReturnsTwo(t *testing.T)
-func TestInvalidProfileReturnsTwo(t *testing.T)
-func TestInvalidTargetKindReturnsTwo(t *testing.T)
-func TestCredentialEncodingsAreRejectedFromEvidence(t *testing.T)
-```
-
-- [ ] **Step 2: Implement CLI**
-
-Follow `cmd/nolane-realm-gauntlet-live` conventions. Construct exactly one `livecube.Driver`; pass that same object to v10 `Runner`.
-
-Exit codes:
-
-- `0`: `LIVE_PASS`, or probe-mode `UNAVAILABLE` written successfully;
-- `2`: invalid CLI input or require-live `UNAVAILABLE`;
-- `1`: `LIVE_FAIL`, evidence verification failure, or write failure.
-
-- [ ] **Step 3: Run CLI package tests**
-
-```bash
-cd NolaneWorld
-go test ./cmd/nolane-capability-gauntlet-live -count=1
-```
-
-Expected: PASS.
-
-- [ ] **Step 4: Generate negative control twice locally/CI-equivalent**
-
-```bash
-cd NolaneWorld
-NOLANE_CUBE_API_KEY=SYNTHETIC-V10-CUBE-CREDENTIAL \
-  go run ./cmd/nolane-capability-gauntlet-live \
-  --mode probe \
-  --profile R0_INTERNAL_ONLY \
-  --raw-public-kind http \
-  --raw-public-target https://example.invalid/nolane-v10-negative-control \
-  --out release-evidence/nolane-capability-live-v10-unavailable.json
-```
-
-Expected JSON: `status=UNAVAILABLE`, `approved=false`, no synthetic credential encoding.
-
-- [ ] **Step 5: Commit CLI**
-
-```bash
-git add NolaneWorld/cmd/nolane-capability-gauntlet-live
-git commit -m "feat(nolane): expose v10 capability proof CLI
-
-Autonomously-by: ChatGPT:GPT-5.6-Sol"
-```
-
----
-
-### Task 5: CI, documentation, nondrift, and closure
-
-**Files:**
-- Modify: `.github/workflows/nolane-world-check.yml`
-- Modify: `.github/workflows/nolane-live-gauntlet.yml`
-- Create: `NolaneWorld/STATE-CONTINUITY-EVIDENCE-FUSION-V10.md`
-- Modify: `NolaneWorld/README.md`
-
-**Interfaces:**
-- Consumes all v10 code and existing release generators.
-- Produces deterministic v10 negative-control artifact and release documentation.
-
-- [ ] **Step 1: Extend World Check**
-
-Add a step after v9 generation that runs v10 twice, `cmp`s the files, requires `UNAVAILABLE` and `approved=false`, scans these exact synthetic forms, then removes the repeat file:
-
-```text
-SYNTHETIC-V10-CUBE-CREDENTIAL
-U1lOVEhFVElDLVYxMC1DVUJFLUNSRURFTlRJQUw=
-53594e5448455449432d5631302d435542452d43524544454e5449414c
-```
-
-Upload `release-evidence/nolane-capability-live-v10-unavailable.json` as `nolane-capability-live-v10-unavailable-${{ github.sha }}`.
-
-- [ ] **Step 2: Extend live harness workflow**
-
-Include:
-
-```bash
-go test -race ./gauntlet/live/... ./cmd/nolane-gauntlet-live ./cmd/nolane-realm-gauntlet-live ./cmd/nolane-capability-gauntlet-live ./substrate/cube
-go vet ./gauntlet/live/... ./cmd/nolane-gauntlet-live ./cmd/nolane-realm-gauntlet-live ./cmd/nolane-capability-gauntlet-live ./substrate/cube
-```
-
-Add v10 paths to the PR path filter. Do not enable a false live PASS on GitHub-hosted runners.
-
-- [ ] **Step 3: Document v10 truth boundaries**
-
-`STATE-CONTINUITY-EVIDENCE-FUSION-V10.md` must state:
-
-- same-driver correlation mechanism;
-- nested v5/v9 evidence requirements;
-- exact Realm binding;
-- snapshot rollback semantics and stale-authority non-rewind;
-- fail-honest statuses;
-- capability truth table;
-- CLI/CI meaning;
-- explicit non-claims.
-
-Update README with a concise v10 section and link.
-
-- [ ] **Step 4: Run full verification**
-
-```bash
-cd NolaneWorld
-go test ./...
-go test -race ./...
-go vet ./...
-```
-
-Then regenerate v4/v6/v7/v8/v9 evidence using the existing workflow commands and compare historical canonical bytes/hashes. Generate v10 twice and compare byte-for-byte.
-
-- [ ] **Step 5: Commit closure changes**
-
-```bash
-git add .github/workflows/nolane-world-check.yml .github/workflows/nolane-live-gauntlet.yml NolaneWorld/README.md NolaneWorld/STATE-CONTINUITY-EVIDENCE-FUSION-V10.md
-git commit -m "ci(nolane): close State Continuity Evidence Fusion v10
-
-Autonomously-by: ChatGPT:GPT-5.6-Sol"
-```
-
-- [ ] **Step 6: Preserve RED/GREEN history and compact candidate**
-
-Before compaction, create a backup branch pointing to the full implementation head. Build a single direct-child candidate of current `master` with exactly the final tree and one provenance trailer. Force-move only the feature branch, never `master`.
-
-- [ ] **Step 7: Open/refresh PR and require exact-head Actions**
-
-The compact candidate must pass:
-
-- contribution provenance gate;
-- Nolane World Check;
-- live harness semantics;
-- Docs Build Check;
-- Format Check amd64/arm64.
-
-Do not treat unrelated Claude reviewer infrastructure failures as code approval or rejection.
-
-- [ ] **Step 8: Audit exact-head artifacts**
-
-Download the v10 artifact and verify:
-
-- exact branch/head binding;
-- `UNAVAILABLE` / `approved=false` negative-control status;
-- deterministic byte identity expectations;
-- no plaintext/base64/hex synthetic credential;
-- v4–v9 nondrift.
-
-- [ ] **Step 9: Integrate and verify master**
-
-After exact-head gates are green and review surface has no blocking findings, integrate by fast-forward when the compact commit is a direct child of unchanged `master`. Confirm the PR is `merged=true`, `master` points to the exact v10 SHA, and the fresh push-triggered World Check on that SHA succeeds.
+1. exact-head technical gates green;
+2. exact-head artifact verification and historical nondrift;
+3. one compact direct-child integration candidate;
+4. merged `master` at the exact candidate SHA;
+5. fresh post-merge verification.
