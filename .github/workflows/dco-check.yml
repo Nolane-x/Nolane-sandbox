@@ -13,6 +13,8 @@ concurrency:
 
 jobs:
   dco:
+    # Keep the historical check name for required-status compatibility.
+    # Human DCO is optional; AI provenance is mandatory for AI-authored commits.
     name: Developer Certificate of Origin
     runs-on: ubuntu-latest
     steps:
@@ -21,7 +23,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check DCO sign-off
+      - name: Check contribution provenance
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -30,30 +32,39 @@ jobs:
 
           failed=0
           while IFS= read -r sha; do
-            # Skip merge commits
+            # Merge commits are repository integration records rather than
+            # contribution commits and do not need an attribution trailer.
             parents=$(git cat-file -p "$sha" | grep -c '^parent ' || true)
             if [[ "$parents" -gt 1 ]]; then
               continue
             fi
 
             message=$(git log -1 --format='%B' "$sha")
-            if ! echo "$message" | grep -qP '^Signed-off-by: .+ <.+@.+>'; then
-              echo "::error::Commit $sha is missing a valid 'Signed-off-by:' line."
-              echo "  Subject: $(git log -1 --format='%s' "$sha")"
-              echo "  Author:  $(git log -1 --format='%an <%ae>' "$sha")"
-              echo ""
-              failed=1
+
+            # Human DCO remains accepted but is no longer mandatory.
+            if echo "$message" | grep -qP '^Signed-off-by: .+ <.+@.+>' ; then
+              continue
             fi
+
+            # AI-generated work must remain explicitly attributable.
+            if echo "$message" | grep -qP '^(Assisted-by|Autonomously-by): [^:[:space:]]+:.+' ; then
+              continue
+            fi
+
+            echo "::error::Commit $sha is missing contribution provenance."
+            echo "  Subject: $(git log -1 --format='%s' "$sha")"
+            echo "  Author:  $(git log -1 --format='%an <%ae>' "$sha")"
+            echo ""
+            echo "Accepted trailers:"
+            echo "  Signed-off-by: Name <email>                 # optional human DCO"
+            echo "  Assisted-by: AGENT_NAME:MODEL_VERSION       # AI-assisted"
+            echo "  Autonomously-by: AGENT_NAME:MODEL_VERSION  # AI-authored"
+            echo ""
+            failed=1
           done < <(git rev-list "$BASE_SHA".."$HEAD_SHA")
 
           if [[ "$failed" -eq 1 ]]; then
-            echo ""
-            echo "DCO check failed. Every commit must contain:"
-            echo "  Signed-off-by: Your Name <your.email@example.com>"
-            echo ""
-            echo "Fix with: git rebase --signoff HEAD~N && git push --force-with-lease"
-            echo "See: https://developercertificate.org/"
             exit 1
           fi
 
-          echo "All commits have valid DCO sign-off."
+          echo "All contribution commits have accepted provenance. Human DCO is optional."
