@@ -116,6 +116,8 @@ func TestPrometheusHandlerExportsAvailableGuestAndHostSnapshotsWithoutCollecting
 		"# TYPE cubesandbox_host_sandbox_cpu_usage_seconds_total counter",
 		"cubesandbox_host_sandbox_cpu_usage_seconds_total",
 		"cubesandbox_host_sandbox_cpu_limit_cores",
+		"cubesandbox_host_sandbox_cpu_limit_quota_microseconds",
+		"cubesandbox_host_sandbox_cpu_limit_period_microseconds",
 		"cubesandbox_host_sandbox_memory_current_bytes",
 		"cubesandbox_host_sandbox_memory_failures_total",
 		`sandbox_id="sandbox"`,
@@ -126,7 +128,7 @@ func TestPrometheusHandlerExportsAvailableGuestAndHostSnapshotsWithoutCollecting
 	require.NotContains(t, body, "baseline_id")
 	require.NotContains(t, body, "last_error")
 	require.NotContains(t, body, "container_cpu")
-	require.Equal(t, 22, countPrometheusSamples(body))
+	require.Equal(t, 24, countPrometheusSamples(body))
 	require.Equal(t, 0, guestReader.calls)
 	require.Equal(t, 0, hostReader.calls)
 	require.True(t, strings.HasPrefix(recorder.Header().Get("Content-Type"), "text/plain"))
