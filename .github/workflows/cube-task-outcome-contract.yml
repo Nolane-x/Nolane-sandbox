@@ -1,0 +1,42 @@
+name: Cube Task Outcome Contract
+
+on:
+  pull_request:
+    paths:
+      - 'Cubelet/plugins/cube/internals/sandbox/**'
+      - 'Cubelet/go.mod'
+      - 'Cubelet/go.sum'
+      - '.github/workflows/cube-task-outcome-contract.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'Cubelet/plugins/cube/internals/sandbox/**'
+      - 'Cubelet/go.mod'
+      - 'Cubelet/go.sum'
+      - '.github/workflows/cube-task-outcome-contract.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cube-task-outcome-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-task-outcome-proof:
+    name: Exact task outcome proof
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: Cubelet/go.mod
+          cache: true
+          cache-dependency-path: Cubelet/go.sum
+
+      - name: Verify exact task outcome proof contract
+        working-directory: Cubelet
+        run: go test ./plugins/cube/internals/sandbox -run 'TaskOutcome|OutcomeCandidate' -count=1

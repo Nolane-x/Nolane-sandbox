@@ -24,6 +24,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/containerd/errdefs"
@@ -86,10 +87,11 @@ func init() {
 			}
 
 			c := &controllerLocal{
-				root:      root,
-				state:     state,
-				shims:     shims,
-				publisher: publisher,
+				root:              root,
+				state:             state,
+				shims:             shims,
+				publisher:         publisher,
+				taskOutcomeProofs: newTaskOutcomeProofStore(),
 			}
 			return c, nil
 		},
@@ -113,19 +115,83 @@ type controllerLocal struct {
 	state     string
 	shims     *v2.ShimManager
 	publisher events.Publisher
+
+	taskOutcomeProofMu sync.Mutex
+	taskOutcomeProofs  *taskOutcomeProofStore
+
+	taskServiceResolver     func(context.Context, string) (taskRuntimeService, error)
+	sandboxEndpointResolver func(context.Context, string) (string, uint32, error)
 }
 
 type taskStatsService interface {
 	Stats(context.Context, *task.StatsRequest) (*task.StatsResponse, error)
 }
 
+type taskRuntimeService interface {
+	taskStatsService
+	State(context.Context, *task.StateRequest) (*task.StateResponse, error)
+	Wait(context.Context, *task.WaitRequest) (*task.WaitResponse, error)
+}
+
 var _ sandbox.Controller = (*controllerLocal)(nil)
+var _ TaskOutcomeProofProvider = (*controllerLocal)(nil)
+
+func (c *controllerLocal) ensureTaskOutcomeProofStore() *taskOutcomeProofStore {
+	if c == nil {
+		return nil
+	}
+	c.taskOutcomeProofMu.Lock()
+	defer c.taskOutcomeProofMu.Unlock()
+	if c.taskOutcomeProofs == nil {
+		c.taskOutcomeProofs = newTaskOutcomeProofStore()
+	}
+	return c.taskOutcomeProofs
+}
+
+func (c *controllerLocal) TaskOutcomeProof(sandboxID string) (TaskOutcomeProof, bool) {
+	store := c.ensureTaskOutcomeProofStore()
+	if store == nil {
+		return TaskOutcomeProof{}, false
+	}
+	return store.Get(sandboxID)
+}
+
+func (c *controllerLocal) beginTaskOutcomeRealization(sandboxID string) uint64 {
+	store := c.ensureTaskOutcomeProofStore()
+	if store == nil {
+		return 0
+	}
+	return store.BeginRealization(sandboxID)
+}
+
+func (c *controllerLocal) recordTaskOutcomeCandidate(candidate taskOutcomeCandidate) (TaskOutcomeProof, error) {
+	store := c.ensureTaskOutcomeProofStore()
+	if store == nil {
+		return TaskOutcomeProof{}, fmt.Errorf("task outcome proof store is unavailable")
+	}
+	return store.Record(candidate)
+}
+
+func (c *controllerLocal) recordAuthoritativeTaskOutcomeCandidate(candidate taskOutcomeCandidate) (TaskOutcomeProof, error) {
+	store := c.ensureTaskOutcomeProofStore()
+	if store == nil {
+		return TaskOutcomeProof{}, fmt.Errorf("task outcome proof store is unavailable")
+	}
+	if _, ok := store.RecoverRealization(candidate.SandboxID); !ok {
+		return TaskOutcomeProof{}, fmt.Errorf("task outcome proof recovery is fenced for sandbox %s", candidate.SandboxID)
+	}
+	return store.Record(candidate)
+}
 
 func (c *controllerLocal) Create(ctx context.Context, info sandbox.Sandbox, opts ...sandbox.CreateOpt) (retErr error) {
+	if store := c.ensureTaskOutcomeProofStore(); store != nil {
+		store.Clear(info.ID)
+	}
 	return nil
 }
 
 func (c *controllerLocal) Start(ctx context.Context, sandboxID string) (sandbox.ControllerInstance, error) {
+	c.beginTaskOutcomeRealization(sandboxID)
 	return sandbox.ControllerInstance{}, nil
 }
 
@@ -144,24 +210,27 @@ func (c *controllerLocal) Shutdown(ctx context.Context, sandboxID string) error 
 
 func (c *controllerLocal) Wait(ctx context.Context, sandboxID string) (sandbox.ExitStatus, error) {
 	svc, err := c.getSandbox(ctx, sandboxID)
-	if errdefs.IsNotFound(err) {
-		return sandbox.ExitStatus{
-			ExitedAt:   time.Now(),
-			ExitStatus: 1,
-		}, nil
-	}
-	resp, err := svc.Wait(ctx, &task.WaitRequest{
-		ID: sandboxID,
-	})
 	if err != nil {
-		return sandbox.ExitStatus{
-			ExitedAt:   resp.GetExitedAt().AsTime(),
-			ExitStatus: resp.GetExitStatus(),
-		}, err
+		return sandbox.ExitStatus{}, fmt.Errorf("resolve sandbox %s task service: %w", sandboxID, err)
 	}
+
+	resp, err := svc.Wait(ctx, &task.WaitRequest{ID: sandboxID})
+	if err != nil {
+		return sandbox.ExitStatus{}, fmt.Errorf("wait for sandbox %s task outcome: %w", sandboxID, err)
+	}
+
+	candidate, err := outcomeCandidateFromWait(sandboxID, resp)
+	if err != nil {
+		return sandbox.ExitStatus{}, err
+	}
+	proof, err := c.recordAuthoritativeTaskOutcomeCandidate(candidate)
+	if err != nil {
+		return sandbox.ExitStatus{}, fmt.Errorf("record exact task outcome for sandbox %s: %w", sandboxID, err)
+	}
+
 	return sandbox.ExitStatus{
-		ExitedAt:   resp.GetExitedAt().AsTime(),
-		ExitStatus: resp.GetExitStatus(),
+		ExitedAt:   proof.ExitedAt,
+		ExitStatus: proof.ExitCode,
 	}, nil
 }
 
@@ -177,18 +246,28 @@ func (c *controllerLocal) Status(ctx context.Context, sandboxID string, verbose 
 		return sandbox.ControllerStatus{}, err
 	}
 
-	resp, err := svc.State(ctx, &task.StateRequest{
-		ID: sandboxID,
-	})
+	resp, err := svc.State(ctx, &task.StateRequest{ID: sandboxID})
 	if err != nil {
 		return sandbox.ControllerStatus{}, fmt.Errorf("failed to query sandbox %s status: %w", sandboxID, err)
 	}
 
-	shim, err := c.shims.Get(ctx, sandboxID)
-	if err != nil {
-		return sandbox.ControllerStatus{}, fmt.Errorf("unable to find sandbox %q", sandboxID)
+	candidate, proofable, proofErr := outcomeCandidateFromState(sandboxID, resp)
+	if proofErr == nil && proofable {
+		store := c.ensureTaskOutcomeProofStore()
+		if store == nil {
+			return sandbox.ControllerStatus{}, fmt.Errorf("task outcome proof store is unavailable")
+		}
+		if _, recoverable := store.RecoverRealization(sandboxID); recoverable {
+			if _, err := store.Record(candidate); err != nil {
+				return sandbox.ControllerStatus{}, fmt.Errorf("record exact task outcome for sandbox %s: %w", sandboxID, err)
+			}
+		}
 	}
-	address, version := shim.Endpoint()
+
+	address, version, err := c.resolveSandboxEndpoint(ctx, sandboxID)
+	if err != nil {
+		return sandbox.ControllerStatus{}, err
+	}
 
 	return sandbox.ControllerStatus{
 		SandboxID: sandboxID,
@@ -196,7 +275,7 @@ func (c *controllerLocal) Status(ctx context.Context, sandboxID string, verbose 
 		State:     resp.GetStatus().String(),
 		ExitedAt:  resp.GetExitedAt().AsTime(),
 		Address:   address,
-		Version:   uint32(version),
+		Version:   version,
 	}, nil
 }
 
@@ -247,7 +326,13 @@ func (c *controllerLocal) Update(
 	return nil
 }
 
-func (c *controllerLocal) getSandbox(ctx context.Context, id string) (task.TaskService, error) {
+func (c *controllerLocal) getSandbox(ctx context.Context, id string) (taskRuntimeService, error) {
+	if c != nil && c.taskServiceResolver != nil {
+		return c.taskServiceResolver(ctx, id)
+	}
+	if c == nil || c.shims == nil {
+		return nil, fmt.Errorf("sandbox runtime service for %s is unavailable", id)
+	}
 	shim, err := c.shims.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -257,4 +342,19 @@ func (c *controllerLocal) getSandbox(ctx context.Context, id string) (task.TaskS
 		return nil, fmt.Errorf("failed to get task client")
 	}
 	return task.NewTaskClient(taskClient), nil
+}
+
+func (c *controllerLocal) resolveSandboxEndpoint(ctx context.Context, sandboxID string) (string, uint32, error) {
+	if c != nil && c.sandboxEndpointResolver != nil {
+		return c.sandboxEndpointResolver(ctx, sandboxID)
+	}
+	if c == nil || c.shims == nil {
+		return "", 0, fmt.Errorf("unable to find sandbox %q", sandboxID)
+	}
+	shim, err := c.shims.Get(ctx, sandboxID)
+	if err != nil {
+		return "", 0, fmt.Errorf("unable to find sandbox %q", sandboxID)
+	}
+	address, version := shim.Endpoint()
+	return address, uint32(version), nil
 }
