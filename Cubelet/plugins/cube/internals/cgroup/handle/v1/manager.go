@@ -402,6 +402,11 @@ func usageSnapshotFromMetrics(metrics *cgroup1stats.Metrics, cpuLimit handle.CPU
 		limit.Value = 0
 		limit.Unlimited = true
 	}
+	oomKillsKnown := metrics.MemoryOomControl != nil
+	var oomKills uint64
+	if oomKillsKnown {
+		oomKills = metrics.MemoryOomControl.OomKill
+	}
 
 	return handle.UsageSnapshot{
 		CPUUsageTotalNS:          usage.GetTotal(),
@@ -414,5 +419,7 @@ func usageSnapshotFromMetrics(metrics *cgroup1stats.Metrics, cpuLimit handle.CPU
 		MemoryCurrentBytes:       memory.GetUsage(),
 		MemoryLimit:              limit,
 		MemoryFailuresTotal:      memory.GetFailcnt(),
+		MemoryOOMKillsKnown:      oomKillsKnown,
+		MemoryOOMKillsTotal:      oomKills,
 	}, nil
 }

@@ -33,4 +33,11 @@ type UsageSnapshot struct {
 	MemoryCurrentBytes  uint64
 	MemoryLimit         ResourceLimit
 	MemoryFailuresTotal uint64
+
+	// MemoryOOMKillsTotal is a kernel-observed OOM-kill counter. The value is
+	// meaningful only when MemoryOOMKillsKnown is true. Keeping presence
+	// explicit prevents a missing cgroup signal from being promoted to a false
+	// zero-OOM claim.
+	MemoryOOMKillsKnown bool
+	MemoryOOMKillsTotal uint64
 }
