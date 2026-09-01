@@ -76,7 +76,7 @@ func TestV15PrometheusExportsKnownOOMKillsAndOmitsUnknownEvidence(t *testing.T) 
 				CollectedAt:  time.Unix(110, 0).UTC(),
 				Availability: HostSandboxAvailable,
 				Snapshot: &HostSandboxSnapshot{
-					SandboxID:            "known",
+					SandboxID:           "known",
 					MemoryOOMKillsKnown: true,
 					MemoryOOMKillsTotal: 4,
 				},
@@ -86,7 +86,7 @@ func TestV15PrometheusExportsKnownOOMKillsAndOmitsUnknownEvidence(t *testing.T) 
 				CollectedAt:  time.Unix(110, 0).UTC(),
 				Availability: HostSandboxAvailable,
 				Snapshot: &HostSandboxSnapshot{
-					SandboxID:            "unknown",
+					SandboxID:           "unknown",
 					MemoryOOMKillsKnown: false,
 				},
 			},
