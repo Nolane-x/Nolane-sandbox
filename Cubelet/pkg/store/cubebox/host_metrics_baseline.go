@@ -9,6 +9,8 @@ type HostMetricsBaseline struct {
 	CPUPeriodsTotal          uint64 `json:"cpu_periods_total"`
 	CPUThrottledPeriodsTotal uint64 `json:"cpu_throttled_periods_total"`
 	MemoryFailuresTotal      uint64 `json:"memory_failures_total"`
+	MemoryOOMKillsKnown      bool   `json:"memory_oom_kills_known,omitempty"`
+	MemoryOOMKillsTotal      uint64 `json:"memory_oom_kills_total,omitempty"`
 }
 
 func (b *HostMetricsBaseline) DeepCopy() *HostMetricsBaseline {
