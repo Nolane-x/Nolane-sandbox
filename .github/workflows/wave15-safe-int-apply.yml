@@ -1,0 +1,52 @@
+name: Wave 15 Safe Integer Apply
+
+on:
+  push:
+    branches:
+      - wave15-cube-oom-provenance
+    paths:
+      - .github/workflows/wave15-safe-int-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wave15-cube-oom-provenance
+          fetch-depth: 0
+
+      - name: Harden exact integer parsing
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("NolaneWorld/substrate/cube/host_resource.go")
+          text = p.read_text()
+          old = '''func exactUint(v float64) (uint64, error) {\n\t// math.MaxUint64 rounds to 2^64 when converted to float64. Reject that\n\t// rounded boundary as well; accepting it and converting to uint64 would\n\t// overflow instead of failing closed.\n\tif v < 0 || v >= float64(math.MaxUint64) || math.Trunc(v) != v {\n\t\treturn 0, errors.New("must be an exact non-negative integer")\n\t}\n\treturn uint64(v), nil\n}'''
+          new = '''const maxExactPrometheusInteger = 1<<53 - 1\n\nfunc exactUint(v float64) (uint64, error) {\n\t// Prometheus scalar samples are parsed through binary64. Decimal integers\n\t// above 2^53-1 can round onto a neighboring integer before validation, so\n\t// accepting them would turn an "exact" observation into an approximation.\n\tif v < 0 || v > float64(maxExactPrometheusInteger) || math.Trunc(v) != v {\n\t\treturn 0, errors.New("must be an exact non-negative integer within the binary64 safe range")\n\t}\n\treturn uint64(v), nil\n}'''
+          if new not in text:
+              if old not in text:
+                  raise SystemExit("exactUint patch anchor not found")
+              p.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w NolaneWorld/substrate/cube/host_resource.go
+
+      - name: Verify NolaneWorld exact transport contracts
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube
+
+      - name: Commit verified hardening
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add NolaneWorld/substrate/cube/host_resource.go
+          git commit -m "fix(v15): bound exact Prometheus integers" -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
+          git push origin HEAD:wave15-cube-oom-provenance
