@@ -44,3 +44,12 @@ func TestV15ObserverRejectsFractionalOOMKillEvidence(t *testing.T) {
 		t.Fatal("fractional OOM-kill evidence must fail closed")
 	}
 }
+
+func TestV15ObserverRejectsIntegerOutsideBinary64ExactTransportRange(t *testing.T) {
+	metrics := strings.Replace(v15OOMHostMetricsFixture,
+		`cubesandbox_host_sandbox_memory_oom_kills_total{sandbox_id="sandbox-123"} 4`,
+		`cubesandbox_host_sandbox_memory_oom_kills_total{sandbox_id="sandbox-123"} 9007199254740993`, 1)
+	if _, err := observeV14Fixture(t, metrics); err == nil {
+		t.Fatal("integer outside the binary64 exact transport range must fail closed")
+	}
+}
