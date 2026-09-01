@@ -32,7 +32,7 @@ The assignment baseline persists the same presence bit and counter. Host normali
 
 `HostSandboxSnapshot` carries the normalized evidence. Prometheus exports `cubesandbox_host_sandbox_memory_oom_kills_total` only when the value is known. Absence therefore means unknown/unavailable, not zero.
 
-`NolaneWorld/substrate/cube.HostResourceSnapshot` gains an optional OOM-kill observation. The observer accepts the metric when present and rejects duplicates/fractional/overflow values with the same strict parsing rules used for exact CPU readback. The metric is optional so older Cubelet producers remain compatible; absence remains unknown.
+`NolaneWorld/substrate/cube.HostResourceSnapshot` gains an optional OOM-kill observation. The observer accepts the metric when present and rejects duplicates, fractional values, non-finite values, negative values, and integer samples outside the exact binary64 transport range. Prometheus scalar samples are transported as `float64`, so an integer observation can only be called exact when it is at most `2^53 - 1`; larger decimal integers may round before semantic validation and therefore fail closed. This same exact-integer parser protects CPU quota/period, counters, and byte-valued host observations that claim exactness. The OOM metric remains optional so older Cubelet producers remain compatible; absence remains unknown.
 
 ## Trust invariants
 
@@ -42,7 +42,8 @@ The assignment baseline persists the same presence bit and counter. Host normali
 4. Counter normalization is bound to the persisted cgroup assignment baseline.
 5. Missing OOM continuity fails closed only for the OOM dimension; it must not erase unrelated valid host evidence.
 6. A known OOM counter regression fails closed as a continuity violation.
-7. Producer and consumer tests include positive evidence, missing evidence, regression, duplicate, and compatibility cases.
+7. An integer transported through Prometheus may be called exact only inside the binary64 safe-integer range `0..2^53-1`.
+8. Producer and consumer tests include positive evidence, missing evidence, regression, duplicate, fractional, safe-range, and compatibility cases.
 
 ## Follow-up boundary
 
