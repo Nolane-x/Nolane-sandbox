@@ -40,6 +40,7 @@ var (
 	hostMemoryCurrent       = prometheus.NewDesc("cubesandbox_host_sandbox_memory_current_bytes", "Current memory charged to the host sandbox cgroup.", hostLabels, nil)
 	hostMemoryLimit         = prometheus.NewDesc("cubesandbox_host_sandbox_memory_limit_bytes", "Configured memory limit for the host sandbox cgroup.", hostLabels, nil)
 	hostMemoryFailures      = prometheus.NewDesc("cubesandbox_host_sandbox_memory_failures_total", "Host cgroup memory limit failures for the current sandbox since its assignment baseline.", hostLabels, nil)
+	hostMemoryOOMKills      = prometheus.NewDesc("cubesandbox_host_sandbox_memory_oom_kills_total", "Kernel-observed host cgroup OOM kills for the current sandbox since its assignment baseline.", hostLabels, nil)
 )
 
 type prometheusCollector struct {
@@ -66,7 +67,7 @@ func (c *prometheusCollector) Describe(ch chan<- *prometheus.Desc) {
 		hostCPUUsage, hostCPUUser, hostCPUSystem, hostCPUThrottled,
 		hostCPUPeriods, hostCPUThrottledPeriods, hostCPULimit,
 		hostCPULimitQuota, hostCPULimitPeriod,
-		hostMemoryCurrent, hostMemoryLimit, hostMemoryFailures,
+		hostMemoryCurrent, hostMemoryLimit, hostMemoryFailures, hostMemoryOOMKills,
 	} {
 		ch <- desc
 	}
@@ -143,6 +144,9 @@ func collectHostPrometheus(ch chan<- prometheus.Metric, latest HostSandboxLatest
 		ch <- prometheus.MustNewConstMetric(hostMemoryLimit, prometheus.GaugeValue, float64(snapshot.MemoryLimitBytes), labels...)
 	}
 	ch <- prometheus.MustNewConstMetric(hostMemoryFailures, prometheus.CounterValue, float64(snapshot.MemoryFailuresTotal), labels...)
+	if snapshot.MemoryOOMKillsKnown {
+		ch <- prometheus.MustNewConstMetric(hostMemoryOOMKills, prometheus.CounterValue, float64(snapshot.MemoryOOMKillsTotal), labels...)
+	}
 }
 
 func seconds(nanoseconds uint64) float64 {

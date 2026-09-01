@@ -15,6 +15,7 @@ import (
 )
 
 const hostResourceMetricsPath = "/v1/metrics/resource"
+const hostMemoryOOMKillsMetric = "cubesandbox_host_sandbox_memory_oom_kills_total"
 const cpuLimitRatioTolerance = 1e-12
 
 var (
@@ -63,6 +64,9 @@ type HostResourceSnapshot struct {
 	MemoryLimitBytes    uint64
 	MemoryCurrentBytes  uint64
 	MemoryFailures      uint64
+	// MemoryOOMKills is nil when the producer cannot prove assignment-scoped
+	// kernel OOM-kill continuity. A non-nil zero is exact evidence of zero.
+	MemoryOOMKills *uint64
 }
 
 type HostResourceObserver struct {
@@ -148,6 +152,14 @@ func (o *HostResourceObserver) Observe(ctx context.Context, binding ResourceBind
 	if err != nil {
 		return HostResourceSnapshot{}, fmt.Errorf("%w: memory failures: %v", ErrHostResourceUnavailable, err)
 	}
+	var oomKills *uint64
+	if raw, ok := values[hostMemoryOOMKillsMetric]; ok {
+		exact, err := exactUint(raw)
+		if err != nil {
+			return HostResourceSnapshot{}, fmt.Errorf("%w: memory OOM kills: %v", ErrHostResourceUnavailable, err)
+		}
+		oomKills = &exact
+	}
 
 	return HostResourceSnapshot{
 		SandboxID:           sandboxID,
@@ -160,18 +172,20 @@ func (o *HostResourceObserver) Observe(ctx context.Context, binding ResourceBind
 		MemoryLimitBytes:    memoryLimit,
 		MemoryCurrentBytes:  memoryCurrent,
 		MemoryFailures:      failures,
+		MemoryOOMKills:      oomKills,
 	}, nil
 }
 
 var hostResourceMetricNames = map[string]struct{}{
-	"cubesandbox_host_sandbox_cpu_limit_cores":                    {},
-	"cubesandbox_host_sandbox_cpu_limit_quota_microseconds":       {},
-	"cubesandbox_host_sandbox_cpu_limit_period_microseconds":      {},
-	"cubesandbox_host_sandbox_cpu_throttled_periods_total":        {},
-	"cubesandbox_host_sandbox_cpu_throttled_seconds_total":        {},
-	"cubesandbox_host_sandbox_memory_limit_bytes":                 {},
-	"cubesandbox_host_sandbox_memory_current_bytes":               {},
-	"cubesandbox_host_sandbox_memory_failures_total":              {},
+	"cubesandbox_host_sandbox_cpu_limit_cores":               {},
+	"cubesandbox_host_sandbox_cpu_limit_quota_microseconds":  {},
+	"cubesandbox_host_sandbox_cpu_limit_period_microseconds": {},
+	"cubesandbox_host_sandbox_cpu_throttled_periods_total":   {},
+	"cubesandbox_host_sandbox_cpu_throttled_seconds_total":   {},
+	"cubesandbox_host_sandbox_memory_limit_bytes":            {},
+	"cubesandbox_host_sandbox_memory_current_bytes":          {},
+	"cubesandbox_host_sandbox_memory_failures_total":         {},
+	hostMemoryOOMKillsMetric:                                 {},
 }
 
 func parseHostResourceMetrics(r io.Reader, sandboxID string) (map[string]float64, error) {
@@ -211,6 +225,9 @@ func parseHostResourceMetrics(r io.Reader, sandboxID string) (map[string]float64
 		return nil, fmt.Errorf("%w: %v", ErrHostResourceUnavailable, err)
 	}
 	for name := range hostResourceMetricNames {
+		if name == hostMemoryOOMKillsMetric {
+			continue
+		}
 		if _, ok := values[name]; !ok {
 			return nil, fmt.Errorf("%w: missing %s for sandbox %q", ErrHostResourceUnavailable, name, sandboxID)
 		}

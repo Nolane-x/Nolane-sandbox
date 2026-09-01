@@ -64,6 +64,8 @@ type HostSandboxSnapshot struct {
 	MemoryLimitBytes         uint64
 	MemoryLimitUnlimited     bool
 	MemoryFailuresTotal      uint64
+	MemoryOOMKillsKnown      bool
+	MemoryOOMKillsTotal      uint64
 }
 
 type HostSandboxLatest struct {
@@ -419,6 +421,8 @@ func newHostSandboxSnapshot(sandboxID, cgroupPath string, timestamp time.Time, u
 		MemoryLimitBytes:         usage.MemoryLimit.Value,
 		MemoryLimitUnlimited:     usage.MemoryLimit.Unlimited,
 		MemoryFailuresTotal:      usage.MemoryFailuresTotal,
+		MemoryOOMKillsKnown:      usage.MemoryOOMKillsKnown,
+		MemoryOOMKillsTotal:      usage.MemoryOOMKillsTotal,
 	}
 }
 
@@ -432,6 +436,8 @@ func hostMetricsBaselineFromUsage(cgroupPath string, usage handle.UsageSnapshot)
 		CPUPeriodsTotal:          usage.CPUPeriodsTotal,
 		CPUThrottledPeriodsTotal: usage.CPUThrottledPeriodsTotal,
 		MemoryFailuresTotal:      usage.MemoryFailuresTotal,
+		MemoryOOMKillsKnown:      usage.MemoryOOMKillsKnown,
+		MemoryOOMKillsTotal:      usage.MemoryOOMKillsTotal,
 	}
 }
 
@@ -440,6 +446,18 @@ func normalizeHostSandboxUsage(usage handle.UsageSnapshot, baseline cubeboxstore
 		return handle.UsageSnapshot{}, fmt.Errorf("host sandbox counter baseline cgroup path is required")
 	}
 	result := usage
+	if usage.MemoryOOMKillsKnown && baseline.MemoryOOMKillsKnown {
+		if usage.MemoryOOMKillsTotal < baseline.MemoryOOMKillsTotal {
+			return handle.UsageSnapshot{}, fmt.Errorf("host sandbox OOM kill counter regressed below persisted baseline")
+		}
+		result.MemoryOOMKillsTotal = usage.MemoryOOMKillsTotal - baseline.MemoryOOMKillsTotal
+		result.MemoryOOMKillsKnown = true
+	} else {
+		// OOM proof is dimension-local: preserve unrelated host resource evidence
+		// while refusing to synthesize continuity for an old/missing OOM baseline.
+		result.MemoryOOMKillsKnown = false
+		result.MemoryOOMKillsTotal = 0
+	}
 	counters := []struct {
 		name     string
 		current  uint64

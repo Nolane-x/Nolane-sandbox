@@ -541,6 +541,8 @@ func (l *CgPlugin) hostMetricsBaselineAtAssignment(ctx context.Context, group st
 		CPUPeriodsTotal:          usage.CPUPeriodsTotal,
 		CPUThrottledPeriodsTotal: usage.CPUThrottledPeriodsTotal,
 		MemoryFailuresTotal:      usage.MemoryFailuresTotal,
+		MemoryOOMKillsKnown:      usage.MemoryOOMKillsKnown,
+		MemoryOOMKillsTotal:      usage.MemoryOOMKillsTotal,
 	}, nil
 }
 
