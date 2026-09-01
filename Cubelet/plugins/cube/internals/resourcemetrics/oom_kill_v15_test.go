@@ -31,15 +31,28 @@ func TestV15HostBaselinePreservesAndNormalizesOOMKillEvidence(t *testing.T) {
 	require.Equal(t, uint64(5), normalized.MemoryOOMKillsTotal)
 }
 
-func TestV15HostNormalizationFailsClosedOnOOMEvidencePresenceDrift(t *testing.T) {
-	_, err := normalizeHostSandboxUsage(handle.UsageSnapshot{
+func TestV15HostNormalizationKeepsOOMUnknownWhenEvidenceContinuityIsMissing(t *testing.T) {
+	normalized, err := normalizeHostSandboxUsage(handle.UsageSnapshot{
 		MemoryOOMKillsKnown: false,
 	}, cubeboxstore.HostMetricsBaseline{
 		CGroupPath:          "/cube/pool/7",
 		MemoryOOMKillsKnown: true,
 		MemoryOOMKillsTotal: 4,
 	})
-	require.Error(t, err)
+	require.NoError(t, err)
+	require.False(t, normalized.MemoryOOMKillsKnown)
+	require.Zero(t, normalized.MemoryOOMKillsTotal)
+
+	normalized, err = normalizeHostSandboxUsage(handle.UsageSnapshot{
+		MemoryOOMKillsKnown: true,
+		MemoryOOMKillsTotal: 7,
+	}, cubeboxstore.HostMetricsBaseline{
+		CGroupPath:          "/cube/pool/7",
+		MemoryOOMKillsKnown: false,
+	})
+	require.NoError(t, err)
+	require.False(t, normalized.MemoryOOMKillsKnown)
+	require.Zero(t, normalized.MemoryOOMKillsTotal)
 }
 
 func TestV15HostNormalizationFailsClosedOnOOMCounterRegression(t *testing.T) {
