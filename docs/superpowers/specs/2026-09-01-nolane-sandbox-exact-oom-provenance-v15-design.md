@@ -28,7 +28,7 @@ Extend `handle.UsageSnapshot` with:
 
 The total is meaningful only when `Known` is true.
 
-The assignment baseline persists the same presence bit and counter. Host normalization subtracts the persisted counter only when both baseline and current sample are known. A known-state mismatch fails closed rather than fabricating continuity across an evidence-source change.
+The assignment baseline persists the same presence bit and counter. Host normalization subtracts the persisted counter only when both baseline and current sample are known. If OOM evidence presence differs between the persisted baseline and the current sample, the OOM dimension alone becomes unknown while unrelated CPU/memory proof remains available. If both sides are known but the counter regresses, normalization fails closed because the supposedly continuous cgroup evidence epoch is inconsistent.
 
 `HostSandboxSnapshot` carries the normalized evidence. Prometheus exports `cubesandbox_host_sandbox_memory_oom_kills_total` only when the value is known. Absence therefore means unknown/unavailable, not zero.
 
@@ -40,8 +40,9 @@ The assignment baseline persists the same presence bit and counter. Host normali
 2. No exit-code heuristic may synthesize OOM evidence.
 3. No missing metric may synthesize zero/false.
 4. Counter normalization is bound to the persisted cgroup assignment baseline.
-5. Counter regression or evidence-presence drift fails closed.
-6. Producer and consumer tests include positive evidence, missing evidence, regression, duplicate, and compatibility cases.
+5. Missing OOM continuity fails closed only for the OOM dimension; it must not erase unrelated valid host evidence.
+6. A known OOM counter regression fails closed as a continuity violation.
+7. Producer and consumer tests include positive evidence, missing evidence, regression, duplicate, and compatibility cases.
 
 ## Follow-up boundary
 
