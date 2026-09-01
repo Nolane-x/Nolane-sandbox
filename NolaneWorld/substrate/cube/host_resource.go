@@ -310,12 +310,14 @@ func nonNegativeFinite(v float64) (float64, error) {
 	return v, nil
 }
 
+const maxExactPrometheusInteger = 1<<53 - 1
+
 func exactUint(v float64) (uint64, error) {
-	// math.MaxUint64 rounds to 2^64 when converted to float64. Reject that
-	// rounded boundary as well; accepting it and converting to uint64 would
-	// overflow instead of failing closed.
-	if v < 0 || v >= float64(math.MaxUint64) || math.Trunc(v) != v {
-		return 0, errors.New("must be an exact non-negative integer")
+	// Prometheus scalar samples are parsed through binary64. Decimal integers
+	// above 2^53-1 can round onto a neighboring integer before validation, so
+	// accepting them would turn an "exact" observation into an approximation.
+	if v < 0 || v > float64(maxExactPrometheusInteger) || math.Trunc(v) != v {
+		return 0, errors.New("must be an exact non-negative integer within the binary64 safe range")
 	}
 	return uint64(v), nil
 }
