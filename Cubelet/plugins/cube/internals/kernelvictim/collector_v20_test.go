@@ -31,6 +31,22 @@ func TestV20NormalizeCollectorRecordRejectsInvalidBootAndBridge(t *testing.T) {
 	}
 }
 
+func TestV20TimeNamespaceOffsetAuthorityRequiresCurrentEquality(t *testing.T) {
+	if !sameTimeNamespaceHandle("time:[4026531834]", "time:[4026531834]") {
+		t.Fatal("same current/children time namespace was rejected")
+	}
+	for _, pair := range [][2]string{
+		{"time:[4026531834]", "time:[4026533000]"},
+		{"", "time:[4026531834]"},
+		{"time:[4026531834]", ""},
+		{"not-a-namespace", "not-a-namespace"},
+	} {
+		if sameTimeNamespaceHandle(pair[0], pair[1]) {
+			t.Fatalf("untrusted time namespace handles accepted: %q %q", pair[0], pair[1])
+		}
+	}
+}
+
 func TestV20ParseCgroup2MountAndResolveHierarchyPath(t *testing.T) {
 	mountInfo := []byte(
 		"30 23 0:26 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw\n" +
