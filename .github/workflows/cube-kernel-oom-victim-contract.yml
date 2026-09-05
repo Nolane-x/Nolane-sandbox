@@ -1,0 +1,26 @@
+name: Cube Kernel OOM Victim Contract
+
+on:
+  pull_request:
+  push:
+    branches:
+      - gpt/wave20-kernel-oom-victim-provenance
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: Cubelet/go.mod
+          cache-dependency-path: Cubelet/go.sum
+      - name: Verify kernel victim primitives and controller contract
+        working-directory: Cubelet
+        run: go test ./plugins/cube/internals/kernelvictim ./plugins/cube/internals/sandbox ./plugins/cube/internals/resourcemetrics -run 'V20|KernelOOMVictim|Victim' -count=1
+      - name: Verify NolaneWorld victim consumer contract
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V20|KernelOOMVictim|Victim' -count=1
