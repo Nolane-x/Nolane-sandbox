@@ -105,6 +105,24 @@ func init() {
 			if !ok {
 				return nil, fmt.Errorf("cube sandbox controller does not expose exact task outcome proofs")
 			}
+			oomBinder, ok := controllerPlugin.(realizationOOMSnapshotBinder)
+			if !ok {
+				return nil, fmt.Errorf("cube sandbox controller does not accept realization OOM snapshot authority")
+			}
+		oomProofs, ok := controllerPlugin.(realizationOOMProofVisitor)
+			if !ok {
+				return nil, fmt.Errorf("cube sandbox controller does not expose realization OOM proofs")
+			}
+
+			cgroupPlugin, err := ic.GetByID(constants.InternalPlugin, constants.CgroupID.ID())
+			if err != nil {
+				return nil, fmt.Errorf("load cube cgroup reader for realization OOM evidence: %w", err)
+			}
+			hostReader, ok := cgroupPlugin.(hostSandboxUsageReader)
+			if !ok {
+				return nil, fmt.Errorf("cube cgroup plugin does not expose host usage snapshots")
+			}
+			oomBinder.SetRealizationOOMSnapshotReader(newRealizationOOMSnapshotReader(store, hostReader, time.Now))
 
 			var sampler *GuestWorkloadSampler
 			if selection.GuestWorkload {
@@ -124,14 +142,6 @@ func init() {
 			}
 			var hostSampler *HostSandboxSampler
 			if selection.HostSandbox {
-				cgroupPlugin, err := ic.GetByID(constants.InternalPlugin, constants.CgroupID.ID())
-				if err != nil {
-					return nil, fmt.Errorf("load cube cgroup reader for resource metrics: %w", err)
-				}
-				hostReader, ok := cgroupPlugin.(hostSandboxUsageReader)
-				if !ok {
-					return nil, fmt.Errorf("cube cgroup plugin does not expose host usage snapshots")
-				}
 				hostSampler, err = NewHostSandboxSampler(HostSandboxSamplerConfig{
 					CollectionInterval:    tomlext.ToStdTime(config.CollectionInterval),
 					RequestTimeout:        tomlext.ToStdTime(config.RequestTimeout),
@@ -161,7 +171,7 @@ func init() {
 					go hostSampler.Run(ic.Context)
 				}
 			}
-			return newServiceWithTaskOutcomes(cache, taskOutcomes), nil
+			return newServiceWithTaskEvidence(cache, taskOutcomes, oomProofs), nil
 		},
 	})
 }
