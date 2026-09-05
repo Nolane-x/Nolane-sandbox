@@ -96,12 +96,18 @@ func init() {
 				return nil, fmt.Errorf("cubebox store does not expose resource metrics state")
 			}
 			storeAdapter := cubeboxStoreAdapter{store: store}
+
+			controllerPlugin, err := ic.GetByID(plugins.SandboxControllerPlugin, "cube")
+			if err != nil {
+				return nil, fmt.Errorf("load cube sandbox controller for exact task outcome transport: %w", err)
+			}
+			taskOutcomes, ok := controllerPlugin.(taskOutcomeProofVisitor)
+			if !ok {
+				return nil, fmt.Errorf("cube sandbox controller does not expose exact task outcome proofs")
+			}
+
 			var sampler *GuestWorkloadSampler
 			if selection.GuestWorkload {
-				controllerPlugin, err := ic.GetByID(plugins.SandboxControllerPlugin, "cube")
-				if err != nil {
-					return nil, fmt.Errorf("load cube sandbox controller for resource metrics: %w", err)
-				}
 				controller, ok := controllerPlugin.(containerdsandbox.Controller)
 				if !ok {
 					return nil, fmt.Errorf("cube sandbox controller does not expose task metrics")
@@ -155,7 +161,7 @@ func init() {
 					go hostSampler.Run(ic.Context)
 				}
 			}
-			return NewService(cache), nil
+			return newServiceWithTaskOutcomes(cache, taskOutcomes), nil
 		},
 	})
 }

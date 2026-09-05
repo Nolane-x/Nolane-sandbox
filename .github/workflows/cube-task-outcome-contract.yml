@@ -4,15 +4,25 @@ on:
   pull_request:
     paths:
       - 'Cubelet/plugins/cube/internals/sandbox/**'
+      - 'Cubelet/plugins/cube/internals/resourcemetrics/**'
       - 'Cubelet/go.mod'
       - 'Cubelet/go.sum'
+      - 'NolaneWorld/substrate/cube/**'
+      - 'NolaneWorld/go.mod'
+      - 'docs/superpowers/specs/**exact-task-outcome-transport-v17**'
+      - 'docs/superpowers/plans/**exact-task-outcome-transport-v17**'
       - '.github/workflows/cube-task-outcome-contract.yml'
   push:
     branches: [master]
     paths:
       - 'Cubelet/plugins/cube/internals/sandbox/**'
+      - 'Cubelet/plugins/cube/internals/resourcemetrics/**'
       - 'Cubelet/go.mod'
       - 'Cubelet/go.sum'
+      - 'NolaneWorld/substrate/cube/**'
+      - 'NolaneWorld/go.mod'
+      - 'docs/superpowers/specs/**exact-task-outcome-transport-v17**'
+      - 'docs/superpowers/plans/**exact-task-outcome-transport-v17**'
       - '.github/workflows/cube-task-outcome-contract.yml'
 
 permissions:
@@ -24,7 +34,7 @@ concurrency:
 
 jobs:
   exact-task-outcome-proof:
-    name: Exact task outcome proof
+    name: Exact task outcome proof and transport
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,8 +45,14 @@ jobs:
         with:
           go-version-file: Cubelet/go.mod
           cache: true
-          cache-dependency-path: Cubelet/go.sum
+          cache-dependency-path: |
+            Cubelet/go.sum
+            NolaneWorld/go.mod
 
-      - name: Verify exact task outcome proof contract
+      - name: Verify Cubelet exact proof and transport contract
         working-directory: Cubelet
-        run: go test ./plugins/cube/internals/sandbox -run 'TaskOutcome|OutcomeCandidate' -count=1
+        run: go test ./plugins/cube/internals/sandbox ./plugins/cube/internals/resourcemetrics -run 'TaskOutcome|OutcomeCandidate' -count=1
+
+      - name: Verify NolaneWorld exact consumer contract
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'TaskOutcome' -count=1
