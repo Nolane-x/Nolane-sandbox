@@ -73,9 +73,9 @@ func TestV20StoreIsBoundedAndPositiveOnly(t *testing.T) {
 	if _, ok := s.Find(boot, 1, 1, 0, math.MaxUint64); ok { t.Fatal("oldest event was not evicted") }
 	if _, ok := s.Find(boot, 1025, 1025, 0, math.MaxUint64); !ok { t.Fatal("newest event missing") }
 
-	e := Event{BootID: boot, VictimTID: 77, TGID: 77, StartTimeTicks: 77, EventBootTimeNS: 2_000_000_000_000}
+	e := Event{BootID: boot, VictimTID: 50_000, TGID: 50_000, StartTimeTicks: 50_000, EventBootTimeNS: 2_000_000_000_000}
 	if err := s.Add(e); err != nil { t.Fatal(err) }
 	if err := s.Add(e); err != nil { t.Fatalf("exact duplicate must be idempotent: %v", err) }
-	conflict := e; conflict.VictimTID = 78
+	conflict := e; conflict.VictimTID = 50_001
 	if err := s.Add(conflict); err == nil { t.Fatal("conflicting lifetime event was merged") }
 }
