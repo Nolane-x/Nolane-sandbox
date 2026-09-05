@@ -1,89 +1,53 @@
 # Nolane Sandbox Wave 20 — Kernel OOM Victim Provenance
 
-## Purpose
+## Purpose and trust statement
 
-Wave 20 proves when Linux `mark_oom_victim()` marks the exact Wave 19 host CubeShim/VMM **process** as an OOM victim during a controller realization.
+Wave 20 proves when Linux `mark_oom_victim()` marks the exact Wave 19 host CubeShim/VMM **process** as an OOM victim during one Wave 17 realization.
 
-Existing evidence is insufficient on its own:
-
-- Wave 17 proves the exact terminal task outcome and realization generation.
-- Wave 18 proves that the sandbox cgroup `oom_kill` counter increased during one realization window.
-- Wave 19 proves PID-reuse-resistant host CubeShim/VMM identity and trusted cgroup placement.
-
-None of those identifies the process selected by the kernel OOM path.
+Waves 17–19 already prove exact task outcome/generation, realization-scoped cgroup OOM-counter change, and PID-reuse-resistant host-process identity plus trusted cgroup placement. None identifies the process selected by the kernel OOM path.
 
 Wave 20 may assert only:
 
-> Linux emitted `oom:mark_victim` for a victim thread whose TGID, boot identity and kernel process lifetime exactly match the Wave 19 host CubeShim/VMM process bound to generation G. When cgroup-v2 event-time identity is also available, the victim thread belonged to the exact sandbox cgroup at the event.
+> Linux emitted the `oom:mark_victim` tracepoint for a victim thread whose TGID, boot identity and process lifetime exactly match the Wave 19 CubeShim/VMM process bound to generation G. When exact cgroup-v2 event identity is available, that victim thread also belonged to the exact sandbox cgroup at event time.
 
-Wave 20 must **not** introduce `OOMKilled=true`. Linux can mark a task that is already exiting, so `mark_oom_victim` proves victim marking, not that this call newly killed the task. Guest-process OOM causality remains outside Wave 20.
+Wave 20 does **not** add `OOMKilled=true`. Linux can call `mark_oom_victim()` for a task already exiting, so the event proves victim marking, not that the call newly killed the task. Guest-process OOM causality remains a separate Wave 21-style trust boundary.
 
-## Kernel Semantics
+## Kernel semantics and TID/TGID rule
 
-`mark_oom_victim(struct task_struct *tsk)` installs kernel OOM-victim state and then invokes `trace_mark_victim(tsk, uid)`.
+`mark_oom_victim(struct task_struct *tsk)` installs OOM-victim state and then calls `trace_mark_victim(tsk, uid)`.
 
-The ordinary trace-event payload contains PID and memory statistics but not enough lifetime identity to defeat PID reuse. A userspace sequence of "receive PID, then read `/proc/<pid>`" is therefore not authoritative.
+The ordinary trace payload lacks enough lifetime identity to defeat PID reuse. Wave 20 therefore reads identity from the original `struct task_struct *` inside eBPF at event time.
 
-Wave 20 captures identity from the original `struct task_struct *` argument at event time in eBPF.
+The marked `task_struct` may be a non-leader thread. Therefore:
 
-### Thread versus process identity
-
-The marked `task_struct` may represent a non-leader thread with an address space. Therefore:
-
-- `event.PID` is the exact victim **TID**;
-- `event.TGID` is the victim process leader ID;
-- Wave 19 `HostPID` is process identity and must match **TGID**, not necessarily TID;
-- a differing TID is valid when TGID and process lifetime match;
-- `PID == HostPID` is never required for process-level correlation.
-
-This distinction is mandatory throughout storage, transport and NolaneWorld parsing.
+- event `PID` is the exact victim **TID**;
+- event `TGID` is the process leader ID;
+- Wave 19 `HostPID` must equal **TGID**;
+- victim TID may differ from HostPID;
+- `PID == HostPID` is never required for process-level proof.
 
 ## Architecture
 
-Wave 20 uses a **BTF-driven dynamically assembled eBPF raw-tracepoint program**.
+Wave 20 uses a **BTF-driven dynamically assembled eBPF raw-tracepoint program**. Cubelet already depends on `github.com/cilium/ebpf v0.17.3`.
 
-No checked-in BPF ELF, clang runtime dependency, `bpf2go` generation step or hard-coded `task_struct` offset is required.
-
-Runtime flow:
+No checked-in BPF ELF, clang runtime dependency, `bpf2go` generation, or hard-coded `task_struct` offsets are required.
 
 ```text
 running kernel BTF
-      |
-      v
-BTF layout resolver
-      |
-      v
-Go-generated cilium/ebpf asm.Instructions
-      |
-      v
-ebpf.RawTracepoint -> oom mark_victim
-      |
-      v
-BPF ring buffer: versioned RawVictimEvent
-      |
-      v
-kernelvictim collector + bounded event store
-      |
-      v
-sandbox controller correlation authority
-      |
-      +-- Wave 17 exact outcome/generation
-      +-- Wave 18 realization OOM window
-      +-- Wave 19 exact host process identity
-      |
-      v
-HostProcessKernelOOMVictimProof
-      |
-      v
-resource-metrics exact transport
-      |
-      v
-NolaneWorld one-scrape strict fusion
+      -> BTF layout resolver
+      -> Go asm.Instructions
+      -> ebpf.RawTracepoint `mark_victim`
+      -> BPF ring buffer
+      -> kernelvictim bounded event store
+      -> sandbox-controller Wave17/18/19 correlation
+      -> HostProcessKernelOOMVictimProof
+      -> resource-metrics exact transport
+      -> NolaneWorld one-scrape strict fusion
 ```
 
-Cubelet already depends on `github.com/cilium/ebpf v0.17.3`; Wave 20 does not introduce another BPF framework.
+The raw tracepoint global name is `mark_victim`, backing the tracefs event `oom/mark_victim`. If the running kernel does not expose/allow this attachment, evidence is unavailable.
 
-## Package Boundaries
+## Package boundary
 
 Create:
 
@@ -91,38 +55,25 @@ Create:
 Cubelet/plugins/cube/internals/kernelvictim
 ```
 
-This package owns only:
+It owns BTF resolution, dynamic BPF assembly, collector/ring-buffer lifecycle, event validation, kernel-starttime conversion, cgroup-v2 ID resolution, a positive-only bounded event store, and capability diagnostics.
 
-- BTF layout resolution;
-- dynamic eBPF instruction construction;
-- raw-tracepoint/ring-buffer collector lifecycle;
-- event decoding/validation;
-- exact kernel-starttime conversion;
-- cgroup-v2 ID resolution;
-- bounded positive-event storage;
-- capability diagnostics.
+It owns no sandbox generation, task outcome, Prometheus, or NolaneWorld authority. The sandbox controller remains the only realization correlation authority. Resource metrics consumes accepted proofs through a primitive/std-library structural visitor.
 
-It owns **no** sandbox generation, task-outcome, Prometheus or NolaneWorld authority.
-
-The sandbox controller remains the only realization authority. Resource metrics consumes accepted proofs through a primitive/std-library structural visitor, preserving the dependency direction used by Waves 17–19.
-
-## Versioned Kernel Event
-
-Wave 20 uses a fixed v1 record:
+## Versioned event record
 
 ```go
 type RawVictimEvent struct {
     Version         uint32
     Flags           uint32
     PID             uint32 // victim TID
-    TGID            uint32 // process leader ID
+    TGID            uint32 // process leader
     StartBootTimeNS uint64
     EventBootTimeNS uint64
-    CgroupV2ID      uint64 // optional; zero = unavailable
+    CgroupV2ID      uint64 // zero means unavailable
 }
 ```
 
-Required validity:
+Wave 20 requires:
 
 ```text
 Version == 1
@@ -133,15 +84,13 @@ EventBootTimeNS != 0
 EventBootTimeNS >= StartBootTimeNS
 ```
 
-`CgroupV2ID == 0` means unknown. It is never interpreted as root cgroup or a known-negative fact.
+Required reads must succeed before emission. Optional cgroup failure may emit with `CgroupV2ID=0`; zero is unknown, never root and never known-negative.
 
-Required task reads must all succeed before the program emits a record. Failure to read optional cgroup-v2 identity may still emit the exact process-victim record with ID zero.
+## BTF resolver
 
-## BTF Layout Resolver
+Load running-kernel BTF with `btf.LoadKernelSpec()`.
 
-Load the running kernel BTF using `btf.LoadKernelSpec()` and resolve exact member offsets structurally.
-
-Required `task_struct` members:
+Required `task_struct` fields:
 
 ```text
 pid
@@ -158,212 +107,150 @@ task_struct.cgroups
   -> kernfs_node.id
 ```
 
-The resolver must:
+The resolver unwraps typedef/const/volatile/restrict, verifies pointer/struct transitions, field width, non-bitfield shape and representable offsets. Missing/wrong required layout disables collection. Failure only in the cgroup chain downgrades cgroup correlation to unknown.
 
-- unwrap typedef/const/volatile/restrict wrappers;
-- verify pointer-to-struct transitions;
-- verify scalar width and non-bitfield layout;
-- reject missing or ambiguous members;
-- reject offsets not representable by the instruction sequence;
-- never cache layout across a different running kernel.
+No offsets survive a different running kernel. No fuzzy field-name or byte-pattern lookup is permitted.
 
-Failure of a required field disables Wave 20 collection. Failure only in the optional cgroup chain disables cgroup-v2 event identity but preserves process-victim collection.
+## Dynamic eBPF program
 
-If a running kernel represents `kernfs_node.id` with a different structural shape than the supported exact 64-bit cgroup-ID contract, cgroup correlation is unavailable rather than guessed.
-
-## Dynamic eBPF Program
-
-Construct `asm.Instructions` and load an `ebpf.RawTracepoint` program with GPL-compatible license metadata.
-
-Program semantics:
+Load an `ebpf.RawTracepoint` program with GPL-compatible license metadata. Use verifier-safe kernel reads and a runtime-created `ebpf.RingBuf` map.
 
 ```text
-ctx.args[0] = victim task pointer
-
-read task.pid
-read task.tgid
-read task.start_boottime
-optionally read task default cgroup-v2 ID
+ctx.args[0] -> victim task
+read pid
+read tgid
+read start_boottime
+optionally read default cgroup-v2 id
 call bpf_ktime_get_boot_ns
-reserve fixed v1 ringbuf record
+reserve fixed v1 record
 write record
-submit record
+submit
 return 0
 ```
 
-All pointer dereferences use verifier-safe kernel reads. No sandbox ID, generation, path or user-controlled policy is present in BPF.
+The BPF program contains no sandbox ID, generation, path or policy filtering. It reads only kernel pointers derived from the trusted tracepoint task argument.
 
-The ring buffer is runtime-created by Go and referenced by map FD in the generated instructions.
+Production capability effectively requires a kernel new enough for raw tracepoint + `bpf_ktime_get_boot_ns` + BPF ringbuf; failure of any feature, BTF, verifier, permission or attach is observational-only and never fails Cubelet/sandbox execution.
 
-## Attachment and Capability Failure
+Forbidden fallbacks: dmesg/journal parsing, exit 137, SIGKILL, Wave 18 OOM delta, or post-event PID-only `/proc` reads.
 
-Attach only to the raw tracepoint corresponding to `oom:mark_victim`.
+## Exact Wave 19 start-time bridge
 
-Unavailable BTF, raw tracepoint support, ring-buffer support, kernel helper support, verifier acceptance, tracing capability or permission means **victim evidence unavailable**.
-
-There is no fallback to:
-
-- dmesg/journal text;
-- exit code 137;
-- SIGKILL;
-- Wave 18 OOM counter delta;
-- post-event PID-only `/proc` inspection.
-
-Collector startup failure must not fail Cubelet or sandbox execution.
-
-## Exact Start-Time Bridge
-
-Wave 19 stores `/proc/<pid>/stat` field 22 `starttime_ticks`. Linux derives it from `task->start_boottime` with:
+Wave 19 stores `/proc/<pid>/stat` field 22 `starttime_ticks`. Linux derives it from:
 
 ```text
 nsec_to_clock_t(timens_add_boottime_ns(task->start_boottime))
 ```
 
-Important: `/proc` formatting applies the **reader/current process time namespace**, not the target victim task's namespace. Wave 19's inspector and Wave 20's correlator live in the same Cubelet process, so Wave 20 must use the Cubelet process's own `boottime` namespace offset.
+The `/proc` renderer applies the **reader/current process time namespace**, so Wave 20 must use the Cubelet process's own boottime namespace offset, not the victim thread's namespace.
 
-For repository production architectures `amd64` and `arm64`, Linux UAPI `USER_HZ` is 100. Exact conversion is:
+For repository production architectures `amd64` and `arm64`, Linux UAPI `USER_HZ` is 100:
 
 ```text
 visible_start_ns = StartBootTimeNS + cubelet_boottime_namespace_offset
 starttime_ticks  = floor(visible_start_ns / 10_000_000)
 ```
 
-Read `/proc/self/timens_offsets` when supported and parse the `boottime` signed seconds/nanoseconds exactly.
+Parse `/proc/self/timens_offsets` exactly when supported. If it is absent, zero is allowed only when time namespaces are demonstrably unavailable (for example `/proc/self/ns/time` is absent). Otherwise correlation is unknown.
 
-If `/proc/self/timens_offsets` is absent, zero offset is allowed only when time namespaces are demonstrably unavailable for the running kernel (for example `/proc/self/ns/time` is absent). Otherwise conversion is unavailable.
+Rules: integer arithmetic only; exact signed offset normalization; overflow/underflow rejection; only amd64/arm64; converted ticks must equal Wave 19 `StartTimeTicks` exactly. TGID equality with starttime mismatch is PID reuse/a different process and is rejected.
 
-Rules:
+## Boot identity
 
-- only `amd64` and `arm64` are supported in Wave 20;
-- no generic `HZ=100` assumption for future architectures;
-- integer arithmetic only;
-- signed offset normalization is exact;
-- overflow/underflow rejects correlation;
-- converted ticks must equal Wave 19 `StartTimeTicks` exactly.
+Read canonical `/proc/sys/kernel/random/boot_id` at collector start and tag every userspace event with it. Exact equality with Wave 19 `BootID` is mandatory.
 
-`TGID == HostPID` with different starttime is a different process and must fail closed.
+Collector restart observes future events only and cannot reconstruct missed history. Host reboot naturally invalidates old identity by changing boot ID.
 
-## Boot Identity
+## Cgroup-v2 event-time identity
 
-Read canonical `/proc/sys/kernel/random/boot_id` at collector startup. Each accepted userspace event carries that boot ID.
+When BTF supports it, read the victim task's default cgroup-v2 kernel ID from its `css_set -> dfl_cgrp -> kernfs_node` chain.
 
-Victim correlation requires exact equality with Wave 19 `BootID`.
+Userspace independently resolves Wave 19 `CGroupPath` through the discovered cgroup-v2 mount with `unix.NameToHandleAt`. Linux exposes cgroup-v2 IDs via the file-handle API.
 
-Collector restart can observe only future events. It never reconstructs missed historical events. Reboot changes boot ID and automatically prevents old identity correlation.
+Require: cgroup-v2 filesystem, canonical absolute hierarchy path, no mount escape, exactly 8 handle bytes, non-zero native-endian uint64, exact equality to event ID.
 
-## Cgroup-v2 Event-Time Identity
+Unexpected handle layout, mount/path failure or zero ID means cgroup correlation unknown. Wave 20 does not synthesize cgroup-v2 IDs for cgroup v1; exact process-victim proof may still exist on v1 with cgroup correlation false.
 
-When BTF supports the optional chain, eBPF captures the victim task's default cgroup-v2 kernel ID at event time.
+## Positive-only bounded store
 
-Userspace independently resolves the expected Wave 19 cgroup path to the same ID using `unix.NameToHandleAt` on the discovered cgroup-v2 filesystem. Linux exposes the cgroup-v2 ID through the file-handle API.
-
-Validation requires:
-
-- filesystem is cgroup v2;
-- Wave 19 path is canonical absolute hierarchy path;
-- joined filesystem path cannot escape the cgroup-v2 mount;
-- returned file handle payload is exactly 8 bytes;
-- decoded native-endian ID is non-zero;
-- event ID equals path-resolved ID exactly.
-
-Unexpected handle layout, mount mismatch, unsupported filesystem, missing path or zero ID means cgroup correlation unavailable.
-
-Wave 20 does not synthesize a cgroup-v2 ID for cgroup v1. On v1, exact process-victim proof may still exist while cgroup-v2 correlation remains unknown.
-
-## Positive-Only Bounded Event Store
-
-The `kernelvictim` store is keyed by process lifetime:
+Key events by:
 
 ```text
 boot_id + tgid + starttime_ticks
 ```
 
-Victim TID is retained as event provenance but is not the process-lifetime key.
+Victim TID is provenance, not the process-lifetime key.
 
-The store uses fixed internal limits:
-
-```text
-max events: 1024
-max age:    10 minutes by event/collector boottime
-```
-
-Tests lock these values and deterministic eviction order.
-
-Exact duplicate events are idempotent. Conflicting records for the same process lifetime are not merged into stronger evidence.
-
-Ring-buffer reservation can fail and the collector can be down, so event absence is never a known-negative fact.
-
-Wave 20 has only:
+Fixed Wave 20 limits:
 
 ```text
-positive proof -> known true
-no proof       -> unknown
+max events = 1024
+max age    = 10 minutes
 ```
 
-It never exposes known false.
+Exact duplicates are idempotent. Conflicting records for one process lifetime are not merged into stronger proof. Deterministic oldest-first eviction is required.
 
-## Realization Boot-Time Window
+Ring-buffer reserve can fail and the collector can be unavailable, so absence is never known false:
 
-Kernel event timestamps use `bpf_ktime_get_boot_ns()`. They must never be compared directly with RFC3339 wall time.
+```text
+proof present -> (true, true)
+proof absent  -> (false, false)
+```
 
-The sandbox controller captures `CLOCK_BOOTTIME` nanoseconds at realization boundaries through a package-neutral clock helper based on `unix.ClockGettime(CLOCK_BOOTTIME)`.
+## Exact realization boottime window
 
-Each Wave 20 generation records:
+BPF event time uses `bpf_ktime_get_boot_ns()`. It must never be compared with RFC3339 wall time.
+
+The controller uses a package-neutral helper backed by `unix.ClockGettime(CLOCK_BOOTTIME)` and records:
 
 ```go
 type victimWindow struct {
-    Generation    uint64
-    StartedBootNS uint64
-    ExitedBootNS  uint64 // zero while open
+    Generation            uint64
+    StartedBootNS         uint64
+    OutcomeObservedBootNS uint64 // zero while generation is open
 }
 ```
 
-`BeginRealization` records `StartedBootNS` after generation authority advances. Exact task outcome closes the window exactly once with `ExitedBootNS`.
+`StartedBootNS` is captured after Wave 17 generation authority advances. `OutcomeObservedBootNS` is captured exactly once when authoritative Wait/stopped-State outcome is accepted. It is deliberately named **observed**, not exited: it is a monotonic upper bound on evidence receipt, not the process's actual exit time.
 
-Clock capture failure makes Wave 20 correlation unknown but never fails Start/Wait/State.
-
-An accepted event requires:
+Final proof requires:
 
 ```text
-StartedBootNS <= EventBootTimeNS <= ExitedBootNS
+StartedBootNS <= EventBootTimeNS <= OutcomeObservedBootNS
 ```
 
-for terminal exported proof.
+This safely permits an event consumed after the terminal response when its immutable kernel timestamp falls inside the closed generation window. Clock capture failure means Wave 20 unknown and does not fail execution.
 
-This permits a ring-buffer event consumed after task outcome to be correlated safely by kernel event time without retroactively binding by PID/path alone.
+New Start replaces the current generation/window. Create fences all prior sandbox-lifetime Wave 20 state.
 
-New Start clears prior current candidate state. Create fences all prior sandbox-lifetime Wave 20 state.
+## Controller correlation
 
-## Controller Correlation
+`kernelvictim` never receives/invents a generation. The sandbox controller correlates positive events with Waves 17–19.
 
-The sandbox controller correlates event-store facts with Wave 17/18/19 authority. `kernelvictim` never sees or invents a generation.
+Accepted proof requires:
 
-Final proof requires all of:
-
-1. exact Wave 17 task outcome exists for generation G;
+1. exact Wave 17 outcome exists for generation G;
 2. exact Wave 19 host identity exists for G;
 3. event boot ID equals Wave 19 boot ID;
 4. event TGID equals Wave 19 HostPID;
-5. event starttime converts exactly to Wave 19 StartTimeTicks;
-6. event boot time lies inside the exact Wave 20 realization boot-time window;
-7. Wave 19 cgroup path remains canonical;
-8. if Wave 18 OOM proof exists, its generation and cgroup path equal Wave 17/19;
-9. if cgroup-v2 correlation is claimed, event ID equals independently resolved Wave 19 path ID;
+5. converted starttime equals Wave 19 StartTimeTicks;
+6. event boot time is inside G's exact Wave 20 window;
+7. Wave 19 cgroup path is canonical;
+8. if Wave 18 proof exists, generation/path equals Waves 17/19;
+9. cgroup-v2 correlation true only on exact independently resolved ID match;
 10. no Create/newer-generation fence superseded the candidate.
 
-Event PID/TID is transported as provenance but does not have to equal HostPID/TGID.
+Victim TID may differ from HostPID. An event can become a candidate while G is open, but exported proof exists only after exact task outcome closes G. A late-consumed event can be accepted only by its kernel timestamp and exact lifetime identity, never by PID/path heuristics.
 
-A victim event may arrive while generation G is open and become a candidate. Final transport proof is emitted only after exact task outcome closes G. A late-consumed event may still be accepted only from its immutable kernel event time inside G's closed window.
-
-## Accepted Proof
+## Accepted proof shape
 
 ```go
 type HostProcessKernelOOMVictimProof struct {
     SandboxID          string
     Generation         uint64
     BootID             string
-    HostPID            uint32 // Wave 19 TGID/process leader
-    VictimTID          uint32 // exact task_struct pid marked by kernel
+    HostPID            uint32 // process/TGID from Wave 19
+    VictimTID          uint32 // task_struct pid marked by kernel
     StartTimeTicks     uint64
     CGroupPath         string
     EventBootTimeNS    uint64
@@ -379,39 +266,21 @@ Fixed source:
 kernel.oom.mark_victim.raw_tracepoint
 ```
 
-`CgroupV2Correlated=true` requires non-zero `CgroupV2ID` and exact independent path-ID match. If unavailable, `CgroupV2Correlated=false` and `CgroupV2ID=0` internally.
+`CgroupV2Correlated=true` requires non-zero event/path ID equality. Internally, false correlation carries ID zero.
 
-## Claim Vocabulary
-
-Public helper:
+## Public claim vocabulary
 
 ```go
 func (e TaskTerminationEvidence) HostKernelOOMVictimMarked() (marked bool, known bool)
 ```
 
-Semantics:
+Only `(true,true)` and `(false,false)` exist in Wave 20.
 
-```text
-accepted Wave 20 proof -> (true, true)
-no Wave 20 proof       -> (false, false)
-```
+Forbidden names/claims include `OOMKilled`, `TaskOOMKilled`, `GuestOOMKilled`, `ApplicationOOMKilled`, or any wording that converts host victim marking into guest kill causality.
 
-There is no `(false, true)` in Wave 20.
+## Prometheus transport
 
-Forbidden causal names/claims include:
-
-```text
-OOMKilled
-TaskOOMKilled
-GuestOOMKilled
-ApplicationOOMKilled
-```
-
-The proof means only that Linux marked the exact Wave 19 **host process** as an OOM victim.
-
-## Prometheus Transport
-
-Export one atomic info-style sample:
+Export exactly one info metric shape:
 
 ```text
 cubesandbox_host_kernel_oom_victim_info{
@@ -429,127 +298,53 @@ cubesandbox_host_kernel_oom_victim_info{
 } 1
 ```
 
-Rules:
+All integers are canonical decimal string labels; boolean is exact `true`/`false`; metric value is numeric one. When correlation is false, `cgroup_v2_id` is empty, never `0`. Resource metrics validates and exports only; it cannot synthesize proof.
 
-- metric value exactly numeric one;
-- all integer values are canonical decimal-string labels;
-- boolean exactly `true`/`false`;
-- when correlation is false, `cgroup_v2_id` label is empty, never decimal zero;
-- resource metrics validates but cannot create/repair proof;
-- no OOM-killed metric or label.
+## NolaneWorld consumer
 
-## NolaneWorld Consumer
+`TaskTerminationEvidence` gains optional `HostKernelOOMVictim` parsed from the same scrape as Waves 17–19.
 
-`TaskTerminationEvidence` gains optional `HostKernelOOMVictim` provenance parsed from the same management scrape as Waves 17–19.
+Fail closed on: no exact outcome, no Wave 19 identity, sandbox/generation mismatch, host PID/starttime/boot mismatch, zero victim TID, cgroup-path mismatch, unsupported source, malformed cgroup-v2 state, duplicate target sample, detached victim sample, non-unit metric or noncanonical integer.
 
-Strict requirements:
+Victim TID may differ from HostPID. NolaneWorld never opens `/proc`, BPF, tracefs or cgroup files using transported values.
 
-- exact task outcome must exist;
-- Wave 19 host identity must exist;
-- sandbox and generation equal exact outcome;
-- host PID equals Wave 19 HostPID;
-- starttime/boot ID equal Wave 19 exactly;
-- victim TID is non-zero but may differ from HostPID;
-- cgroup path equals Wave 19 and, when present, Wave 18;
-- event source fixed exactly;
-- cgroup-v2 correlated proof has canonical non-empty ID;
-- non-correlated proof has empty ID;
-- duplicate target samples fail closed;
-- detached/mismatched victim samples fail closed.
+## Failure and security semantics
 
-NolaneWorld never opens `/proc`, BPF, tracefs or cgroup files using transported values.
+All of the following mean Wave 20 unknown and never workload failure: BTF missing/incompatible; raw tracepoint unavailable; helper/ringbuf unsupported; insufficient privilege; verifier rejection; malformed record; unsupported architecture; time-namespace bridge unavailable; boot ID/boottime clock failure; cgroup-v2 resolution failure; store eviction; collector restart; stale generation; lifetime mismatch; cgroup-ID mismatch.
 
-## Failure Semantics
+BTF offsets are validated kernel metadata. BPF reads only pointers from the tracepoint task argument. Sandbox IDs/paths remain userspace-only. Transported PID/TID/path fields are data, never executable authority.
 
-All evidence failures are observational and never workload failures:
-
-- BTF missing/incompatible;
-- tracepoint unavailable;
-- BPF/ringbuf helper unsupported;
-- insufficient privilege;
-- verifier rejection;
-- malformed or unknown event version;
-- unsupported architecture;
-- time-namespace conversion unavailable;
-- boot ID failure;
-- boottime clock failure;
-- cgroup-v2 ID resolution failure;
-- bounded-store eviction;
-- collector restart;
-- stale generation;
-- process-lifetime mismatch;
-- cgroup-ID mismatch.
-
-No evidence failure may cause sandbox Start, Wait or State to fail.
-
-## Security Boundaries
-
-- BTF offsets are validated kernel metadata, never user input.
-- BPF reads only pointers originating from the trusted raw tracepoint argument.
-- Sandbox IDs and paths remain userspace-only.
-- Cgroup path resolution is constrained under the discovered cgroup-v2 mount.
-- Transported PID/TID/path fields are data, not execution authority.
-- NolaneWorld cannot signal or inspect host processes from transported identity.
-
-## Portability
-
-Exact production victim provenance requires Linux with:
-
-- raw tracepoint BPF support;
-- kernel BTF with required task fields;
-- ring-buffer support;
-- `bpf_ktime_get_boot_ns` support;
-- sufficient tracing capability;
-- `amd64` or `arm64` exact USER_HZ bridge.
-
-Other hosts continue to execute sandboxes with Wave 20 evidence unknown.
-
-## TDD Contract
+## TDD contract
 
 Tests must cover at least:
 
 1. required BTF member success and missing/wrong-width/bitfield rejection;
-2. optional cgroup BTF chain capability downgrade;
-3. dynamic assembler uses injected BTF offsets instead of hard-coded task offsets;
-4. ringbuf record decoder rejects wrong size/version/zero fields/impossible event times;
-5. victim TID may differ while TGID matches HostPID;
+2. optional cgroup-chain downgrade;
+3. assembler uses injected BTF offsets rather than hard-coded kernel offsets;
+4. decoder rejects wrong size/version/zero fields/impossible event time;
+5. TID may differ while TGID matches HostPID;
 6. TGID mismatch rejects correlation;
 7. exact amd64/arm64 starttime conversion;
 8. signed time-namespace offsets and overflow/underflow;
-9. boot ID mismatch rejects correlation;
-10. process starttime mismatch rejects PID reuse;
-11. exact realization boottime window acceptance and before/after rejection;
-12. cgroup-v2 handle exact 8-byte ID decode;
-13. exact cgroup ID match can set `CgroupV2Correlated=true`;
-14. mismatch never sets correlated true;
-15. cgroup v1/unknown ID still allows process-victim proof with correlation false;
-16. bounded 1024-event deterministic eviction and 10-minute age expiry;
-17. duplicates are idempotent and conflicts fail closed;
-18. max `uint64` Prometheus labels survive exactly;
-19. NolaneWorld positive proof returns `(true,true)`;
-20. missing proof returns `(false,false)`;
-21. no evidence/API shape contains forbidden OOMKilled-style classification;
-22. exit 137, SIGKILL, Wave 18 positive delta or Wave 19 identity alone cannot synthesize Wave 20 proof;
-23. collector/BPF absence does not fail sandbox execution.
+9. boot mismatch and starttime mismatch rejection;
+10. exact realization window acceptance and before/after rejection;
+11. cgroup-v2 exact 8-byte handle decoding;
+12. exact cgroup ID match can set correlation true; mismatch cannot;
+13. cgroup-v1/unknown ID still permits process-victim proof with correlation false;
+14. 1024-event deterministic eviction and 10-minute expiry;
+15. duplicate idempotency and conflict fail-closed;
+16. max uint64 Prometheus labels remain exact;
+17. NolaneWorld positive proof -> `(true,true)`, absence -> `(false,false)`;
+18. no API/evidence shape contains OOMKilled-style classification;
+19. exit 137, SIGKILL, Wave 18 delta, or Wave 19 identity alone cannot synthesize proof;
+20. collector/BPF absence never fails sandbox execution.
 
-The dedicated Wave 20 contract must be deterministic and runnable without privileged BPF. Privileged live-attach tests are additive/capability-gated, never the sole proof of core semantics.
+The dedicated Wave 20 contract is deterministic and unprivileged for core semantics. Privileged live attach is additive/capability-gated, never the only proof.
 
 Final readiness also requires Wave 17, Wave 18, Wave 19, Host Resource, NolaneWorld, Unit Test, Build, Format, DCO, Docs and Live Substrate workflows to remain green.
 
-## Explicit Non-Goals
+## Explicit non-goals
 
-Wave 20 does not:
+Wave 20 does not prove a new SIGKILL was sent, prove exit was caused by OOM, prove guest-process victim identity, expose a known-negative victim result, reconstruct collector downtime, support exact non-amd64/non-arm64 correlation, claim cgroup-v1 event-time identity, or parse logs as victim authority.
 
-- claim `OOMKilled`;
-- prove a new SIGKILL was sent by this OOM event;
-- prove process exit was caused by OOM;
-- prove guest application victim identity;
-- expose a known-negative victim result;
-- reconstruct events missed during collector downtime;
-- support exact non-amd64/non-arm64 starttime correlation;
-- claim cgroup-v1 event-time cgroup identity;
-- parse logs as victim authority.
-
-## Next Trust Closure
-
-Wave 21 may establish guest-side kernel/process victim provenance and bridge it to the host realization. Only that separate identity domain can justify claims about a particular guest application process.
+Wave 21 may add guest-side victim provenance and an explicit host/guest identity bridge.
