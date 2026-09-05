@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Wave 16 created an exact, fail-closed task-outcome proof plane inside the Cube sandbox controller, but deliberately stopped at the controller boundary. NolaneWorld therefore still cannot consume exact runtime exit evidence without reconstructing it from weaker operational state.
+Wave 16 created an exact, fail-closed task-outcome proof plane inside the Cube sandbox controller, but deliberately stopped at the controller boundary. NolaneWorld therefore could not consume exact runtime exit evidence without reconstructing it from weaker operational state.
 
 Wave 17 closes that transport gap without changing the authority of the underlying proof and without introducing OOM attribution.
 
@@ -28,6 +28,12 @@ containerd task runtime
 Wave 16 TaskOutcomeProof store
         |
         v
+controller-local exact proof snapshot
+        |
+        v
+package-neutral proof visitor
+        |
+        v
 Cubelet resource-metrics management surface
         |
         v
@@ -39,9 +45,9 @@ exact ResourceBinding-scoped observation
 
 ## Producer contract
 
-### Proof enumeration
+### Deterministic proof enumeration
 
-The concrete Cube sandbox controller adds an optional `TaskOutcomeProofLister` interface:
+The concrete Cube sandbox controller adds a controller-local `TaskOutcomeProofLister` interface:
 
 ```go
 type TaskOutcomeProofLister interface {
@@ -49,9 +55,31 @@ type TaskOutcomeProofLister interface {
 }
 ```
 
-The returned slice is a detached snapshot, sorted by `SandboxID`. It contains only currently accepted proofs. `Create`, `Start`, proof clearing, and realization fencing retain Wave 16 semantics; Wave 17 does not persist or resurrect cleared proofs.
+The returned slice is a detached snapshot, sorted by `SandboxID` and then `Generation`. It contains only currently accepted proofs. `Create`, `Start`, proof clearing, and realization fencing retain Wave 16 semantics; Wave 17 does not persist or resurrect cleared proofs.
 
 Enumeration is intentionally separate from resource sampler availability. A terminal proof must not disappear merely because host or guest resource sampling is stale, disabled, or unavailable.
+
+### Package-neutral transport bridge
+
+The resource-metrics package must not import the sandbox package. This is not merely a style preference: the sandbox package already has integration tests that import resource-metrics, so a reverse production dependency creates an import cycle under Go's package graph.
+
+The concrete controller therefore exposes the exact accepted snapshot through a structural visitor whose signature contains only primitive and standard-library types:
+
+```go
+func (c *controllerLocal) VisitTaskOutcomeProofs(
+    visit func(
+        sandboxID string,
+        generation uint64,
+        exitCode uint32,
+        exitedAt time.Time,
+        source string,
+    ),
+)
+```
+
+The bridge is transport-only. It does not perform runtime lookup, operational reconciliation, proof recovery, or classification. It visits the already-accepted Wave 16 proofs in the deterministic lister order.
+
+The resource-metrics package consumes this method through a local structural interface. This preserves a one-way dependency graph while retaining compile-time method-shape compatibility at the concrete controller boundary.
 
 ### Atomic exact info metric
 
@@ -70,16 +98,18 @@ cubesandbox_task_outcome_info{
 All proof payload fields are labels, not floating-point sample values:
 
 - `sandbox_id` — exact Wave 16 sandbox identity;
-- `generation` — base-10 unsigned integer string;
+- `generation` — canonical base-10 unsigned integer string;
 - `source` — exact Wave 16 source enum;
-- `exit_code` — base-10 `uint32` string;
-- `exited_at` — UTC `RFC3339Nano` string.
+- `exit_code` — canonical base-10 `uint32` string;
+- `exited_at` — canonical UTC `RFC3339Nano` string.
 
 The metric value is exactly `1` and carries no additional semantics.
 
 This representation is deliberate. Prometheus samples are binary64, so carrying an arbitrary `uint64` generation as a sample value could round values above `2^53-1`. String labels preserve the full Wave 16 generation and nanosecond timestamp exactly.
 
 The producer emits no sample when no proof exists. Absence means unknown, not exit code zero and not success.
+
+Invalid data presented to the exporter is not promoted into a metric. The real Cube controller is expected to provide only Wave 16-accepted proofs; exporter validation is a final defensive boundary, not an alternate proof authority.
 
 ## Consumer contract
 
@@ -90,27 +120,27 @@ The observer accepts a task-outcome sample only when all of the following are tr
 1. the sample is `cubesandbox_task_outcome_info`;
 2. `sandbox_id` exactly equals the bound sandbox ID;
 3. exactly the five required labels are present and no additional labels are accepted;
-4. the metric value is exactly `1`;
-5. `generation` parses as a nonzero `uint64` with no sign or alternate notation;
-6. `exit_code` parses exactly as `uint32`;
+4. the metric value numerically equals exactly `1` and is finite;
+5. `generation` is canonical base-10, parses as a nonzero `uint64`, and round-trips textually;
+6. `exit_code` is canonical base-10 and parses exactly as `uint32`;
 7. `source` is exactly `containerd.task.wait` or `containerd.task.state`;
-8. `exited_at` parses as `RFC3339Nano`, is UTC-normalizable, and is nonzero;
+8. `exited_at` parses as `RFC3339Nano`, is nonzero, and is already canonical UTC text;
 9. exactly one matching sample exists.
 
 A missing matching sample returns `(zero, false, nil)`: proof is unknown.
 
 Malformed, partial, duplicate, conflicting, or over-wide matching samples fail closed with `ErrTaskOutcomeUnavailable`. Samples for other sandboxes are ignored.
 
-The observer does not fall back to operational status or host resource counters when exact task-outcome transport is missing.
+The observer reads at most 1 MiB from the management response and does not fall back to operational status or host resource counters when exact task-outcome transport is missing.
 
 ## Independence from resource metrics
 
 Wave 17 reuses the existing management endpoint and Prometheus encoder, but task outcome is not a resource metric semantically.
 
-The collector therefore has two independent inputs:
+The management handler therefore has two independent inputs:
 
 - the existing `SandboxResourceCache` for sampled resource data;
-- the Wave 16 `TaskOutcomeProofLister` for exact terminal proofs.
+- the controller's package-neutral exact-proof visitor for terminal task proof.
 
 A nil/empty resource cache must not suppress a valid task-outcome proof. Conversely, a healthy resource sample must never manufacture a task-outcome sample.
 
@@ -160,21 +190,26 @@ Wave 17 is fail-closed and dimension-local:
 
 ## Verification contract
 
-Wave 17 adds a permanent cross-module contract workflow that runs focused tests in:
+Wave 17 upgrades the existing `Cube Task Outcome Contract` into a permanent cross-module gate. It triggers when the sandbox proof plane, resource-metrics transport, NolaneWorld Cube consumer, Wave 17 spec/plan, or the gate itself changes.
+
+The focused contract runs:
 
 ```bash
 cd Cubelet
-go test ./plugins/cube/internals/sandbox ./plugins/cube/internals/resourcemetrics -run 'TaskOutcome' -count=1
+go test ./plugins/cube/internals/sandbox ./plugins/cube/internals/resourcemetrics \
+  -run 'TaskOutcome|OutcomeCandidate' -count=1
 
 cd ../NolaneWorld
 go test ./substrate/cube -run 'TaskOutcome' -count=1
 ```
 
+Broader repository gates remain required as fresh evidence on the final candidate, including Cubelet/CubeCow unit coverage, NolaneWorld unit/race/vet/evidence generation, build, formatting, DCO metadata validation, and other path-triggered trust checks.
+
 Verification must demonstrate:
 
 1. proof enumeration is deterministic, detached, and excludes cleared proofs;
 2. transport works even when the resource cache is absent;
-3. arbitrary `uint64` generation values round-trip exactly, including values above binary64's safe integer range;
+3. arbitrary `uint64` generation values round-trip exactly, including `math.MaxUint64` and values above binary64's safe integer range;
 4. exit code `137` round-trips without OOM interpretation;
 5. nanosecond exit timestamps round-trip exactly;
 6. no proof emits no task-outcome metric;
@@ -182,8 +217,9 @@ Verification must demonstrate:
 8. missing proof stays unknown;
 9. wrong-sandbox samples are ignored;
 10. duplicate, partial, malformed, unsupported-source, invalid-time, and non-unit target samples fail closed;
-11. existing Wave 15 host-resource observation remains compatible;
-12. repository unit, race, vet, formatting, and build gates remain green on the final candidate.
+11. the sandbox-to-resource-metrics package graph remains cycle-free;
+12. existing Wave 15 host-resource observation remains compatible;
+13. repository unit, race, vet, formatting, build, and trust gates remain green on the final candidate.
 
 ## Non-goals
 
@@ -198,5 +234,9 @@ Wave 17 does not:
 - widen guest authority or expose management credentials to the guest.
 
 Those remain separately reviewable trust changes.
+
+## Next trust closure
+
+The next safe correlation step is not `137 => OOM`. A future wave should bind OOM evidence to the same task realization as the accepted task-outcome generation, for example by establishing a realization-scoped OOM baseline or an equally authoritative runtime/cgroup realization binding. Only after that proof exists should NolaneWorld expose an attributed OOM outcome.
 
 Autonomously-by: ChatGPT:GPT-5.6-Sol
