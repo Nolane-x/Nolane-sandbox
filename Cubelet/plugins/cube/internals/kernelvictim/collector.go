@@ -36,22 +36,6 @@ func normalizeCollectorRecord(raw []byte, bootID string, offsetSeconds, offsetNa
 	}, nil
 }
 
-func canonicalBootID(raw string) bool {
-	if len(raw) != 36 || raw[8] != '-' || raw[13] != '-' || raw[18] != '-' || raw[23] != '-' {
-		return false
-	}
-	for i := 0; i < len(raw); i++ {
-		if i == 8 || i == 13 || i == 18 || i == 23 {
-			continue
-		}
-		c := raw[i]
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return false
-		}
-	}
-	return true
-}
-
 func collectorIdentity() (bootID string, offsetSeconds, offsetNanoseconds int64, err error) {
 	bootRaw, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
 	if err != nil {
