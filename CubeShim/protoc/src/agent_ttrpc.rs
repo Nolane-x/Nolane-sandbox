@@ -199,6 +199,11 @@ impl AgentServiceClient {
         ::ttrpc::async_client_request!(self, ctx, req, "grpc.AgentService", "GetOOMEvent", cres);
     }
 
+    pub async fn get_oom_victim_evidence(&self, ctx: ttrpc::context::Context, req: &super::agent::GetOOMVictimEvidenceRequest) -> ::ttrpc::Result<super::agent::GetOOMVictimEvidenceResponse> {
+        let mut cres = super::agent::GetOOMVictimEvidenceResponse::new();
+        ::ttrpc::async_client_request!(self, ctx, req, "grpc.AgentService", "GetOOMVictimEvidence", cres);
+    }
+
     pub async fn add_swap(&self, ctx: ttrpc::context::Context, req: &super::agent::AddSwapRequest) -> ::ttrpc::Result<super::empty::Empty> {
         let mut cres = super::empty::Empty::new();
         ::ttrpc::async_client_request!(self, ctx, req, "grpc.AgentService", "AddSwap", cres);
@@ -578,6 +583,17 @@ impl ::ttrpc::r#async::MethodHandler for GetOomEventMethod {
     }
 }
 
+struct GetOomVictimEvidenceMethod {
+    service: Arc<std::boxed::Box<dyn AgentService + Send + Sync>>,
+}
+
+#[async_trait]
+impl ::ttrpc::r#async::MethodHandler for GetOomVictimEvidenceMethod {
+    async fn handler(&self, ctx: ::ttrpc::r#async::TtrpcContext, req: ::ttrpc::Request) -> ::ttrpc::Result<(u32, Vec<u8>)> {
+        ::ttrpc::async_request_handler!(self, ctx, req, agent, GetOOMVictimEvidenceRequest, get_oom_victim_evidence);
+    }
+}
+
 struct AddSwapMethod {
     service: Arc<std::boxed::Box<dyn AgentService + Send + Sync>>,
 }
@@ -712,6 +728,9 @@ pub trait AgentService: Sync {
     async fn get_oom_event(&self, _ctx: &::ttrpc::r#async::TtrpcContext, _req: super::agent::GetOOMEventRequest) -> ::ttrpc::Result<super::agent::OOMEvent> {
         Err(::ttrpc::Error::RpcStatus(::ttrpc::get_status(::ttrpc::Code::NOT_FOUND, "/grpc.AgentService/GetOOMEvent is not supported".to_string())))
     }
+    async fn get_oom_victim_evidence(&self, _ctx: &::ttrpc::r#async::TtrpcContext, _req: super::agent::GetOOMVictimEvidenceRequest) -> ::ttrpc::Result<super::agent::GetOOMVictimEvidenceResponse> {
+        Err(::ttrpc::Error::RpcStatus(::ttrpc::get_status(::ttrpc::Code::NOT_FOUND, "/grpc.AgentService/GetOOMVictimEvidence is not supported".to_string())))
+    }
     async fn add_swap(&self, _ctx: &::ttrpc::r#async::TtrpcContext, _req: super::agent::AddSwapRequest) -> ::ttrpc::Result<super::empty::Empty> {
         Err(::ttrpc::Error::RpcStatus(::ttrpc::get_status(::ttrpc::Code::NOT_FOUND, "/grpc.AgentService/AddSwap is not supported".to_string())))
     }
@@ -824,6 +843,9 @@ pub fn create_agent_service(service: Arc<std::boxed::Box<dyn AgentService + Send
 
     methods.insert("/grpc.AgentService/GetOOMEvent".to_string(),
                     std::boxed::Box::new(GetOomEventMethod{service: service.clone()}) as std::boxed::Box<dyn ::ttrpc::r#async::MethodHandler + Send + Sync>);
+
+    methods.insert("/grpc.AgentService/GetOOMVictimEvidence".to_string(),
+                    std::boxed::Box::new(GetOomVictimEvidenceMethod{service: service.clone()}) as std::boxed::Box<dyn ::ttrpc::r#async::MethodHandler + Send + Sync>);
 
     methods.insert("/grpc.AgentService/AddSwap".to_string(),
                     std::boxed::Box::new(AddSwapMethod{service: service.clone()}) as std::boxed::Box<dyn ::ttrpc::r#async::MethodHandler + Send + Sync>);
