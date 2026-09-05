@@ -10,6 +10,13 @@ permissions:
   contents: read
 
 jobs:
+  protocol-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify guest/shim Wave21 protocol parity
+        run: python3 tests/wave21_protocol_contract.py
+
   cubelet-wave21:
     runs-on: ubuntu-latest
     steps:
