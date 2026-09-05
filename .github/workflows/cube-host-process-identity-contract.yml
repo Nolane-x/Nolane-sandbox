@@ -1,0 +1,62 @@
+name: Cube Host Process Identity Contract
+
+on:
+  pull_request:
+    paths:
+      - 'Cubelet/plugins/cube/internals/sandbox/**'
+      - 'Cubelet/plugins/cube/internals/resourcemetrics/**'
+      - 'Cubelet/services/cubebox/**'
+      - 'Cubelet/plugins/cube/internals/cgroup/**'
+      - 'Cubelet/go.mod'
+      - 'Cubelet/go.sum'
+      - 'NolaneWorld/substrate/cube/**'
+      - 'NolaneWorld/go.mod'
+      - 'docs/superpowers/specs/**host-process-identity-v19**'
+      - 'docs/superpowers/plans/**host-process-identity-v19**'
+      - '.github/workflows/cube-host-process-identity-contract.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'Cubelet/plugins/cube/internals/sandbox/**'
+      - 'Cubelet/plugins/cube/internals/resourcemetrics/**'
+      - 'Cubelet/services/cubebox/**'
+      - 'Cubelet/plugins/cube/internals/cgroup/**'
+      - 'Cubelet/go.mod'
+      - 'Cubelet/go.sum'
+      - 'NolaneWorld/substrate/cube/**'
+      - 'NolaneWorld/go.mod'
+      - 'docs/superpowers/specs/**host-process-identity-v19**'
+      - 'docs/superpowers/plans/**host-process-identity-v19**'
+      - '.github/workflows/cube-host-process-identity-contract.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cube-host-process-identity-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-process-identity:
+    name: Cgroup-bound host process identity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: Cubelet/go.mod
+          cache: true
+          cache-dependency-path: |
+            Cubelet/go.sum
+            NolaneWorld/go.mod
+
+      - name: Verify Cubelet host process identity contract
+        working-directory: Cubelet
+        run: go test ./plugins/cube/internals/sandbox ./plugins/cube/internals/resourcemetrics ./services/cubebox -run 'HostProcess|ProcessIdentity|TaskOutcome|RealizationOOM' -count=1
+
+      - name: Verify NolaneWorld host process identity contract
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'HostProcess|ProcessIdentity|TaskTermination|TaskOutcome' -count=1
