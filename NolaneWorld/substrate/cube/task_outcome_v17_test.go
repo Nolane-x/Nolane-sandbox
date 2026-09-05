@@ -1,6 +1,7 @@
 package cube
 
 import (
+	"context"
 	"errors"
 	"math"
 	"net/http"
@@ -32,7 +33,7 @@ func observeTaskOutcomeFixture(t *testing.T, metrics, sandboxID string) (TaskOut
 	if err != nil {
 		t.Fatalf("NewTaskOutcomeObserver: %v", err)
 	}
-	return observer.Observe(t.Context(), ResourceBinding{sandboxID: sandboxID})
+	return observer.Observe(context.Background(), ResourceBinding{sandboxID: sandboxID})
 }
 
 func TestTaskOutcomeObserverPreservesExactProofBeyondBinary64Range(t *testing.T) {
