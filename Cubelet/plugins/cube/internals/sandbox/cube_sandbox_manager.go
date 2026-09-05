@@ -93,6 +93,7 @@ func init() {
 				publisher:         publisher,
 				taskOutcomeProofs: newTaskOutcomeProofStore(),
 			}
+			c.configureKernelVictimCollector(ic.Context)
 			return c, nil
 		},
 	})
@@ -121,6 +122,10 @@ type controllerLocal struct {
 
 	realizationOOMSnapshotMu     sync.RWMutex
 	realizationOOMSnapshotReader func(context.Context, string) (string, bool, uint64, time.Time, error)
+
+	kernelVictimSource           kernelVictimSource
+	kernelVictimBootTimeNS       func() (uint64, error)
+	kernelVictimCgroupV2Resolver func(string) (uint64, bool)
 
 	taskServiceResolver     func(context.Context, string) (taskRuntimeService, error)
 	sandboxEndpointResolver func(context.Context, string) (string, uint32, error)
@@ -195,6 +200,7 @@ func (c *controllerLocal) Create(ctx context.Context, info sandbox.Sandbox, opts
 
 func (c *controllerLocal) Start(ctx context.Context, sandboxID string) (sandbox.ControllerInstance, error) {
 	generation := c.beginTaskOutcomeRealization(sandboxID)
+	c.beginKernelVictimWindow(sandboxID, generation)
 	c.captureRealizationOOMBaseline(ctx, sandboxID, generation)
 	c.revalidateHostProcessIdentity(sandboxID, generation)
 	return sandbox.ControllerInstance{}, nil
@@ -232,7 +238,9 @@ func (c *controllerLocal) Wait(ctx context.Context, sandboxID string) (sandbox.E
 	if err != nil {
 		return sandbox.ExitStatus{}, fmt.Errorf("record exact task outcome for sandbox %s: %w", sandboxID, err)
 	}
+	c.closeKernelVictimWindow(proof)
 	c.finalizeRealizationOOM(ctx, proof)
+	c.finalizeHostKernelOOMVictim(proof)
 
 	return sandbox.ExitStatus{
 		ExitedAt:   proof.ExitedAt,
@@ -268,7 +276,9 @@ func (c *controllerLocal) Status(ctx context.Context, sandboxID string, verbose 
 			if err != nil {
 				return sandbox.ControllerStatus{}, fmt.Errorf("record exact task outcome for sandbox %s: %w", sandboxID, err)
 			}
+			c.closeKernelVictimWindow(proof)
 			c.finalizeRealizationOOM(ctx, proof)
+			c.finalizeHostKernelOOMVictim(proof)
 		}
 	}
 
