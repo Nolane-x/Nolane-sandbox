@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -31,19 +30,11 @@ type taskOutcomePrometheusCollector struct {
 }
 
 func newServiceWithTaskOutcomes(cache *SandboxResourceCache, outcomes taskOutcomeProofVisitor) *Service {
-	return &Service{
-		SandboxResourceCache: cache,
-		handler:              newPrometheusHandlerWithTaskOutcomes(cache, outcomes, time.Now),
-	}
+	return newServiceWithTaskEvidence(cache, outcomes, nil)
 }
 
 func newPrometheusHandlerWithTaskOutcomes(cache *SandboxResourceCache, outcomes taskOutcomeProofVisitor, now func() time.Time) http.Handler {
-	registry := prometheus.NewRegistry()
-	registry.MustRegister(&prometheusCollector{cache: cache, now: now})
-	if outcomes != nil {
-		registry.MustRegister(&taskOutcomePrometheusCollector{outcomes: outcomes})
-	}
-	return promhttp.HandlerFor(registry, promhttp.HandlerOpts{MaxRequestsInFlight: maxConcurrentPrometheusScrapes})
+	return newPrometheusHandlerWithTaskEvidence(cache, outcomes, nil, now)
 }
 
 func (c *taskOutcomePrometheusCollector) Describe(ch chan<- *prometheus.Desc) {
