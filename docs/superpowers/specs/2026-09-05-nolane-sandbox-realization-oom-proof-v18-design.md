@@ -127,7 +127,7 @@ type realizationOOMBaseline struct {
 }
 ```
 
-A controller restart may recover a Wave 16 task realization from a fresh authoritative runtime observation, but it must not synthesize a Wave 18 baseline. Therefore recovered realizations have unknown OOM evidence unless the original in-memory baseline is still present.
+A fresh authoritative runtime observation may recover a Wave 16 task generation after controller restart, but it must never synthesize a Wave 18 baseline. Wave 18 state is not persisted, so a real controller process restart necessarily loses the baseline and leaves realization-scoped OOM evidence unknown for the recovered task.
 
 ## Producer: Finalization
 
