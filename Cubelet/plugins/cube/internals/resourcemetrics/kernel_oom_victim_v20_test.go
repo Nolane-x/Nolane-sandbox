@@ -13,7 +13,9 @@ type fakeV20VictimVisitor struct {
 }
 
 func (f fakeV20VictimVisitor) VisitHostKernelOOMVictimProofs(v func(string, uint64, string, uint32, uint32, uint64, string, uint64, uint64, bool, string)) {
-	if f.visit != nil { f.visit(v) }
+	if f.visit != nil {
+		f.visit(v)
+	}
 }
 
 func TestV20PrometheusPreservesExactVictimProof(t *testing.T) {
@@ -21,7 +23,9 @@ func TestV20PrometheusPreservesExactVictimProof(t *testing.T) {
 		v("sandbox-a", math.MaxUint64, "11111111-2222-3333-4444-555555555555", math.MaxUint32, 4247, math.MaxUint64, "/cube_sandbox_v1/42", math.MaxUint64, math.MaxUint64, true, "kernel.oom.mark_victim.raw_tracepoint")
 	}}
 	h := newPrometheusHandlerWithKernelVictimEvidence(nil, nil, nil, nil, visitor, nil)
-	rr := httptest.NewRecorder(); req := httptest.NewRequest("GET", "/metrics", nil); h.ServeHTTP(rr, req)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	h.ServeHTTP(rr, req)
 	body := rr.Body.String()
 	for _, want := range []string{
 		"cubesandbox_host_kernel_oom_victim_info",
@@ -33,7 +37,9 @@ func TestV20PrometheusPreservesExactVictimProof(t *testing.T) {
 		`cgroup_v2_id="18446744073709551615"`,
 		`cgroup_v2_correlated="true"`,
 	} {
-		if !strings.Contains(body, want) { t.Fatalf("missing %q in %s", want, body) }
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q in %s", want, body)
+		}
 	}
 }
 
@@ -42,7 +48,22 @@ func TestV20PrometheusUnknownCgroupUsesEmptyID(t *testing.T) {
 		v("sandbox-a", 1, "11111111-2222-3333-4444-555555555555", 42, 43, 1234, "/cube_sandbox_v1/42", 99, 0, false, "kernel.oom.mark_victim.raw_tracepoint")
 	}}
 	h := newPrometheusHandlerWithKernelVictimEvidence(nil, nil, nil, nil, visitor, nil)
-	rr := httptest.NewRecorder(); h.ServeHTTP(rr, httptest.NewRequest("GET", "/metrics", nil))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/metrics", nil))
 	body, _ := io.ReadAll(rr.Result().Body)
-	if !strings.Contains(string(body), `cgroup_v2_id=""`) || !strings.Contains(string(body), `cgroup_v2_correlated="false"`) { t.Fatalf("unknown cgroup transport is not exact: %s", body) }
+	if !strings.Contains(string(body), `cgroup_v2_id=""`) || !strings.Contains(string(body), `cgroup_v2_correlated="false"`) {
+		t.Fatalf("unknown cgroup transport is not exact: %s", body)
+	}
+}
+
+func TestV20ProductionServiceRegistersVictimCollector(t *testing.T) {
+	visitor := fakeV20VictimVisitor{visit: func(v func(string, uint64, string, uint32, uint32, uint64, string, uint64, uint64, bool, string)) {
+		v("sandbox-a", 7, "11111111-2222-3333-4444-555555555555", 4242, 4247, 1234, "/cube_sandbox_v1/42", 20_000_000_000, 88, true, "kernel.oom.mark_victim.raw_tracepoint")
+	}}
+	service := newServiceWithAllTaskEvidenceAndKernelVictims(nil, nil, nil, nil, visitor)
+	rr := httptest.NewRecorder()
+	service.ServeHTTP(rr, httptest.NewRequest("GET", "/metrics", nil))
+	if !strings.Contains(rr.Body.String(), "cubesandbox_host_kernel_oom_victim_info") {
+		t.Fatalf("production service did not register Wave20 collector: %s", rr.Body.String())
+	}
 }
