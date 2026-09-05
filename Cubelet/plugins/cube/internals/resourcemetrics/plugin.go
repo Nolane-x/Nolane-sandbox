@@ -113,6 +113,10 @@ func init() {
 			if !ok {
 				return nil, fmt.Errorf("cube sandbox controller does not expose realization OOM proofs")
 			}
+			hostProcessProofs, ok := controllerPlugin.(hostProcessIdentityProofVisitor)
+			if !ok {
+				return nil, fmt.Errorf("cube sandbox controller does not expose host process identity proofs")
+			}
 
 			cgroupPlugin, err := ic.GetByID(constants.InternalPlugin, constants.CgroupID.ID())
 			if err != nil {
@@ -171,7 +175,7 @@ func init() {
 					go hostSampler.Run(ic.Context)
 				}
 			}
-			return newServiceWithTaskEvidence(cache, taskOutcomes, oomProofs), nil
+			return newServiceWithAllTaskEvidence(cache, taskOutcomes, oomProofs, hostProcessProofs), nil
 		},
 	})
 }

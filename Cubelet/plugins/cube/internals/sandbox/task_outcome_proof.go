@@ -48,16 +48,23 @@ type taskOutcomeProofStore struct {
 	oomBaselines map[string]realizationOOMBaseline
 	oomProofs    map[string]RealizationOOMProof
 	oomFinalized map[string]uint64
+
+	hostProcessLifetimes  map[string]*hostProcessLifetime
+	hostProcessPlacements map[string]HostProcessPlacementProof
+	hostProcessBindings   map[string]HostProcessRealizationBinding
 }
 
 func newTaskOutcomeProofStore() *taskOutcomeProofStore {
 	return &taskOutcomeProofStore{
-		generations:  make(map[string]uint64),
-		proofs:       make(map[string]TaskOutcomeProof),
-		fenced:       make(map[string]bool),
-		oomBaselines: make(map[string]realizationOOMBaseline),
-		oomProofs:    make(map[string]RealizationOOMProof),
-		oomFinalized: make(map[string]uint64),
+		generations:           make(map[string]uint64),
+		proofs:                make(map[string]TaskOutcomeProof),
+		fenced:                make(map[string]bool),
+		oomBaselines:          make(map[string]realizationOOMBaseline),
+		oomProofs:             make(map[string]RealizationOOMProof),
+		oomFinalized:          make(map[string]uint64),
+		hostProcessLifetimes:  make(map[string]*hostProcessLifetime),
+		hostProcessPlacements: make(map[string]HostProcessPlacementProof),
+		hostProcessBindings:   make(map[string]HostProcessRealizationBinding),
 	}
 }
 
@@ -73,11 +80,25 @@ func (s *taskOutcomeProofStore) Clear(sandboxID string) {
 	if s.fenced == nil {
 		s.fenced = make(map[string]bool)
 	}
+	if s.hostProcessLifetimes == nil {
+		s.hostProcessLifetimes = make(map[string]*hostProcessLifetime)
+	}
+	if s.hostProcessPlacements == nil {
+		s.hostProcessPlacements = make(map[string]HostProcessPlacementProof)
+	}
+	if s.hostProcessBindings == nil {
+		s.hostProcessBindings = make(map[string]HostProcessRealizationBinding)
+	}
 	delete(s.proofs, sandboxID)
 	delete(s.generations, sandboxID)
 	delete(s.oomBaselines, sandboxID)
 	delete(s.oomProofs, sandboxID)
 	delete(s.oomFinalized, sandboxID)
+	delete(s.hostProcessPlacements, sandboxID)
+	delete(s.hostProcessBindings, sandboxID)
+	// Pointer identity is the lifetime fence. A candidate captured before this
+	// Create can never compare equal to the fresh lifetime object below.
+	s.hostProcessLifetimes[sandboxID] = &hostProcessLifetime{}
 	s.fenced[sandboxID] = true
 }
 
@@ -105,11 +126,24 @@ func (s *taskOutcomeProofStore) BeginRealization(sandboxID string) uint64 {
 	if s.oomFinalized == nil {
 		s.oomFinalized = make(map[string]uint64)
 	}
+	if s.hostProcessLifetimes == nil {
+		s.hostProcessLifetimes = make(map[string]*hostProcessLifetime)
+	}
+	if s.hostProcessPlacements == nil {
+		s.hostProcessPlacements = make(map[string]HostProcessPlacementProof)
+	}
+	if s.hostProcessBindings == nil {
+		s.hostProcessBindings = make(map[string]HostProcessRealizationBinding)
+	}
+	if s.hostProcessLifetimes[sandboxID] == nil {
+		s.hostProcessLifetimes[sandboxID] = &hostProcessLifetime{}
+	}
 	s.generations[sandboxID]++
 	delete(s.proofs, sandboxID)
 	delete(s.oomBaselines, sandboxID)
 	delete(s.oomProofs, sandboxID)
 	delete(s.oomFinalized, sandboxID)
+	delete(s.hostProcessBindings, sandboxID)
 	delete(s.fenced, sandboxID)
 	return s.generations[sandboxID]
 }
@@ -134,6 +168,18 @@ func (s *taskOutcomeProofStore) RecoverRealization(sandboxID string) (uint64, bo
 	}
 	if s.proofs == nil {
 		s.proofs = make(map[string]TaskOutcomeProof)
+	}
+	if s.hostProcessLifetimes == nil {
+		s.hostProcessLifetimes = make(map[string]*hostProcessLifetime)
+	}
+	if s.hostProcessPlacements == nil {
+		s.hostProcessPlacements = make(map[string]HostProcessPlacementProof)
+	}
+	if s.hostProcessBindings == nil {
+		s.hostProcessBindings = make(map[string]HostProcessRealizationBinding)
+	}
+	if s.hostProcessLifetimes[sandboxID] == nil {
+		s.hostProcessLifetimes[sandboxID] = &hostProcessLifetime{}
 	}
 	s.generations[sandboxID] = 1
 	return 1, true

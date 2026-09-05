@@ -47,6 +47,7 @@ import (
 	"github.com/tencentcloud/CubeSandbox/Cubelet/pkg/taskio"
 	"github.com/tencentcloud/CubeSandbox/Cubelet/pkg/utils"
 	"github.com/tencentcloud/CubeSandbox/Cubelet/plugins/cube/internals/cubes"
+	"github.com/tencentcloud/CubeSandbox/Cubelet/plugins/cube/internals/hostprocess"
 	"github.com/tencentcloud/CubeSandbox/Cubelet/storage"
 	CubeLog "github.com/tencentcloud/CubeSandbox/cubelog"
 )
@@ -202,17 +203,26 @@ func init() {
 			if err != nil {
 				return nil, fmt.Errorf("get shim plugin fail:%v", err)
 			}
+			controllerPlugin, err := ic.GetByID(plugins.SandboxControllerPlugin, "cube")
+			if err != nil {
+				return nil, fmt.Errorf("get cube sandbox controller for host process identity: %w", err)
+			}
+			hostProcessPlacementRecorder, ok := controllerPlugin.(hostprocess.PlacementRecorder)
+			if !ok {
+				return nil, errors.New("cube sandbox controller does not expose host process placement recorder")
+			}
 
 			l := &local{
-				client:         client,
-				localTask:      i.(tasks.TasksClient),
-				config:         config,
-				criImage:       obj.(*cubeimages.CubeImageService),
-				cbriManager:    cbriManager,
-				cubeboxManger:  cubeboxAPIObj.(cubes.CubeboxAPI),
-				shims:          shimPlugin.(*v2.ShimManager),
-				envdHTTPClient: newEnvdHTTPClient(),
-				envdInitPort:   defaultEnvdInitPort,
+				client:                       client,
+				localTask:                    i.(tasks.TasksClient),
+				config:                       config,
+				criImage:                     obj.(*cubeimages.CubeImageService),
+				cbriManager:                  cbriManager,
+				cubeboxManger:                cubeboxAPIObj.(cubes.CubeboxAPI),
+				shims:                        shimPlugin.(*v2.ShimManager),
+				hostProcessPlacementRecorder: hostProcessPlacementRecorder,
+				envdHTTPClient:               newEnvdHTTPClient(),
+				envdInitPort:                 defaultEnvdInitPort,
 			}
 
 			CubeLog.Info("Start recovering state")
@@ -257,12 +267,13 @@ type local struct {
 	config    *CubeConfig
 	shims     *v2.ShimManager
 
-	criImage       *cubeimages.CubeImageService
-	cbriManager    cbri.APIManager
-	cubeboxManger  cubes.CubeboxAPI
-	envdHTTPClient *http.Client
-	envdInitPort   int
-	destroyFn      func(context.Context, *workflow.DestroyContext) error
+	criImage                     *cubeimages.CubeImageService
+	cbriManager                  cbri.APIManager
+	cubeboxManger                cubes.CubeboxAPI
+	hostProcessPlacementRecorder hostprocess.PlacementRecorder
+	envdHTTPClient               *http.Client
+	envdInitPort                 int
+	destroyFn                    func(context.Context, *workflow.DestroyContext) error
 }
 
 const (
