@@ -30,15 +30,11 @@ type taskOutcomePrometheusCollector struct {
 	outcomes taskOutcomeProofVisitor
 }
 
-func NewServiceWithTaskOutcomes(cache *SandboxResourceCache, outcomes taskOutcomeProofVisitor) *Service {
+func newServiceWithTaskOutcomes(cache *SandboxResourceCache, outcomes taskOutcomeProofVisitor) *Service {
 	return &Service{
 		SandboxResourceCache: cache,
-		handler:              NewPrometheusHandlerWithTaskOutcomes(cache, outcomes),
+		handler:              newPrometheusHandlerWithTaskOutcomes(cache, outcomes, time.Now),
 	}
-}
-
-func NewPrometheusHandlerWithTaskOutcomes(cache *SandboxResourceCache, outcomes taskOutcomeProofVisitor) http.Handler {
-	return newPrometheusHandlerWithTaskOutcomes(cache, outcomes, time.Now)
 }
 
 func newPrometheusHandlerWithTaskOutcomes(cache *SandboxResourceCache, outcomes taskOutcomeProofVisitor, now func() time.Time) http.Handler {
