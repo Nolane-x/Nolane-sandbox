@@ -1,91 +1,73 @@
-# Nolane Sandbox Wave 19 — Host Process Identity Implementation Plan
+# Nolane Sandbox Wave 19 — Host Process Identity Execution Record
 
 ## Goal
 
-Implement the Wave 19 trust boundary defined in `docs/superpowers/specs/2026-09-05-nolane-sandbox-host-process-identity-v19-design.md`: exact PID-reuse-resistant identity for the CubeShim/VMM host process after trusted cgroup placement, controller-generation binding, exact Prometheus transport, and strict NolaneWorld correlation. Wave 19 must not classify an OOM victim.
+Wave 19 establishes exact, PID-reuse-resistant identity for the CubeShim/VMM host process after trusted cgroup placement, then binds that identity to the controller-local task-realization generation already owned by Waves 16–18.
 
-## Execution Rules
+This is provenance only. Wave 19 does not identify a kernel OOM victim and does not claim that the guest application or main task was OOM-killed.
 
-- Use TDD: focused contract tests must fail before production implementation is added.
-- Keep the CubeBox → sandbox-controller dependency package-neutral through structural interfaces using only standard-library/primitives.
-- `cgroup.AddProc` success is the only authority that may initiate a new placement proof.
-- `/proc` evidence failure is observational and must never turn successful sandbox execution into failure.
-- Wave 16 task-outcome generation remains the sole realization-generation authority.
-- Never infer OOM victim identity from exit 137, SIGKILL, Wave 18 OOM delta, or PID equality.
-- Every authored commit/PR description includes `Autonomously-by: ChatGPT:GPT-5.6-Sol` and never a DCO `Signed-off-by` trailer.
+## Trust boundary
 
-## Task 1 — RED host-process inspector contract
+The accepted identity tuple is:
 
-**Create:**
-- `Cubelet/plugins/cube/internals/sandbox/host_process_identity_v19_test.go`
+- boot ID from `/proc/sys/kernel/random/boot_id`;
+- host PID from CubeBox's runtime endpoint;
+- Linux `/proc/<pid>/stat` field 22 (`starttime_ticks`);
+- exact cgroup path verified structurally from `/proc/<pid>/cgroup`;
+- CubeBox placement timestamp and controller binding timestamp;
+- controller-local realization generation.
 
-**Later implementation:**
-- `Cubelet/plugins/cube/internals/sandbox/host_process_identity.go`
+The following remain forbidden:
 
-Contract tests cover:
+- `exit 137 => OOM` inference;
+- SIGKILL => OOM inference;
+- positive Wave 18 OOM delta => victim inference;
+- host PID equality => guest-task identity;
+- suffix, substring or basename cgroup matching;
+- recovery or persistence that reconstructs a lost host-process identity proof;
+- public CubeAPI expansion for this evidence.
 
-1. `/proc/<pid>/stat` parser finds the closing parenthesized command field and parses Linux field 22 exactly, including command names containing spaces and parentheses.
-2. PID zero, malformed stat lines, signed/non-canonical start times, zero start time, and stat PID mismatch fail closed.
-3. stat-A → cgroup → stat-B sandwich rejects PID/starttime changes.
-4. canonical boot UUID validation rejects blank, uppercase/non-canonical, malformed values.
-5. cgroup v2 `0::/path` and v1 controller entries are parsed structurally.
-6. exact expected hierarchy path is required; suffix/substring/basename/path-traversal matches are rejected.
-7. capture produces `(boot_id,pid,starttime_ticks,cgroup_path,placed_at,observed_at)` only when every check succeeds.
+## TDD evidence
 
-RED command:
+The dedicated Wave 19 contract was first run against tests with no production Wave 19 implementation. Clean RED run `33951426865` failed only on the intentionally absent Wave 19 APIs after the initial stock-runner CubeBox/native-header harness problem was removed.
 
-```bash
-cd Cubelet
-go test ./plugins/cube/internals/sandbox -run 'HostProcess|ProcessIdentity' -count=1
-```
+The RED contract covered:
 
-## Task 2 — RED lifecycle and trusted placement contract
+1. robust `/proc/<pid>/stat` field-22 parsing, including parenthesized commands;
+2. stat-A → cgroup → stat-B PID-reuse sandwich;
+3. exact v1/v2 cgroup membership matching;
+4. Create/Start/outcome lifecycle fencing and stale-capture rejection;
+5. `AddProc`-before-recorder ordering with observational recorder failure semantics;
+6. exact Prometheus string-label transport for arbitrary `uint64` values;
+7. strict NolaneWorld single-scrape correlation;
+8. explicit shape guards against OOM-victim classification fields.
 
-**Create:**
-- `Cubelet/plugins/cube/internals/sandbox/host_process_identity_lifecycle_v19_test.go`
-- `Cubelet/services/cubebox/host_process_identity_v19_test.go`
+## Implemented producer path
 
-**Modify later:**
-- `Cubelet/plugins/cube/internals/sandbox/task_outcome_proof.go`
-- `Cubelet/plugins/cube/internals/sandbox/cube_sandbox_manager.go`
-- `Cubelet/services/cubebox/local.go`
-- `Cubelet/services/cubebox/cube_container_create.go`
+### Package-neutral placement sequencer
 
-Required behavior:
+`Cubelet/plugins/cube/internals/hostprocess` owns only the primitive sequencing helper and recorder interface. `AddProcAndRecord`:
 
-- Extend the existing controller-local proof store so host placement/binding transitions share the same lock and generation authority as exact task outcome.
-- `Clear(sandboxID)` fences and removes placement/binding from the previous sandbox lifetime.
-- `BeginRealization` clears prior realization binding and opens the new controller generation.
-- A placement candidate captures a generation/lifetime token before slow `/proc` I/O and commits only if the token is still current.
-- Successful first placement after Start binds the current open generation.
-- Placement before Start may retain lifetime placement but is freshly revalidated before a later Start binds it.
-- A newer Start cannot accept stale capture work from the previous token.
-- Once exact task outcome is accepted, late placement cannot bind or repair that generation.
-- Later Start revalidates the exact stored `(boot_id,pid,starttime,cgroup)` identity before binding.
-- `math.MaxUint64` generation survives binding exactly.
-- CubeBox resolves the cube sandbox controller through its existing plugin dependency and asserts a local primitive/std-library recorder interface.
-- `setCgroup` calls the recorder only after `cgroupp.AddProc(...) == nil` and passes sandbox identity, exact cgroup ID/path, PID, and placement timestamp.
-- `AddProc` failure never records evidence; identity-recorder failure is logged/best-effort and does not fail sandbox execution.
+- validates sandbox ID, cgroup path and nonzero PID;
+- calls the supplied `AddProc` authority first;
+- never invokes the recorder when `AddProc` fails;
+- treats recorder/procfs evidence failure as observational-only after successful placement.
 
-Focused RED commands:
+It does not own lifecycle state or construct realization bindings.
 
-```bash
-cd Cubelet
-go test ./plugins/cube/internals/sandbox -run 'HostProcess|ProcessIdentity' -count=1
-go test ./services/cubebox -run 'HostProcess|ProcessIdentity' -count=1
-```
+### Sandbox controller authority
 
-## Task 3 — Exact resource-metrics transport
+The cube sandbox controller owns the `/proc` inspector and lifecycle store. Slow procfs reads happen outside the proof-store lock. A pointer lifetime token plus the active task generation is rechecked at commit time, so stale capture work cannot cross Create or a newer Start.
 
-**Create:**
-- `Cubelet/plugins/cube/internals/resourcemetrics/host_process_identity_prometheus.go`
-- `Cubelet/plugins/cube/internals/resourcemetrics/host_process_identity_v19_test.go`
+`BeginRealization` clears the old realization binding while retaining lifetime placement. Start revalidates the exact stored `(boot_id,pid,starttime_ticks,cgroup_path)` tuple before accepting a binding for the new generation. Once exact task outcome is accepted, late placement or revalidation cannot repair that closed generation.
 
-**Modify:**
-- `Cubelet/plugins/cube/internals/resourcemetrics/realization_oom_prometheus.go`
-- `Cubelet/plugins/cube/internals/resourcemetrics/plugin.go`
+### CubeBox integration
 
-Transport one atomic sample:
+CubeBox resolves the existing cube sandbox-controller plugin dependency as the package-neutral host-process placement recorder. The real `cube_container_create.go` cgroup path now calls `hostprocess.AddProcAndRecord` with the exact sandbox ID, cgroup ID and CubeShim endpoint PID. The former direct `setCgroup -> cgroupp.AddProc` helper was removed, so this call site no longer has a parallel non-evidence placement path.
+
+## Exact transport
+
+Resource metrics remains transport-only. It consumes structural visitors and emits one atomic info sample:
 
 ```text
 cubesandbox_host_process_identity_info{
@@ -102,111 +84,46 @@ cubesandbox_host_process_identity_info{
 } 1
 ```
 
-Rules:
+Generation, PID and starttime are decimal string labels. Timestamps are UTC RFC3339Nano. Invalid or incomplete evidence emits no sample. Existing public `NewService` remains unchanged.
 
-- generation/PID/starttime are exact decimal string labels;
-- timestamps are UTC RFC3339Nano;
-- invalid or incomplete controller evidence emits no sample;
-- `math.MaxUint64` generation/starttime transport exactly;
-- resource metrics consumes a structural visitor and gains no authority to construct identity proofs;
-- existing `NewService` public API remains unchanged.
+## NolaneWorld consumer
 
-Focused command:
+`TaskTerminationObserver` parses task outcome, Wave 18 realization-OOM evidence and Wave 19 host-process identity from the same management scrape.
 
-```bash
-cd Cubelet
-go test ./plugins/cube/internals/resourcemetrics -run 'HostProcess|ProcessIdentity|TaskOutcome|RealizationOOM' -count=1
-```
+The identity sample is optional, but if present it is strict/fail-closed:
 
-## Task 4 — Strict NolaneWorld single-scrape correlation
-
-**Create:**
-- `NolaneWorld/substrate/cube/host_process_identity.go`
-- `NolaneWorld/substrate/cube/host_process_identity_v19_test.go`
-
-**Modify:**
-- `NolaneWorld/substrate/cube/task_termination.go`
-- `NolaneWorld/substrate/cube/task_termination_v18_test.go` only if existing fixtures need the new optional sample (absence remains valid).
-
-Produce `HostSandboxProcessIdentityProof` as provenance only. Extend single-scrape task termination evidence with an optional host-process identity proof.
-
-Strict parsing/correlation requires:
-
-- exactly ten labels and numeric metric value exactly one;
-- exact supported runtime role/source constants;
-- canonical uint generation/PID/starttime without sign or leading zeros;
+- exactly ten labels and numeric value exactly one;
+- canonical unsigned decimal generation/PID/starttime;
 - canonical lowercase boot UUID;
-- canonical cgroup path;
-- canonical UTC RFC3339Nano timestamps with `placed_at <= bound_at`;
-- target sandbox and exact outcome generation match;
-- if Wave 18 OOM proof exists, exact cgroup path match;
-- duplicate/malformed target samples fail closed;
-- other sandbox samples are ignored only after safe sandbox-label parsing;
-- identity absence does not invalidate an otherwise exact Wave 17/18 task termination observation.
+- canonical absolute cgroup path;
+- exact runtime role/source constants;
+- UTC RFC3339Nano timestamps with `placed_at <= bound_at`;
+- exact target sandbox and task-outcome generation;
+- exact cgroup match when Wave 18 OOM evidence is present;
+- duplicate or malformed target samples fail closed.
 
-Negative tests explicitly prove that exit 137, SIGKILL-like outcomes, positive Wave 18 OOM delta, or PID equality never creates an OOM-victim classification/API.
+The resulting `HostSandboxProcessIdentityProof` is provenance only. It adds no OOM victim/classification API.
 
-Focused command:
+## CI contract and regression gates
 
-```bash
-cd NolaneWorld
-go test ./substrate/cube -run 'HostProcess|ProcessIdentity|TaskTermination|TaskOutcome' -count=1
-```
+`.github/workflows/cube-host-process-identity-contract.yml` runs the pure-Go placement contract, sandbox controller contract, resource-metrics transport contract and NolaneWorld correlation contract. Direct CubeBox package integration is intentionally verified by the repository's native builder/unit/build matrix because stock `ubuntu-latest` cannot build that package without repository native dependencies such as CubeCow/CubeNet artifacts.
 
-## Task 5 — Dedicated Wave 19 CI contract
+Before the PR is marked ready, the final head must pass:
 
-**Create:**
-- `.github/workflows/cube-host-process-identity-contract.yml`
-
-Path filters include:
-
-- sandbox proof/controller files;
-- CubeBox create path;
-- resource-metrics transport;
-- Cubelet module files;
-- NolaneWorld cube substrate/module files;
-- Wave 19 spec/plan;
-- the workflow itself.
-
-Run focused Cubelet sandbox, CubeBox, resource-metrics and NolaneWorld tests. Use the Go versions already declared by each module.
-
-## Task 6 — GREEN implementation and regression verification
-
-After RED is captured from GitHub Actions, implement the smallest trust-complete production path satisfying Tasks 1–4. Fix root causes only; never weaken tests to make them green.
-
-Focused GREEN verification:
-
-```bash
-cd Cubelet
-go test ./plugins/cube/internals/sandbox ./plugins/cube/internals/resourcemetrics ./services/cubebox -run 'HostProcess|ProcessIdentity|TaskOutcome|RealizationOOM' -count=1
-
-cd ../NolaneWorld
-go test ./substrate/cube -run 'HostProcess|ProcessIdentity|TaskTermination|TaskOutcome' -count=1
-```
-
-Then require final-head compatibility gates:
-
-- Wave 17 exact task outcome contract;
+- Wave 19 host-process identity contract;
 - Wave 18 realization OOM contract;
+- Wave 17 exact task outcome contract;
 - host-resource contract;
-- broad Cubelet unit matrix;
-- repository build matrix;
-- format check;
-- DCO policy check;
+- Cubelet unit matrix on amd64 and arm64;
+- repository build matrix including Docker smoke builds;
+- format and DCO checks;
 - NolaneWorld unit/race/vet/evidence gates;
-- live-harness semantics where available.
+- live substrate harness semantics where available.
 
-Any infrastructure-only bot failure must be reported separately from code/test failure.
+Infrastructure-only review-bot failures are reported separately from code/test failures.
 
-## Task 7 — Trust audit and PR closure
+## Deferred Wave 20
 
-Before marking ready:
+Wave 20 may establish authoritative kernel OOM-victim event capture with event-time process/cgroup identity and correlate that event to this Wave 19 host identity. Only that stronger evidence may justify a victim-level statement. Wave 19 by itself never does.
 
-- diff audit for any `exit 137 => OOM`, SIGKILL=>OOM, status fallback, fuzzy cgroup match, host-PID-as-guest identity, persistence/reconstruction, or public CubeAPI expansion;
-- verify CubeBox calls evidence recorder only after successful `AddProc`;
-- verify slow `/proc` I/O is outside proof-store lock and commit rechecks lifecycle token;
-- verify resource metrics is transport-only;
-- verify NolaneWorld treats PID/path as provenance, never executable authority;
-- verify all final-head required Actions are green except clearly external infrastructure failures.
-
-Wave 20 remains separate: authoritative kernel victim-event capture and event-time correlation. Wave 19 alone must never claim an OOM victim.
+Autonomously-by: ChatGPT:GPT-5.6-Sol
