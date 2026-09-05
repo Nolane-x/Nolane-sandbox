@@ -161,7 +161,7 @@ func init() {
 					go hostSampler.Run(ic.Context)
 				}
 			}
-			return NewServiceWithTaskOutcomes(cache, taskOutcomes), nil
+			return newServiceWithTaskOutcomes(cache, taskOutcomes), nil
 		},
 	})
 }
