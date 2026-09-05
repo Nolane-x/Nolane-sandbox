@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const hostKernelOOMVictimSource = "kernel.oom.mark_victim.raw_tracepoint"
@@ -140,22 +139,12 @@ func newPrometheusHandlerWithKernelVictimEvidence(
 	victims hostKernelOOMVictimProofVisitor,
 	now func() time.Time,
 ) http.Handler {
-	if now == nil {
-		now = time.Now
-	}
-	registry := prometheus.NewRegistry()
-	registry.MustRegister(&prometheusCollector{cache: cache, now: now})
-	if outcomes != nil {
-		registry.MustRegister(&taskOutcomePrometheusCollector{outcomes: outcomes})
-	}
-	if oom != nil {
-		registry.MustRegister(&realizationOOMPrometheusCollector{proofs: oom})
-	}
-	if hostIdentity != nil {
-		registry.MustRegister(&hostProcessIdentityPrometheusCollector{proofs: hostIdentity})
-	}
-	if victims != nil {
-		registry.MustRegister(&hostKernelOOMVictimPrometheusCollector{proofs: victims})
-	}
-	return promhttp.HandlerFor(registry, promhttp.HandlerOpts{MaxRequestsInFlight: maxConcurrentPrometheusScrapes})
+	return newPrometheusHandlerWithAllTaskEvidenceAndKernelVictims(
+		cache,
+		outcomes,
+		oom,
+		hostIdentity,
+		victims,
+		now,
+	)
 }
