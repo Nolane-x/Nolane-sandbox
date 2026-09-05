@@ -119,6 +119,9 @@ type controllerLocal struct {
 	taskOutcomeProofMu sync.Mutex
 	taskOutcomeProofs  *taskOutcomeProofStore
 
+	realizationOOMSnapshotMu     sync.RWMutex
+	realizationOOMSnapshotReader func(context.Context, string) (string, bool, uint64, time.Time, error)
+
 	taskServiceResolver     func(context.Context, string) (taskRuntimeService, error)
 	sandboxEndpointResolver func(context.Context, string) (string, uint32, error)
 }
@@ -191,7 +194,8 @@ func (c *controllerLocal) Create(ctx context.Context, info sandbox.Sandbox, opts
 }
 
 func (c *controllerLocal) Start(ctx context.Context, sandboxID string) (sandbox.ControllerInstance, error) {
-	c.beginTaskOutcomeRealization(sandboxID)
+	generation := c.beginTaskOutcomeRealization(sandboxID)
+	c.captureRealizationOOMBaseline(ctx, sandboxID, generation)
 	return sandbox.ControllerInstance{}, nil
 }
 
@@ -227,6 +231,7 @@ func (c *controllerLocal) Wait(ctx context.Context, sandboxID string) (sandbox.E
 	if err != nil {
 		return sandbox.ExitStatus{}, fmt.Errorf("record exact task outcome for sandbox %s: %w", sandboxID, err)
 	}
+	c.finalizeRealizationOOM(ctx, proof)
 
 	return sandbox.ExitStatus{
 		ExitedAt:   proof.ExitedAt,
@@ -258,9 +263,11 @@ func (c *controllerLocal) Status(ctx context.Context, sandboxID string, verbose 
 			return sandbox.ControllerStatus{}, fmt.Errorf("task outcome proof store is unavailable")
 		}
 		if _, recoverable := store.RecoverRealization(sandboxID); recoverable {
-			if _, err := store.Record(candidate); err != nil {
+			proof, err := store.Record(candidate)
+			if err != nil {
 				return sandbox.ControllerStatus{}, fmt.Errorf("record exact task outcome for sandbox %s: %w", sandboxID, err)
 			}
+			c.finalizeRealizationOOM(ctx, proof)
 		}
 	}
 

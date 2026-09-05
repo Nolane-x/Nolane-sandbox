@@ -44,13 +44,20 @@ type taskOutcomeProofStore struct {
 	generations map[string]uint64
 	proofs      map[string]TaskOutcomeProof
 	fenced      map[string]bool
+
+	oomBaselines map[string]realizationOOMBaseline
+	oomProofs    map[string]RealizationOOMProof
+	oomFinalized map[string]uint64
 }
 
 func newTaskOutcomeProofStore() *taskOutcomeProofStore {
 	return &taskOutcomeProofStore{
-		generations: make(map[string]uint64),
-		proofs:      make(map[string]TaskOutcomeProof),
-		fenced:      make(map[string]bool),
+		generations:  make(map[string]uint64),
+		proofs:       make(map[string]TaskOutcomeProof),
+		fenced:       make(map[string]bool),
+		oomBaselines: make(map[string]realizationOOMBaseline),
+		oomProofs:    make(map[string]RealizationOOMProof),
+		oomFinalized: make(map[string]uint64),
 	}
 }
 
@@ -68,6 +75,9 @@ func (s *taskOutcomeProofStore) Clear(sandboxID string) {
 	}
 	delete(s.proofs, sandboxID)
 	delete(s.generations, sandboxID)
+	delete(s.oomBaselines, sandboxID)
+	delete(s.oomProofs, sandboxID)
+	delete(s.oomFinalized, sandboxID)
 	s.fenced[sandboxID] = true
 }
 
@@ -86,8 +96,20 @@ func (s *taskOutcomeProofStore) BeginRealization(sandboxID string) uint64 {
 	if s.fenced == nil {
 		s.fenced = make(map[string]bool)
 	}
+	if s.oomBaselines == nil {
+		s.oomBaselines = make(map[string]realizationOOMBaseline)
+	}
+	if s.oomProofs == nil {
+		s.oomProofs = make(map[string]RealizationOOMProof)
+	}
+	if s.oomFinalized == nil {
+		s.oomFinalized = make(map[string]uint64)
+	}
 	s.generations[sandboxID]++
 	delete(s.proofs, sandboxID)
+	delete(s.oomBaselines, sandboxID)
+	delete(s.oomProofs, sandboxID)
+	delete(s.oomFinalized, sandboxID)
 	delete(s.fenced, sandboxID)
 	return s.generations[sandboxID]
 }
