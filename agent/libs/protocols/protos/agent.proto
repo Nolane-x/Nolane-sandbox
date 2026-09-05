@@ -68,6 +68,7 @@ service AgentService {
 	rpc SetGuestDateTime(SetGuestDateTimeRequest) returns (google.protobuf.Empty);
 	rpc CopyFile(CopyFileRequest) returns (google.protobuf.Empty);
 	rpc GetOOMEvent(GetOOMEventRequest) returns (OOMEvent);
+	rpc GetOOMVictimEvidence(GetOOMVictimEvidenceRequest) returns (GetOOMVictimEvidenceResponse);
 	rpc AddSwap(AddSwapRequest) returns (google.protobuf.Empty);
 	rpc GetVolumeStats(VolumeStatsRequest) returns (VolumeStatsResponse);
 	rpc ResizeVolume(ResizeVolumeRequest) returns (google.protobuf.Empty);
@@ -98,6 +99,7 @@ message CreateContainerRequest {
 
 message StartContainerRequest {
 	string container_id = 1;
+	bytes oom_victim_realization_token = 2;
 }
 
 message RemoveContainerRequest {
@@ -150,6 +152,31 @@ message WaitProcessRequest {
 
 message WaitProcessResponse {
 	int32 status = 1;
+}
+
+message GetOOMVictimEvidenceRequest {
+	string container_id = 1;
+	bytes realization_token = 2;
+}
+
+enum OOMVictimScope {
+	OOM_VICTIM_SCOPE_UNSPECIFIED = 0;
+	OOM_VICTIM_SCOPE_MAIN = 1;
+	OOM_VICTIM_SCOPE_MEMBER = 2;
+}
+
+message OOMVictimProof {
+	uint32 victim_tid = 1;
+	uint32 victim_tgid = 2;
+	uint64 victim_starttime_ticks = 3;
+	uint64 event_boot_time_ns = 4;
+	uint64 cgroup_v2_id = 5;
+	OOMVictimScope scope = 6;
+}
+
+message GetOOMVictimEvidenceResponse {
+	string guest_boot_id = 1;
+	repeated OOMVictimProof proofs = 2;
 }
 
 message UpdateContainerRequest {

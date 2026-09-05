@@ -1,0 +1,52 @@
+name: Cube Guest Kernel OOM Victim Contract
+
+on:
+  pull_request:
+  push:
+    branches:
+      - gpt/wave21-guest-kernel-oom-victim-provenance
+
+permissions:
+  contents: read
+
+jobs:
+  protocol-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify guest/shim Wave21 protocol parity
+        run: python3 tests/wave21_protocol_contract.py
+
+  cubelet-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: Cubelet/go.mod
+          cache-dependency-path: Cubelet/go.sum
+      - name: Verify Wave21 generation-token and pre-start sequencing contracts
+        working-directory: Cubelet
+        run: |
+          go test ./plugins/cube/internals/sandbox -run '^TestV21' -count=1
+          go test ./plugins/cube/internals/guestvictim -run '^TestBindBeforeStart' -count=1
+
+  guest-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify guest realization evidence contract
+        working-directory: agent
+        run: |
+          rustc --edition=2021 --test tests/guest_oom_victim_v21.rs -o /tmp/guest_oom_victim_v21
+          /tmp/guest_oom_victim_v21 --nocapture
+
+  shim-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify CubeShim realization-token contract
+        working-directory: CubeShim/shim
+        run: |
+          rustc --edition=2021 --test tests/guest_victim_v21.rs -o /tmp/guest_victim_v21
+          /tmp/guest_victim_v21 --nocapture
