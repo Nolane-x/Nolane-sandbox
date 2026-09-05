@@ -68,6 +68,7 @@ import (
 	"github.com/tencentcloud/CubeSandbox/Cubelet/pkg/volumefile"
 	cgroupp "github.com/tencentcloud/CubeSandbox/Cubelet/plugins/cube/internals/cgroup"
 	"github.com/tencentcloud/CubeSandbox/Cubelet/plugins/cube/internals/cubes"
+	"github.com/tencentcloud/CubeSandbox/Cubelet/plugins/cube/internals/hostprocess"
 	"github.com/tencentcloud/CubeSandbox/Cubelet/plugins/workflow"
 	"github.com/tencentcloud/CubeSandbox/Cubelet/services/images"
 	"github.com/tencentcloud/CubeSandbox/Cubelet/storage"
@@ -452,7 +453,18 @@ func (l *local) createContainers(ctx context.Context, flowOpts *workflow.CreateC
 
 	if cgSet {
 		go func() {
-			setCgroup(ctx, pid, cgInfo.CgroupID)
+			if err := hostprocess.AddProcAndRecord(
+				ctx,
+				sandBox.ID,
+				cgInfo.CgroupID,
+				pid,
+				cgroupp.AddProc,
+				l.hostProcessPlacementRecorder,
+				time.Now,
+			); err != nil {
+				sanboxlog.Errorf("add shim pid %d to cgroup %s failed: %v", pid, cgInfo.CgroupID, err)
+				return
+			}
 			sanboxlog.Debugf("set cgroup for sandbox success. shim pid: %d", pid)
 		}()
 	}
@@ -1251,14 +1263,6 @@ func (l *local) prepareWritableRootfs(ctx context.Context, flowOpts *workflow.Cr
 	log.G(ctx).Debugf("writable rootfs:%+v", blkPath)
 
 	return oci.WithAnnotations(annotations), nil
-}
-
-func setCgroup(ctx context.Context, pid uint32, group string) {
-	err := cgroupp.AddProc(group, uint64(pid))
-	if err != nil {
-		log.G(ctx).Errorf("add shim pid %d to cgroup %s failed: %v", pid, group, err)
-	}
-	log.G(ctx).Debugf("set cgroup proc success, pid: %d, cgroup: %s", pid, group)
 }
 
 func updateCgroup(ctx context.Context, ci *cubeboxstore.Container) error {
