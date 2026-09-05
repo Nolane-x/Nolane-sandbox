@@ -3,7 +3,10 @@
 
 package sandbox
 
-import "sort"
+import (
+	"sort"
+	"time"
+)
 
 // TaskOutcomeProofLister exposes a detached snapshot of currently accepted
 // Wave 16 task-outcome proofs. It does not recover or synthesize proof.
@@ -37,6 +40,18 @@ func (c *controllerLocal) ListTaskOutcomeProofs() []TaskOutcomeProof {
 		return nil
 	}
 	return store.List()
+}
+
+// VisitTaskOutcomeProofs is the package-neutral transport bridge used by
+// management exporters. Its signature contains only standard-library and
+// primitive types so exporters do not need to import the sandbox package.
+func (c *controllerLocal) VisitTaskOutcomeProofs(visit func(sandboxID string, generation uint64, exitCode uint32, exitedAt time.Time, source string)) {
+	if visit == nil {
+		return
+	}
+	for _, proof := range c.ListTaskOutcomeProofs() {
+		visit(proof.SandboxID, proof.Generation, proof.ExitCode, proof.ExitedAt, string(proof.Source))
+	}
 }
 
 var _ TaskOutcomeProofLister = (*controllerLocal)(nil)

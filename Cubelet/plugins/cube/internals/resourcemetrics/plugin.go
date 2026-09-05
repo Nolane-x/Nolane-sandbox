@@ -15,7 +15,6 @@ import (
 	"github.com/tencentcloud/CubeSandbox/Cubelet/pkg/constants"
 	cubeboxstore "github.com/tencentcloud/CubeSandbox/Cubelet/pkg/store/cubebox"
 	"github.com/tencentcloud/CubeSandbox/Cubelet/plugins/cube/internals/cubes"
-	cubesandbox "github.com/tencentcloud/CubeSandbox/Cubelet/plugins/cube/internals/sandbox"
 )
 
 const PluginID = "resource-metrics"
@@ -102,7 +101,7 @@ func init() {
 			if err != nil {
 				return nil, fmt.Errorf("load cube sandbox controller for exact task outcome transport: %w", err)
 			}
-			taskOutcomes, ok := controllerPlugin.(cubesandbox.TaskOutcomeProofLister)
+			taskOutcomes, ok := controllerPlugin.(taskOutcomeProofVisitor)
 			if !ok {
 				return nil, fmt.Errorf("cube sandbox controller does not expose exact task outcome proofs")
 			}

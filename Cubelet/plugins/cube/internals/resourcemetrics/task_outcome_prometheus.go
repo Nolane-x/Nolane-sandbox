@@ -8,8 +8,11 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
 
-	cubesandbox "github.com/tencentcloud/CubeSandbox/Cubelet/plugins/cube/internals/sandbox"
+const (
+	taskOutcomeSourceWait  = "containerd.task.wait"
+	taskOutcomeSourceState = "containerd.task.state"
 )
 
 var taskOutcomeInfo = prometheus.NewDesc(
@@ -19,22 +22,26 @@ var taskOutcomeInfo = prometheus.NewDesc(
 	nil,
 )
 
-type taskOutcomePrometheusCollector struct {
-	outcomes cubesandbox.TaskOutcomeProofLister
+type taskOutcomeProofVisitor interface {
+	VisitTaskOutcomeProofs(func(sandboxID string, generation uint64, exitCode uint32, exitedAt time.Time, source string))
 }
 
-func NewServiceWithTaskOutcomes(cache *SandboxResourceCache, outcomes cubesandbox.TaskOutcomeProofLister) *Service {
+type taskOutcomePrometheusCollector struct {
+	outcomes taskOutcomeProofVisitor
+}
+
+func NewServiceWithTaskOutcomes(cache *SandboxResourceCache, outcomes taskOutcomeProofVisitor) *Service {
 	return &Service{
 		SandboxResourceCache: cache,
 		handler:              NewPrometheusHandlerWithTaskOutcomes(cache, outcomes),
 	}
 }
 
-func NewPrometheusHandlerWithTaskOutcomes(cache *SandboxResourceCache, outcomes cubesandbox.TaskOutcomeProofLister) http.Handler {
+func NewPrometheusHandlerWithTaskOutcomes(cache *SandboxResourceCache, outcomes taskOutcomeProofVisitor) http.Handler {
 	return newPrometheusHandlerWithTaskOutcomes(cache, outcomes, time.Now)
 }
 
-func newPrometheusHandlerWithTaskOutcomes(cache *SandboxResourceCache, outcomes cubesandbox.TaskOutcomeProofLister, now func() time.Time) http.Handler {
+func newPrometheusHandlerWithTaskOutcomes(cache *SandboxResourceCache, outcomes taskOutcomeProofVisitor, now func() time.Time) http.Handler {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(&prometheusCollector{cache: cache, now: now})
 	if outcomes != nil {
@@ -51,26 +58,26 @@ func (c *taskOutcomePrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 	if c == nil || c.outcomes == nil {
 		return
 	}
-	for _, proof := range c.outcomes.ListTaskOutcomeProofs() {
-		if !transportableTaskOutcomeProof(proof) {
-			continue
+	c.outcomes.VisitTaskOutcomeProofs(func(sandboxID string, generation uint64, exitCode uint32, exitedAt time.Time, source string) {
+		if !transportableTaskOutcomeProof(sandboxID, generation, exitedAt, source) {
+			return
 		}
 		ch <- prometheus.MustNewConstMetric(
 			taskOutcomeInfo,
 			prometheus.GaugeValue,
 			1,
-			proof.SandboxID,
-			strconv.FormatUint(proof.Generation, 10),
-			string(proof.Source),
-			strconv.FormatUint(uint64(proof.ExitCode), 10),
-			proof.ExitedAt.UTC().Format(time.RFC3339Nano),
+			sandboxID,
+			strconv.FormatUint(generation, 10),
+			source,
+			strconv.FormatUint(uint64(exitCode), 10),
+			exitedAt.UTC().Format(time.RFC3339Nano),
 		)
-	}
+	})
 }
 
-func transportableTaskOutcomeProof(proof cubesandbox.TaskOutcomeProof) bool {
-	if strings.TrimSpace(proof.SandboxID) == "" || proof.Generation == 0 || proof.ExitedAt.IsZero() {
+func transportableTaskOutcomeProof(sandboxID string, generation uint64, exitedAt time.Time, source string) bool {
+	if strings.TrimSpace(sandboxID) == "" || generation == 0 || exitedAt.IsZero() {
 		return false
 	}
-	return proof.Source == cubesandbox.TaskOutcomeProofSourceWait || proof.Source == cubesandbox.TaskOutcomeProofSourceState
+	return source == taskOutcomeSourceWait || source == taskOutcomeSourceState
 }

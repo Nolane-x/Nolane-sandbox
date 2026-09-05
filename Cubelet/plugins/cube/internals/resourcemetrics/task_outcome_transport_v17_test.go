@@ -16,8 +16,10 @@ type fakeTaskOutcomeProofLister struct {
 	proofs []cubesandbox.TaskOutcomeProof
 }
 
-func (f fakeTaskOutcomeProofLister) ListTaskOutcomeProofs() []cubesandbox.TaskOutcomeProof {
-	return append([]cubesandbox.TaskOutcomeProof(nil), f.proofs...)
+func (f fakeTaskOutcomeProofLister) VisitTaskOutcomeProofs(visit func(sandboxID string, generation uint64, exitCode uint32, exitedAt time.Time, source string)) {
+	for _, proof := range f.proofs {
+		visit(proof.SandboxID, proof.Generation, proof.ExitCode, proof.ExitedAt, string(proof.Source))
+	}
 }
 
 func TestTaskOutcomeTransportExportsExactInfoWithoutResourceCache(t *testing.T) {
