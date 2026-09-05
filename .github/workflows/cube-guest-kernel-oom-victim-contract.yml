@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  cubelet-wave21-red-green:
+  cubelet-wave21:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,3 +21,19 @@ jobs:
       - name: Verify Wave21 generation-token contract
         working-directory: Cubelet
         run: go test ./plugins/cube/internals/sandbox -run '^TestV21' -count=1
+
+  guest-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify guest realization evidence contract
+        working-directory: agent
+        run: cargo test --test guest_oom_victim_v21 -- --nocapture
+
+  shim-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify CubeShim realization-token contract
+        working-directory: CubeShim
+        run: cargo test -p containerd-shim-cube-rs --test guest_victim_v21 -- --nocapture
