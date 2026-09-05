@@ -15,10 +15,10 @@ type Layout struct {
 }
 
 type CgroupV2Layout struct {
-	TaskCgroupsOffset    int16
-	DefaultCgroupOffset  int16
-	KernfsNodeOffset     int16
-	KernfsIDOffset       int16
+	TaskCgroupsOffset   int16
+	DefaultCgroupOffset int16
+	KernfsNodeOffset    int16
+	KernfsIDOffset      int16
 }
 
 func ResolveLayout(spec *btf.Spec) (Layout, error) {
@@ -165,10 +165,6 @@ func pointerTargetStruct(t btf.Type) (*btf.Struct, bool) {
 	}
 	s, ok := btf.UnderlyingType(p.Target).(*btf.Struct)
 	return s, ok && s != nil
-}
-
-type btfMembers interface {
-	membersForWave20() []btf.Member
 }
 
 func namedMember(t interface{}, name string) (btf.Member, bool) {
