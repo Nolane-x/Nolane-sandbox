@@ -109,7 +109,7 @@ func init() {
 			if !ok {
 				return nil, fmt.Errorf("cube sandbox controller does not accept realization OOM snapshot authority")
 			}
-		oomProofs, ok := controllerPlugin.(realizationOOMProofVisitor)
+			oomProofs, ok := controllerPlugin.(realizationOOMProofVisitor)
 			if !ok {
 				return nil, fmt.Errorf("cube sandbox controller does not expose realization OOM proofs")
 			}

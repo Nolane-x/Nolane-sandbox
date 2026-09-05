@@ -25,8 +25,8 @@ func (f fakeRealizationOOMStore) Get(context.Context, string) (*cubeboxstore.Cub
 
 type fakeRealizationOOMReader struct {
 	snapshot handle.UsageSnapshot
-	err error
-	group string
+	err      error
+	group    string
 }
 
 func (f *fakeRealizationOOMReader) UsageSnapshot(_ context.Context, group string) (handle.UsageSnapshot, error) {

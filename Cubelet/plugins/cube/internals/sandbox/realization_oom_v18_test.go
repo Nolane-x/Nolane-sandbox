@@ -20,10 +20,10 @@ func TestRealizationOOMStoreBindsExactGenerationAndDelta(t *testing.T) {
 	store := newTaskOutcomeProofStore()
 	generation := store.BeginRealization("sandbox-a")
 	if ok := store.RecordRealizationOOMBaseline("sandbox-a", generation, realizationOOMSnapshot{
-		CGroupPath:     "/cube_sandbox_v2/sandbox/numa/7/sandbox-a",
-		OOMKillsKnown:  true,
-		OOMKillsTotal:  7,
-		CapturedAt:     baselineAt,
+		CGroupPath:    "/cube_sandbox_v2/sandbox/numa/7/sandbox-a",
+		OOMKillsKnown: true,
+		OOMKillsTotal: 7,
+		CapturedAt:    baselineAt,
 	}); !ok {
 		t.Fatal("realization OOM baseline was not accepted")
 	}
@@ -37,10 +37,10 @@ func TestRealizationOOMStoreBindsExactGenerationAndDelta(t *testing.T) {
 		t.Fatalf("record outcome: %v", err)
 	}
 	proof, ok := store.FinalizeRealizationOOM(outcome, realizationOOMSnapshot{
-		CGroupPath:     "/cube_sandbox_v2/sandbox/numa/7/sandbox-a",
-		OOMKillsKnown:  true,
-		OOMKillsTotal:  9,
-		CapturedAt:     observedAt,
+		CGroupPath:    "/cube_sandbox_v2/sandbox/numa/7/sandbox-a",
+		OOMKillsKnown: true,
+		OOMKillsTotal: 9,
+		CapturedAt:    observedAt,
 	})
 	if !ok {
 		t.Fatal("exact realization OOM proof remained unknown")
@@ -62,10 +62,10 @@ func TestRealizationOOMFinalizationFailureIsTerminalForGeneration(t *testing.T) 
 	store := newTaskOutcomeProofStore()
 	generation := store.BeginRealization("sandbox-a")
 	if !store.RecordRealizationOOMBaseline("sandbox-a", generation, realizationOOMSnapshot{
-		CGroupPath: "/cube/path",
+		CGroupPath:    "/cube/path",
 		OOMKillsKnown: true,
 		OOMKillsTotal: 3,
-		CapturedAt: baselineAt,
+		CapturedAt:    baselineAt,
 	}) {
 		t.Fatal("baseline not accepted")
 	}
@@ -74,17 +74,17 @@ func TestRealizationOOMFinalizationFailureIsTerminalForGeneration(t *testing.T) 
 		t.Fatal(err)
 	}
 	if _, ok := store.FinalizeRealizationOOM(outcome, realizationOOMSnapshot{
-		CGroupPath: "/cube/path",
+		CGroupPath:    "/cube/path",
 		OOMKillsKnown: false,
-		CapturedAt: exitedAt.Add(time.Second),
+		CapturedAt:    exitedAt.Add(time.Second),
 	}); ok {
 		t.Fatal("unknown final cgroup signal became proof")
 	}
 	if _, ok := store.FinalizeRealizationOOM(outcome, realizationOOMSnapshot{
-		CGroupPath: "/cube/path",
+		CGroupPath:    "/cube/path",
 		OOMKillsKnown: true,
 		OOMKillsTotal: 4,
-		CapturedAt: exitedAt.Add(2 * time.Second),
+		CapturedAt:    exitedAt.Add(2 * time.Second),
 	}); ok {
 		t.Fatal("second finalization repaired a terminally unknown first attempt")
 	}
@@ -93,29 +93,29 @@ func TestRealizationOOMFinalizationFailureIsTerminalForGeneration(t *testing.T) 
 func TestRealizationOOMRejectsBrokenContinuity(t *testing.T) {
 	baselineAt := time.Date(2026, 9, 5, 5, 20, 0, 0, time.UTC)
 	tests := map[string]struct {
-		baseline realizationOOMSnapshot
+		baseline  realizationOOMSnapshot
 		outcomeAt time.Time
-		final realizationOOMSnapshot
+		final     realizationOOMSnapshot
 	}{
 		"cgroup changed": {
-			baseline: realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 2, CapturedAt: baselineAt},
+			baseline:  realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 2, CapturedAt: baselineAt},
 			outcomeAt: baselineAt.Add(time.Second),
-			final: realizationOOMSnapshot{CGroupPath: "/cube/b", OOMKillsKnown: true, OOMKillsTotal: 3, CapturedAt: baselineAt.Add(2 * time.Second)},
+			final:     realizationOOMSnapshot{CGroupPath: "/cube/b", OOMKillsKnown: true, OOMKillsTotal: 3, CapturedAt: baselineAt.Add(2 * time.Second)},
 		},
 		"counter regressed": {
-			baseline: realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 4, CapturedAt: baselineAt},
+			baseline:  realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 4, CapturedAt: baselineAt},
 			outcomeAt: baselineAt.Add(time.Second),
-			final: realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 3, CapturedAt: baselineAt.Add(2 * time.Second)},
+			final:     realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 3, CapturedAt: baselineAt.Add(2 * time.Second)},
 		},
 		"exit predates baseline": {
-			baseline: realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 2, CapturedAt: baselineAt},
+			baseline:  realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 2, CapturedAt: baselineAt},
 			outcomeAt: baselineAt.Add(-time.Nanosecond),
-			final: realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 3, CapturedAt: baselineAt.Add(time.Second)},
+			final:     realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 3, CapturedAt: baselineAt.Add(time.Second)},
 		},
 		"observation predates exit": {
-			baseline: realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 2, CapturedAt: baselineAt},
+			baseline:  realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 2, CapturedAt: baselineAt},
 			outcomeAt: baselineAt.Add(2 * time.Second),
-			final: realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 3, CapturedAt: baselineAt.Add(time.Second)},
+			final:     realizationOOMSnapshot{CGroupPath: "/cube/a", OOMKillsKnown: true, OOMKillsTotal: 3, CapturedAt: baselineAt.Add(time.Second)},
 		},
 	}
 	for name, tc := range tests {
