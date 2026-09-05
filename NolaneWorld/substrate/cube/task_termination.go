@@ -38,6 +38,7 @@ type TaskTerminationEvidence struct {
 	Outcome             TaskOutcomeProof
 	RealizationOOM      *RealizationOOMProof
 	HostProcessIdentity *HostSandboxProcessIdentityProof
+	HostKernelOOMVictim *HostKernelOOMVictimProof
 }
 
 // KernelOOMObservedDuringRealization reports whether a kernel cgroup OOM kill
@@ -93,9 +94,11 @@ func parseTaskTerminationMetrics(r io.Reader, sandboxID string) (TaskTermination
 	var outcome TaskOutcomeProof
 	var oom RealizationOOMProof
 	var identity HostSandboxProcessIdentityProof
+	var victim HostKernelOOMVictimProof
 	outcomeFound := false
 	oomFound := false
 	identityFound := false
+	victimFound := false
 
 	s := bufio.NewScanner(r)
 	buf := make([]byte, 64*1024)
@@ -176,6 +179,28 @@ func parseTaskTerminationMetrics(r io.Reader, sandboxID string) (TaskTermination
 			}
 			identity = proof
 			identityFound = true
+
+		case isHostKernelOOMVictimMetricToken(fields[0]):
+			name, labels, ok := splitMetricToken(fields[0])
+			if !ok || name != hostKernelOOMVictimMetric || len(fields) != 2 {
+				return TaskTerminationEvidence{}, false, fmt.Errorf("%w: malformed host kernel OOM victim metric", ErrTaskOutcomeUnavailable)
+			}
+			metricSandboxID, hasSandboxID := labels["sandbox_id"]
+			if !hasSandboxID || strings.TrimSpace(metricSandboxID) == "" {
+				return TaskTerminationEvidence{}, false, fmt.Errorf("%w: host kernel OOM victim metric has no sandbox identity", ErrTaskOutcomeUnavailable)
+			}
+			if metricSandboxID != sandboxID {
+				continue
+			}
+			if victimFound {
+				return TaskTerminationEvidence{}, false, fmt.Errorf("%w: duplicate host kernel OOM victim proof for sandbox %q", ErrTaskOutcomeUnavailable, sandboxID)
+			}
+			proof, err := exactHostKernelOOMVictimFromSample(labels, fields[1])
+			if err != nil {
+				return TaskTerminationEvidence{}, false, err
+			}
+			victim = proof
+			victimFound = true
 		}
 	}
 	if err := s.Err(); err != nil {
@@ -188,6 +213,9 @@ func parseTaskTerminationMetrics(r io.Reader, sandboxID string) (TaskTermination
 		}
 		if identityFound {
 			return TaskTerminationEvidence{}, false, fmt.Errorf("%w: host process identity proof has no exact task outcome", ErrTaskOutcomeUnavailable)
+		}
+		if victimFound {
+			return TaskTerminationEvidence{}, false, fmt.Errorf("%w: host kernel OOM victim proof has no exact task outcome", ErrTaskOutcomeUnavailable)
 		}
 		return TaskTerminationEvidence{}, false, nil
 	}
@@ -206,6 +234,16 @@ func parseTaskTerminationMetrics(r io.Reader, sandboxID string) (TaskTermination
 		}
 		proof := identity
 		evidence.HostProcessIdentity = &proof
+	}
+	if victimFound {
+		if evidence.HostProcessIdentity == nil {
+			return TaskTerminationEvidence{}, false, fmt.Errorf("%w: host kernel OOM victim proof has no exact host process identity", ErrTaskOutcomeUnavailable)
+		}
+		if err := correlateHostKernelOOMVictim(outcome, evidence.RealizationOOM, *evidence.HostProcessIdentity, victim); err != nil {
+			return TaskTerminationEvidence{}, false, err
+		}
+		proof := victim
+		evidence.HostKernelOOMVictim = &proof
 	}
 	return evidence, true, nil
 }
