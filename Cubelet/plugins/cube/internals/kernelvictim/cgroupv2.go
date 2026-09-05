@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -31,4 +32,61 @@ func validateCgroupHierarchyPath(cgroupPath string) error {
 		return fmt.Errorf("cgroup hierarchy path is not canonical")
 	}
 	return nil
+}
+
+func parseCgroup2Mount(raw []byte) (string, error) {
+	var mount string
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " - ", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		post := strings.Fields(parts[1])
+		if len(post) < 1 || post[0] != "cgroup2" {
+			continue
+		}
+		pre := strings.Fields(parts[0])
+		if len(pre) < 5 {
+			return "", fmt.Errorf("malformed cgroup2 mountinfo record")
+		}
+		candidate := unescapeMountInfoPath(pre[4])
+		if candidate == "" || !filepath.IsAbs(candidate) || filepath.Clean(candidate) != candidate {
+			return "", fmt.Errorf("invalid cgroup2 mount point")
+		}
+		if mount != "" && mount != candidate {
+			return "", fmt.Errorf("multiple cgroup2 mounts are ambiguous")
+		}
+		mount = candidate
+	}
+	if mount == "" {
+		return "", fmt.Errorf("cgroup2 mount is unavailable")
+	}
+	return mount, nil
+}
+
+func unescapeMountInfoPath(raw string) string {
+	return strings.NewReplacer(
+		`\040`, " ",
+		`\011`, "\t",
+		`\012`, "\n",
+		`\134`, `\`,
+	).Replace(raw)
+}
+
+func resolveCgroupPathUnderMount(mount, cgroupPath string) (string, error) {
+	if mount == "" || !filepath.IsAbs(mount) || filepath.Clean(mount) != mount {
+		return "", fmt.Errorf("cgroup2 mount point is not canonical")
+	}
+	if err := validateCgroupHierarchyPath(cgroupPath); err != nil {
+		return "", err
+	}
+	full := filepath.Join(mount, strings.TrimPrefix(cgroupPath, "/"))
+	mountWithSep := mount + string(filepath.Separator)
+	if full == mount || !strings.HasPrefix(full, mountWithSep) {
+		return "", fmt.Errorf("cgroup path escapes cgroup2 mount")
+	}
+	return full, nil
 }
