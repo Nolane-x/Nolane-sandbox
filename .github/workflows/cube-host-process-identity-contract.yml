@@ -3,6 +3,7 @@ name: Cube Host Process Identity Contract
 on:
   pull_request:
     paths:
+      - 'Cubelet/plugins/cube/internals/hostprocess/**'
       - 'Cubelet/plugins/cube/internals/sandbox/**'
       - 'Cubelet/plugins/cube/internals/resourcemetrics/**'
       - 'Cubelet/services/cubebox/**'
@@ -17,6 +18,7 @@ on:
   push:
     branches: [master]
     paths:
+      - 'Cubelet/plugins/cube/internals/hostprocess/**'
       - 'Cubelet/plugins/cube/internals/sandbox/**'
       - 'Cubelet/plugins/cube/internals/resourcemetrics/**'
       - 'Cubelet/services/cubebox/**'
@@ -55,7 +57,7 @@ jobs:
 
       - name: Verify Cubelet host process identity contract
         working-directory: Cubelet
-        run: go test ./plugins/cube/internals/sandbox ./plugins/cube/internals/resourcemetrics ./services/cubebox -run 'HostProcess|ProcessIdentity|TaskOutcome|RealizationOOM' -count=1
+        run: go test ./plugins/cube/internals/hostprocess ./plugins/cube/internals/sandbox ./plugins/cube/internals/resourcemetrics -run 'HostProcess|ProcessIdentity|AddProcAndRecord|TaskOutcome|RealizationOOM' -count=1
 
       - name: Verify NolaneWorld host process identity contract
         working-directory: NolaneWorld
