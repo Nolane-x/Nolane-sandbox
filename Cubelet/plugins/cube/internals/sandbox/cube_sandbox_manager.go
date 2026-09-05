@@ -196,6 +196,7 @@ func (c *controllerLocal) Create(ctx context.Context, info sandbox.Sandbox, opts
 func (c *controllerLocal) Start(ctx context.Context, sandboxID string) (sandbox.ControllerInstance, error) {
 	generation := c.beginTaskOutcomeRealization(sandboxID)
 	c.captureRealizationOOMBaseline(ctx, sandboxID, generation)
+	c.revalidateHostProcessIdentity(sandboxID, generation)
 	return sandbox.ControllerInstance{}, nil
 }
 
