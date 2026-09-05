@@ -53,8 +53,8 @@ type taskOutcomeProofStore struct {
 	hostProcessPlacements map[string]HostProcessPlacementProof
 	hostProcessBindings   map[string]HostProcessRealizationBinding
 
-	victimWindows       map[string]victimWindow
-	kernelVictimProofs  map[string]HostProcessKernelOOMVictimProof
+	victimWindows      map[string]victimWindow
+	kernelVictimProofs map[string]HostProcessKernelOOMVictimProof
 }
 
 func newTaskOutcomeProofStore() *taskOutcomeProofStore {

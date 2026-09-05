@@ -128,15 +128,15 @@ func (s *taskOutcomeProofStore) FinalizeHostKernelOOMVictim(
 	}
 
 	proof := HostProcessKernelOOMVictimProof{
-		SandboxID:      sandboxID,
-		Generation:     generation,
-		BootID:         binding.BootID,
-		HostPID:        binding.HostPID,
-		VictimTID:      event.VictimTID,
-		StartTimeTicks: binding.StartTimeTicks,
-		CGroupPath:     binding.CGroupPath,
+		SandboxID:       sandboxID,
+		Generation:      generation,
+		BootID:          binding.BootID,
+		HostPID:         binding.HostPID,
+		VictimTID:       event.VictimTID,
+		StartTimeTicks:  binding.StartTimeTicks,
+		CGroupPath:      binding.CGroupPath,
 		EventBootTimeNS: event.EventBootTimeNS,
-		Source:         HostProcessKernelOOMVictimSource,
+		Source:          HostProcessKernelOOMVictimSource,
 	}
 	if cgroupResolverKnown {
 		if expectedCgroupV2ID == 0 || event.CgroupV2ID == 0 || event.CgroupV2ID != expectedCgroupV2ID {

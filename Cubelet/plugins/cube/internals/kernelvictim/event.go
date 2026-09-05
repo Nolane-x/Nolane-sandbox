@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	EventVersionV1 uint32 = 1
-	ProofSource           = "kernel.oom.mark_victim.raw_tracepoint"
-	rawVictimEventSize    = 40
+	EventVersionV1     uint32 = 1
+	ProofSource               = "kernel.oom.mark_victim.raw_tracepoint"
+	rawVictimEventSize        = 40
 )
 
 // RawVictimEvent is the fixed v1 record emitted by the kernel observer.

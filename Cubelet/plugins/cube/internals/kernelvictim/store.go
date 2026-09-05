@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	maxStoredEvents    = 1024
-	maxEventAgeBootNS  = uint64(10 * 60 * 1_000_000_000)
+	maxStoredEvents   = 1024
+	maxEventAgeBootNS = uint64(10 * 60 * 1_000_000_000)
 )
 
 type eventKey struct {

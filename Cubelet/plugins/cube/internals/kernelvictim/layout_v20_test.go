@@ -25,41 +25,65 @@ func syntheticV20TaskLayout() *btf.Struct {
 
 func TestV20ResolveLayoutUsesBTFAndCurrentKernfsUnionID(t *testing.T) {
 	got, err := resolveLayoutFromTask(syntheticV20TaskLayout())
-	if err != nil { t.Fatal(err) }
-	if got.PIDOffset != 12 || got.TGIDOffset != 28 || got.StartBootTimeOffset != 104 { t.Fatalf("wrong task offsets: %+v", got) }
-	if got.Cgroup == nil { t.Fatal("current kernfs union ID layout was downgraded") }
-	if got.Cgroup.TaskCgroupsOffset != 160 || got.Cgroup.DefaultCgroupOffset != 16 || got.Cgroup.KernfsNodeOffset != 24 || got.Cgroup.KernfsIDOffset != 8 { t.Fatalf("wrong cgroup chain: %+v", got.Cgroup) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PIDOffset != 12 || got.TGIDOffset != 28 || got.StartBootTimeOffset != 104 {
+		t.Fatalf("wrong task offsets: %+v", got)
+	}
+	if got.Cgroup == nil {
+		t.Fatal("current kernfs union ID layout was downgraded")
+	}
+	if got.Cgroup.TaskCgroupsOffset != 160 || got.Cgroup.DefaultCgroupOffset != 16 || got.Cgroup.KernfsNodeOffset != 24 || got.Cgroup.KernfsIDOffset != 8 {
+		t.Fatalf("wrong cgroup chain: %+v", got.Cgroup)
+	}
 }
 
 func TestV20ResolveLayoutRejectsRequiredBitfield(t *testing.T) {
 	task := syntheticV20TaskLayout()
 	task.Members[0].BitfieldSize = 1
-	if _, err := resolveLayoutFromTask(task); err == nil { t.Fatal("pid bitfield accepted") }
+	if _, err := resolveLayoutFromTask(task); err == nil {
+		t.Fatal("pid bitfield accepted")
+	}
 }
 
 func TestV20ResolveLayoutDowngradesOnlyOptionalCgroupChain(t *testing.T) {
 	task := syntheticV20TaskLayout()
 	task.Members[3].Type = &btf.Int{Name: "bad", Size: 8, Encoding: btf.Unsigned}
 	got, err := resolveLayoutFromTask(task)
-	if err != nil { t.Fatal(err) }
-	if got.Cgroup != nil { t.Fatalf("broken optional cgroup chain accepted: %+v", got.Cgroup) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Cgroup != nil {
+		t.Fatalf("broken optional cgroup chain accepted: %+v", got.Cgroup)
+	}
 }
 
 func TestV20DynamicProgramContainsRequiredKernelHelpersAndBTFOffsets(t *testing.T) {
 	layout := Layout{PIDOffset: 12, TGIDOffset: 28, StartBootTimeOffset: 104}
 	insns, err := buildInstructions(layout, 123)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	helpers := map[asm.BuiltinFunc]bool{}
 	constants := map[int64]bool{}
 	for _, ins := range insns {
 		constants[ins.Constant] = true
-		if ins.IsBuiltinCall() { helpers[asm.BuiltinFunc(ins.Constant)] = true }
+		if ins.IsBuiltinCall() {
+			helpers[asm.BuiltinFunc(ins.Constant)] = true
+		}
 	}
 	for _, helper := range []asm.BuiltinFunc{asm.FnProbeReadKernel, asm.FnKtimeGetBootNs, asm.FnRingbufReserve, asm.FnRingbufSubmit} {
-		if !helpers[helper] { t.Fatalf("missing helper %s", helper) }
+		if !helpers[helper] {
+			t.Fatalf("missing helper %s", helper)
+		}
 	}
 	for _, off := range []int64{12, 28, 104} {
-		if !constants[off] { t.Fatalf("BTF offset %d not represented in dynamic program", off) }
+		if !constants[off] {
+			t.Fatalf("BTF offset %d not represented in dynamic program", off)
+		}
 	}
-	if strings.Contains(insns.String(), "sandbox-a") { t.Fatal("BPF program contains sandbox policy") }
+	if strings.Contains(insns.String(), "sandbox-a") {
+		t.Fatal("BPF program contains sandbox policy")
+	}
 }
