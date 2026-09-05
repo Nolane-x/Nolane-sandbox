@@ -49,9 +49,26 @@ func newServiceWithAllTaskEvidence(
 	oom realizationOOMProofVisitor,
 	hostIdentity hostProcessIdentityProofVisitor,
 ) *Service {
+	return newServiceWithAllTaskEvidenceAndKernelVictims(cache, outcomes, oom, hostIdentity, nil)
+}
+
+func newServiceWithAllTaskEvidenceAndKernelVictims(
+	cache *SandboxResourceCache,
+	outcomes taskOutcomeProofVisitor,
+	oom realizationOOMProofVisitor,
+	hostIdentity hostProcessIdentityProofVisitor,
+	victims hostKernelOOMVictimProofVisitor,
+) *Service {
 	return &Service{
 		SandboxResourceCache: cache,
-		handler:              newPrometheusHandlerWithAllTaskEvidence(cache, outcomes, oom, hostIdentity, time.Now),
+		handler: newPrometheusHandlerWithAllTaskEvidenceAndKernelVictims(
+			cache,
+			outcomes,
+			oom,
+			hostIdentity,
+			victims,
+			time.Now,
+		),
 	}
 }
 
@@ -66,6 +83,20 @@ func newPrometheusHandlerWithAllTaskEvidence(
 	hostIdentity hostProcessIdentityProofVisitor,
 	now func() time.Time,
 ) http.Handler {
+	return newPrometheusHandlerWithAllTaskEvidenceAndKernelVictims(cache, outcomes, oom, hostIdentity, nil, now)
+}
+
+func newPrometheusHandlerWithAllTaskEvidenceAndKernelVictims(
+	cache *SandboxResourceCache,
+	outcomes taskOutcomeProofVisitor,
+	oom realizationOOMProofVisitor,
+	hostIdentity hostProcessIdentityProofVisitor,
+	victims hostKernelOOMVictimProofVisitor,
+	now func() time.Time,
+) http.Handler {
+	if now == nil {
+		now = time.Now
+	}
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(&prometheusCollector{cache: cache, now: now})
 	if outcomes != nil {
@@ -76,6 +107,9 @@ func newPrometheusHandlerWithAllTaskEvidence(
 	}
 	if hostIdentity != nil {
 		registry.MustRegister(&hostProcessIdentityPrometheusCollector{proofs: hostIdentity})
+	}
+	if victims != nil {
+		registry.MustRegister(&hostKernelOOMVictimPrometheusCollector{proofs: victims})
 	}
 	return promhttp.HandlerFor(registry, promhttp.HandlerOpts{MaxRequestsInFlight: maxConcurrentPrometheusScrapes})
 }
