@@ -1,0 +1,23 @@
+name: Cube Guest Kernel OOM Victim Contract
+
+on:
+  pull_request:
+  push:
+    branches:
+      - gpt/wave21-guest-kernel-oom-victim-provenance
+
+permissions:
+  contents: read
+
+jobs:
+  cubelet-wave21-red-green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: Cubelet/go.mod
+          cache-dependency-path: Cubelet/go.sum
+      - name: Verify Wave21 generation-token contract
+        working-directory: Cubelet
+        run: go test ./plugins/cube/internals/sandbox -run '^TestV21' -count=1
