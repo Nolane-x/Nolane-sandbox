@@ -1,7 +1,10 @@
 // Copyright (c) 2024 Tencent Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use containerd_shim_cube_rs::guest_victim::{RealizationToken, TokenSlot, TokenSlotState};
+#[path = "../src/guest_victim.rs"]
+mod guest_victim;
+
+use guest_victim::{RealizationToken, TokenSlot, TokenSlotState};
 
 fn hex_token(byte: u8) -> String {
     format!("{:02x}", byte).repeat(32)
@@ -37,7 +40,10 @@ fn v21_main_start_consumes_once_but_exec_start_does_not() {
     let mut slot = TokenSlot::default();
     slot.bind(token).unwrap();
 
-    assert!(slot.peek_for_exec().is_none(), "exec Start may not consume or receive main token");
+    assert!(
+        slot.peek_for_exec().is_none(),
+        "exec Start may not consume or receive main token"
+    );
     assert_eq!(slot.state(), TokenSlotState::Bound);
     assert_eq!(slot.consume_main(), Some(token));
     assert_eq!(slot.state(), TokenSlotState::Empty);
