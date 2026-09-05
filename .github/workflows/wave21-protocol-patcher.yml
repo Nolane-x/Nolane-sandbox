@@ -1,4 +1,4 @@
-name: Wave21 Apply Protocol Generation
+name: Wave21 Protocol Generation
 
 on:
   push:
@@ -9,74 +9,21 @@ permissions:
   contents: write
 
 jobs:
-  apply:
+  generate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Patch synchronized proto sources
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          paths = [
-              Path('agent/libs/protocols/protos/agent.proto'),
-              Path('CubeShim/protoc/protos/agent.proto'),
-          ]
-          rpc_anchor = '\trpc GetOOMEvent(GetOOMEventRequest) returns (OOMEvent);'
-          rpc_insert = rpc_anchor + '\n\trpc GetOOMVictimEvidence(GetOOMVictimEvidenceRequest) returns (GetOOMVictimEvidenceResponse);'
-          start_anchor = 'message StartContainerRequest {\n\tstring container_id = 1;\n}'
-          start_insert = 'message StartContainerRequest {\n\tstring container_id = 1;\n\tbytes oom_victim_realization_token = 2;\n}'
-          wait_anchor = 'message WaitProcessResponse {\n\tint32 status = 1;\n}'
-          evidence = '''message GetOOMVictimEvidenceRequest {
-\tstring container_id = 1;
-\tbytes realization_token = 2;
-}
-
-enum OOMVictimScope {
-\tOOM_VICTIM_SCOPE_UNSPECIFIED = 0;
-\tOOM_VICTIM_SCOPE_MAIN = 1;
-\tOOM_VICTIM_SCOPE_MEMBER = 2;
-}
-
-message OOMVictimProof {
-\tuint32 victim_tid = 1;
-\tuint32 victim_tgid = 2;
-\tuint64 victim_starttime_ticks = 3;
-\tuint64 event_boot_time_ns = 4;
-\tuint64 cgroup_v2_id = 5;
-\tOOMVictimScope scope = 6;
-}
-
-message GetOOMVictimEvidenceResponse {
-\tstring guest_boot_id = 1;
-\trepeated OOMVictimProof proofs = 2;
-}'''
-
-          for path in paths:
-              text = path.read_text()
-              for anchor, label in [(rpc_anchor, 'OOM RPC'), (start_anchor, 'StartContainerRequest'), (wait_anchor, 'WaitProcessResponse')]:
-                  count = text.count(anchor)
-                  if count != 1:
-                      raise SystemExit(f'{path}: expected exactly one {label} anchor, got {count}')
-              text = text.replace(rpc_anchor, rpc_insert, 1)
-              text = text.replace(start_anchor, start_insert, 1)
-              text = text.replace(wait_anchor, wait_anchor + '\n\n' + evidence, 1)
-              path.write_text(text)
-          PY
-      - name: Regenerate CubeShim Rust protocol bindings
-        run: cargo build --manifest-path CubeShim/protoc/Cargo.toml
-      - name: Verify protocol contract and generated diff
-        run: |
-          python3 tests/wave21_protocol_contract.py
-          git diff --check
-          git status --short
-      - name: Commit generated protocol surface and remove patcher
+      - run: python3 scripts/wave21_apply_protocol.py
+      - run: cargo build --manifest-path CubeShim/protoc/Cargo.toml
+      - run: python3 tests/wave21_protocol_contract.py
+      - run: git diff --check
+      - name: Commit generated protocol
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git rm .github/workflows/wave21-protocol-patcher.yml
+          git rm .github/workflows/wave21-protocol-patcher.yml scripts/wave21_apply_protocol.py
           git add agent/libs/protocols/protos/agent.proto CubeShim/protoc/protos/agent.proto CubeShim/protoc/src/agent.rs CubeShim/protoc/src/agent_ttrpc.rs
           git commit -m "feat(v21): synchronize guest victim protocol" -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
           git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
