@@ -55,6 +55,8 @@ jobs:
           /tmp/guest_victim_v21 --nocapture
           rustc --edition=2021 --test tests/guest_victim_binding_v21.rs -o /tmp/guest_victim_binding_v21
           /tmp/guest_victim_binding_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_victim_transport_v21.rs -o /tmp/guest_victim_transport_v21
+          /tmp/guest_victim_transport_v21 --nocapture
 
   nolaneworld-wave21:
     runs-on: ubuntu-latest
