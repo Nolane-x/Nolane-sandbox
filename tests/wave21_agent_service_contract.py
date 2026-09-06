@@ -7,12 +7,14 @@ RPC = Path("agent/src/rpc.rs").read_text()
 AUTHORITY = Path("agent/src/guest_oom_victim.rs").read_text()
 COLLECTOR = Path("agent/src/oom_victim.rs").read_text()
 BPF = Path("agent/src/oom_victim_bpf.rs").read_text()
+RUNTIME = Path("agent/src/oom_victim_runtime.rs").read_text()
 PROC = Path("agent/src/oom_victim_proc.rs").read_text()
 
 for fragment in [
     "mod guest_oom_victim;",
     "mod oom_victim;",
     "mod oom_victim_bpf;",
+    "mod oom_victim_runtime;",
     "mod oom_victim_proc;",
     "oom_victim::start_best_effort(",
 ]:
@@ -37,6 +39,7 @@ for fragment in [
     "start_store_loss_epoch",
     "record_raw_with_disposition",
     "read_process_cgroup_v2_id",
+    "read_process_timens_boottime_offset",
     "RecordedWithLoss",
 ]:
     assert fragment in AUTHORITY, f"missing Wave21 bounded evidence invariant: {fragment}"
@@ -50,10 +53,33 @@ for fragment in [
 
 for fragment in [
     "probe_collector_capability()?",
-    "no reviewed object-free raw-tracepoint BPF loader",
-    "refusing tracefs/dmesg/exit-code fallback",
+    "parse_kernel_btf_layout",
+    "build_raw_tracepoint_program",
+    "decode_raw_victim_record",
+    "MapCreateAttr::ringbuf",
+    "open_raw_tracepoint",
+    "lookup_loss_epoch",
+    "read_process_timens_boottime_offset",
+    "start_boottime_ns_to_starttime_ticks",
 ]:
-    assert fragment in BPF, f"missing Wave21 collector fail-closed boundary: {fragment}"
+    assert fragment in BPF, f"missing Wave21 live collector boundary: {fragment}"
+
+for fragment in [
+    "BPF_MAP_TYPE_RINGBUF",
+    "BPF_PROG_TYPE_RAW_TRACEPOINT",
+    "BPF_RAW_TRACEPOINT_OPEN",
+    "RAW_TRACEPOINT_NAME",
+    "ring_geometry",
+    "create_map",
+    "load_raw_tracepoint_program",
+    "open_raw_tracepoint",
+    "lookup_loss_epoch",
+    "RingMapping",
+]:
+    assert fragment in RUNTIME, f"missing Wave21 object-free BPF runtime seam: {fragment}"
+
+assert "no reviewed object-free raw-tracepoint BPF loader" not in BPF
+assert "refusing tracefs/dmesg/exit-code fallback" not in BPF
 
 for fragment in [
     "/sys/kernel/btf/vmlinux",
@@ -85,7 +111,7 @@ for fragment in [
     assert fragment in RPC, f"missing Wave21 AgentService production wiring: {fragment}"
 
 # Compatibility/cgroup signals remain separate from exact victim authority.
-for source in [AUTHORITY, COLLECTOR, BPF, PROC]:
+for source in [AUTHORITY, COLLECTOR, BPF, RUNTIME, PROC]:
     assert "GetOOMEvent" not in source
     assert "memory.events" not in source
     assert "oom_kill" not in source
