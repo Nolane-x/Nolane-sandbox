@@ -1,0 +1,70 @@
+name: Wave21 Required Read Loss GREEN
+
+on:
+  push:
+    branches: [gpt/wave21-required-read-loss-redgreen]
+    paths:
+      - .github/workflows/wave21-required-read-loss-green.yml
+
+permissions:
+  contents: write
+
+jobs:
+  green:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gpt/wave21-required-read-loss-redgreen
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Route mandatory identity-read failures through loss epoch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('agent/src/oom_victim_loader.rs')
+          text = path.read_text()
+          replacements = {
+              'emit_probe_read(&mut p, -56, 4, 6, layout.pid_offset, "exit");':
+                  'emit_probe_read(&mut p, -56, 4, 6, layout.pid_offset, "loss");',
+              'emit_probe_read(&mut p, -52, 4, 6, layout.tgid_offset, "exit");':
+                  'emit_probe_read(&mut p, -52, 4, 6, layout.tgid_offset, "loss");',
+              'emit_probe_read(&mut p, -48, 8, 6, layout.start_boottime_offset, "exit");':
+                  'emit_probe_read(&mut p, -48, 8, 6, layout.start_boottime_offset, "loss");',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected one mandatory-read anchor: {old}')
+              text = text.replace(old, new, 1)
+          anchor = '    p.emit(st_imm_w(BPF_REG_FP, -76, 0));\n'
+          if text.count(anchor) != 1:
+              raise SystemExit('expected one loss epoch block anchor')
+          text = text.replace(anchor, '    p.label("loss");\n' + anchor, 1)
+          path.write_text(text)
+          PY
+          rustfmt --edition 2021 agent/src/oom_victim_loader.rs
+          cd agent
+          rustc --edition=2021 --test tests/guest_oom_victim_required_loss_v21.rs -o /tmp/guest_oom_victim_required_loss_v21
+          /tmp/guest_oom_victim_required_loss_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_loader_v21.rs -o /tmp/guest_oom_victim_loader_v21
+          /tmp/guest_oom_victim_loader_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_bpf_wire_v21.rs -o /tmp/guest_oom_victim_bpf_wire_v21
+          /tmp/guest_oom_victim_bpf_wire_v21 --nocapture
+          cd ..
+          make -C agent MUSL=no SECCOMP=no src/version.rs
+          cargo check --locked --manifest-path agent/Cargo.toml
+          rm -f agent/src/version.rs
+          git diff --check
+          git diff --exit-code -- agent/src/guest_oom_victim.rs agent/src/oom_victim_bpf.rs agent/src/oom_victim_runtime.rs agent/src/oom_victim_proc.rs
+      - name: Commit verified loss routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add agent/src/oom_victim_loader.rs
+          git diff --cached --check
+          git commit -m 'fix(wave21): poison loss on identity read failure' -m 'Autonomously-by: ChatGPT:GPT-5.6-Sol'
+          git push origin HEAD:gpt/wave21-required-read-loss-redgreen
