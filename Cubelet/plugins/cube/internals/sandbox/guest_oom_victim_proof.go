@@ -4,6 +4,7 @@
 package sandbox
 
 import (
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -27,10 +28,13 @@ const (
 type GuestKernelOOMVictimProof struct {
 	SandboxID                string
 	Generation               uint64
+	RealizationTokenHex      string
 	GuestBootID              string
 	TID                      uint32
 	TGID                     uint32
 	StartTimeTicks           uint64
+	MainPID                  uint32
+	MainStartTimeTicks       uint64
 	EventBootNS              uint64
 	CgroupV2ID               uint64
 	Class                    GuestKernelOOMVictimClass
@@ -63,6 +67,22 @@ func registryForGuestKernelOOMVictimProofs(store *taskOutcomeProofStore) *guestK
 	return actual.(*guestKernelOOMVictimProofRegistry)
 }
 
+func canonicalGuestOOMVictimTokenHex(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	raw, err := hex.DecodeString(value)
+	if err != nil || len(raw) != 32 || hex.EncodeToString(raw) != value {
+		return false
+	}
+	for _, b := range raw {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func validateGuestKernelOOMVictimProof(proof GuestKernelOOMVictimProof) error {
 	if proof.SandboxID == "" || strings.TrimSpace(proof.SandboxID) != proof.SandboxID {
 		return fmt.Errorf("guest kernel OOM victim sandbox ID is not canonical")
@@ -70,12 +90,18 @@ func validateGuestKernelOOMVictimProof(proof GuestKernelOOMVictimProof) error {
 	if proof.Generation == 0 {
 		return fmt.Errorf("guest kernel OOM victim generation is required")
 	}
+	if !canonicalGuestOOMVictimTokenHex(proof.RealizationTokenHex) {
+		return fmt.Errorf("guest kernel OOM victim realization token is not canonical")
+	}
 	bootID, err := uuid.Parse(proof.GuestBootID)
 	if err != nil || bootID.String() != proof.GuestBootID {
 		return fmt.Errorf("guest kernel OOM victim boot ID is not canonical")
 	}
 	if proof.TID == 0 || proof.TGID == 0 || proof.StartTimeTicks == 0 {
 		return fmt.Errorf("guest kernel OOM victim process identity is incomplete")
+	}
+	if proof.MainPID == 0 || proof.MainStartTimeTicks == 0 {
+		return fmt.Errorf("guest kernel OOM victim main-process authority is incomplete")
 	}
 	if proof.RealizationStartedBootNS == 0 || proof.OutcomeObservedBootNS == 0 || proof.EventBootNS == 0 {
 		return fmt.Errorf("guest kernel OOM victim boot-time evidence is incomplete")
@@ -88,8 +114,9 @@ func validateGuestKernelOOMVictimProof(proof GuestKernelOOMVictimProof) error {
 	}
 	switch proof.Class {
 	case GuestKernelOOMVictimClassMain:
-		// MAIN is correlated by exact TGID plus process lifetime. Cgroup identity
-		// is additive evidence and may be unavailable without weakening MAIN.
+		if proof.TGID != proof.MainPID || proof.StartTimeTicks != proof.MainStartTimeTicks {
+			return fmt.Errorf("guest MAIN OOM victim proof does not match exact main lifetime")
+		}
 	case GuestKernelOOMVictimClassMember:
 		if proof.CgroupV2ID == 0 {
 			return fmt.Errorf("guest MEMBER OOM victim proof requires exact cgroup-v2 identity")
@@ -104,6 +131,18 @@ func sameGuestKernelOOMVictimProof(a, b GuestKernelOOMVictimProof) bool {
 	return a == b
 }
 
+func sameGuestKernelOOMVictimAuthority(a, b GuestKernelOOMVictimProof) bool {
+	return a.SandboxID == b.SandboxID &&
+		a.Generation == b.Generation &&
+		a.RealizationTokenHex == b.RealizationTokenHex &&
+		a.GuestBootID == b.GuestBootID &&
+		a.MainPID == b.MainPID &&
+		a.MainStartTimeTicks == b.MainStartTimeTicks &&
+		a.RealizationStartedBootNS == b.RealizationStartedBootNS &&
+		a.OutcomeObservedBootNS == b.OutcomeObservedBootNS &&
+		a.Source == b.Source
+}
+
 func normalizedGuestKernelOOMVictimProofs(proofs []GuestKernelOOMVictimProof) ([]GuestKernelOOMVictimProof, error) {
 	if len(proofs) == 0 {
 		return nil, fmt.Errorf("guest kernel OOM victim proof set is empty")
@@ -112,9 +151,12 @@ func normalizedGuestKernelOOMVictimProofs(proofs []GuestKernelOOMVictimProof) ([
 		return nil, fmt.Errorf("guest kernel OOM victim proof set exceeds %d victims", maxGuestKernelOOMVictims)
 	}
 	out := append([]GuestKernelOOMVictimProof(nil), proofs...)
-	for _, proof := range out {
+	for index, proof := range out {
 		if err := validateGuestKernelOOMVictimProof(proof); err != nil {
 			return nil, err
+		}
+		if index > 0 && !sameGuestKernelOOMVictimAuthority(out[0], proof) {
+			return nil, fmt.Errorf("guest kernel OOM victim proof set mixes realization authority")
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -170,9 +212,10 @@ func (s *taskOutcomeProofStore) AcceptGuestKernelOOMVictimProofs(sandboxID strin
 	if err != nil {
 		return err
 	}
+	tokenHex := hex.EncodeToString(token[:])
 	for _, proof := range normalized {
-		if proof.SandboxID != sandboxID || proof.Generation != generation {
-			return fmt.Errorf("guest kernel OOM victim proof does not match exact sandbox generation")
+		if proof.SandboxID != sandboxID || proof.Generation != generation || proof.RealizationTokenHex != tokenHex {
+			return fmt.Errorf("guest kernel OOM victim proof does not match exact sandbox generation token")
 		}
 	}
 

@@ -4,6 +4,7 @@
 package sandbox
 
 import (
+	"encoding/hex"
 	"testing"
 	"time"
 )
@@ -19,10 +20,13 @@ func TestV21GuestVictimProofRequiresExactOutcomeTokenAndGeneration(t *testing.T)
 	proof := GuestKernelOOMVictimProof{
 		SandboxID:                sandboxID,
 		Generation:               generation,
+		RealizationTokenHex:      hex.EncodeToString(token[:]),
 		GuestBootID:              "11111111-2222-3333-4444-555555555555",
 		TID:                      42,
 		TGID:                     41,
 		StartTimeTicks:           9001,
+		MainPID:                  41,
+		MainStartTimeTicks:       9001,
 		EventBootNS:              150,
 		CgroupV2ID:               77,
 		Class:                    GuestKernelOOMVictimClassMain,
@@ -50,34 +54,25 @@ func TestV21GuestVictimProofRequiresExactOutcomeTokenAndGeneration(t *testing.T)
 		t.Fatalf("accept exact Wave21 proof: %v", err)
 	}
 
-	var got []GuestKernelOOMVictimProof
-	store.VisitGuestKernelOOMVictimProofs(func(sandboxID string, generation uint64, guestBootID string, tid, tgid uint32, starttimeTicks, eventBootNS, cgroupV2ID uint64, class string, startedBootNS, outcomeBootNS uint64, source string) {
-		got = append(got, GuestKernelOOMVictimProof{
-			SandboxID: sandboxID, Generation: generation, GuestBootID: guestBootID,
-			TID: tid, TGID: tgid, StartTimeTicks: starttimeTicks, EventBootNS: eventBootNS,
-			CgroupV2ID: cgroupV2ID, Class: GuestKernelOOMVictimClass(class),
-			RealizationStartedBootNS: startedBootNS, OutcomeObservedBootNS: outcomeBootNS, Source: source,
-		})
-	})
+	got := store.listGuestKernelOOMVictimProofs()
 	if len(got) != 1 || got[0] != proof {
-		t.Fatalf("visited proofs = %+v, want %+v", got, proof)
+		t.Fatalf("stored proofs = %+v, want %+v", got, proof)
 	}
 
 	store.BeginRealization(sandboxID)
-	got = got[:0]
-	store.VisitGuestKernelOOMVictimProofs(func(string, uint64, string, uint32, uint32, uint64, uint64, uint64, string, uint64, uint64, string) {
-		got = append(got, GuestKernelOOMVictimProof{})
-	})
-	if len(got) != 0 {
+	if got := store.listGuestKernelOOMVictimProofs(); len(got) != 0 {
 		t.Fatal("new generation retained old Wave21 proof")
 	}
 }
 
 func TestV21GuestVictimMemberRequiresExactCgroupIdentity(t *testing.T) {
+	token := v21Token(0x72)
 	proof := GuestKernelOOMVictimProof{
 		SandboxID: "sandbox-a", Generation: 1,
-		GuestBootID: "11111111-2222-3333-4444-555555555555",
-		TID:         42, TGID: 41, StartTimeTicks: 9001, EventBootNS: 150,
+		RealizationTokenHex: hex.EncodeToString(token[:]),
+		GuestBootID:         "11111111-2222-3333-4444-555555555555",
+		TID:                 42, TGID: 41, StartTimeTicks: 9001,
+		MainPID: 41, MainStartTimeTicks: 9001, EventBootNS: 150,
 		Class:                    GuestKernelOOMVictimClassMember,
 		RealizationStartedBootNS: 100, OutcomeObservedBootNS: 200,
 		Source: guestKernelOOMVictimSource,
@@ -88,5 +83,36 @@ func TestV21GuestVictimMemberRequiresExactCgroupIdentity(t *testing.T) {
 	proof.Class = GuestKernelOOMVictimClassMain
 	if err := validateGuestKernelOOMVictimProof(proof); err != nil {
 		t.Fatalf("MAIN proof with unknown cgroup should remain valid: %v", err)
+	}
+}
+
+func TestV21GuestVictimProofSetRejectsMixedAuthority(t *testing.T) {
+	token := v21Token(0x73)
+	base := GuestKernelOOMVictimProof{
+		SandboxID:                "sandbox-a",
+		Generation:               1,
+		RealizationTokenHex:      hex.EncodeToString(token[:]),
+		GuestBootID:              "11111111-2222-3333-4444-555555555555",
+		TID:                      42,
+		TGID:                     41,
+		StartTimeTicks:           9001,
+		MainPID:                  41,
+		MainStartTimeTicks:       9001,
+		EventBootNS:              150,
+		Class:                    GuestKernelOOMVictimClassMain,
+		RealizationStartedBootNS: 100,
+		OutcomeObservedBootNS:    200,
+		Source:                   guestKernelOOMVictimSource,
+	}
+	mixed := base
+	mixed.TID = 52
+	mixed.TGID = 51
+	mixed.StartTimeTicks = 9101
+	mixed.Class = GuestKernelOOMVictimClassMember
+	mixed.CgroupV2ID = 77
+	mixed.EventBootNS = 160
+	mixed.MainStartTimeTicks = 9002
+	if _, err := normalizedGuestKernelOOMVictimProofs([]GuestKernelOOMVictimProof{base, mixed}); err == nil {
+		t.Fatal("mixed main-lifetime authority was accepted in one Wave21 proof set")
 	}
 }
