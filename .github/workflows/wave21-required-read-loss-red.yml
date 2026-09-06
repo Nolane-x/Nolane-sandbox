@@ -1,0 +1,34 @@
+name: Wave21 Required Read Loss RED
+
+on:
+  push:
+    branches: [gpt/wave21-required-read-loss-redgreen]
+    paths:
+      - .github/workflows/wave21-required-read-loss-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prove required identity reads are not yet loss-accounted
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd agent
+          set +e
+          rustc --edition=2021 --test tests/guest_oom_victim_required_loss_v21.rs -o /tmp/guest_oom_victim_required_loss_v21
+          compile_status=$?
+          if [ "$compile_status" -ne 0 ]; then
+            exit "$compile_status"
+          fi
+          output=$(/tmp/guest_oom_victim_required_loss_v21 --nocapture 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -ne 0
+          printf '%s\n' "$output" | grep -F 'required identity read failure silently bypasses loss accounting'
