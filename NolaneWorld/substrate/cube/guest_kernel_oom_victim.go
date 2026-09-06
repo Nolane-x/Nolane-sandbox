@@ -1,6 +1,7 @@
 package cube
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strconv"
@@ -26,10 +27,13 @@ const (
 type GuestKernelOOMVictimProof struct {
 	SandboxID                string
 	Generation               uint64
+	RealizationTokenHex      string
 	GuestBootID              string
 	TID                      uint32
 	TGID                     uint32
 	StartTimeTicks           uint64
+	MainPID                  uint32
+	MainStartTimeTicks       uint64
 	EventBootNS              uint64
 	CgroupV2ID               uint64
 	VictimClass              GuestKernelOOMVictimClass
@@ -42,20 +46,39 @@ func isGuestKernelOOMVictimMetricToken(token string) bool {
 	return token == guestKernelOOMVictimMetric || strings.HasPrefix(token, guestKernelOOMVictimMetric+"{")
 }
 
+func canonicalGuestKernelOOMVictimTokenHex(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	raw, err := hex.DecodeString(value)
+	if err != nil || len(raw) != 32 || hex.EncodeToString(raw) != value {
+		return false
+	}
+	for _, b := range raw {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func exactGuestKernelOOMVictimFromSample(labels map[string]string, rawValue string) (GuestKernelOOMVictimProof, error) {
-	if len(labels) != 12 {
-		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: guest kernel OOM victim metric must contain exactly twelve labels", ErrTaskOutcomeUnavailable)
+	if len(labels) != 15 {
+		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: guest kernel OOM victim metric must contain exactly fifteen labels", ErrTaskOutcomeUnavailable)
 	}
 	for _, key := range []string{
 		"sandbox_id",
 		"generation",
+		"realization_token",
 		"guest_boot_id",
-		"tid",
-		"tgid",
-		"starttime_ticks",
-		"event_boot_ns",
+		"victim_tid",
+		"victim_tgid",
+		"victim_starttime_ticks",
+		"main_pid",
+		"main_starttime_ticks",
+		"scope",
+		"event_boot_time_ns",
 		"cgroup_v2_id",
-		"victim_class",
 		"realization_started_boot_ns",
 		"outcome_observed_boot_ns",
 		"source",
@@ -78,23 +101,35 @@ func exactGuestKernelOOMVictimFromSample(labels map[string]string, rawValue stri
 	if err != nil || generation == 0 {
 		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: invalid guest kernel OOM victim generation", ErrTaskOutcomeUnavailable)
 	}
+	realizationToken := labels["realization_token"]
+	if !canonicalGuestKernelOOMVictimTokenHex(realizationToken) {
+		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: invalid guest kernel OOM victim realization token", ErrTaskOutcomeUnavailable)
+	}
 	guestBootID := labels["guest_boot_id"]
 	if !canonicalLowerUUID(guestBootID) {
 		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: invalid guest kernel OOM victim boot ID", ErrTaskOutcomeUnavailable)
 	}
-	tid, err := parseCanonicalUint(labels["tid"], 32)
-	if err != nil || tid == 0 {
+	victimTID, err := parseCanonicalUint(labels["victim_tid"], 32)
+	if err != nil || victimTID == 0 {
 		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: invalid guest kernel OOM victim TID", ErrTaskOutcomeUnavailable)
 	}
-	tgid, err := parseCanonicalUint(labels["tgid"], 32)
-	if err != nil || tgid == 0 {
+	victimTGID, err := parseCanonicalUint(labels["victim_tgid"], 32)
+	if err != nil || victimTGID == 0 {
 		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: invalid guest kernel OOM victim TGID", ErrTaskOutcomeUnavailable)
 	}
-	startTimeTicks, err := parseCanonicalUint(labels["starttime_ticks"], 64)
-	if err != nil || startTimeTicks == 0 {
+	victimStartTimeTicks, err := parseCanonicalUint(labels["victim_starttime_ticks"], 64)
+	if err != nil || victimStartTimeTicks == 0 {
 		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: invalid guest kernel OOM victim starttime", ErrTaskOutcomeUnavailable)
 	}
-	eventBootNS, err := parseCanonicalUint(labels["event_boot_ns"], 64)
+	mainPID, err := parseCanonicalUint(labels["main_pid"], 32)
+	if err != nil || mainPID == 0 {
+		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: invalid guest kernel OOM victim main PID", ErrTaskOutcomeUnavailable)
+	}
+	mainStartTimeTicks, err := parseCanonicalUint(labels["main_starttime_ticks"], 64)
+	if err != nil || mainStartTimeTicks == 0 {
+		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: invalid guest kernel OOM victim main starttime", ErrTaskOutcomeUnavailable)
+	}
+	eventBootNS, err := parseCanonicalUint(labels["event_boot_time_ns"], 64)
 	if err != nil || eventBootNS == 0 {
 		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: invalid guest kernel OOM victim event time", ErrTaskOutcomeUnavailable)
 	}
@@ -118,17 +153,20 @@ func exactGuestKernelOOMVictimFromSample(labels map[string]string, rawValue stri
 		}
 	}
 
-	victimClass := GuestKernelOOMVictimClass(labels["victim_class"])
-	switch victimClass {
-	case GuestKernelOOMVictimMain:
-		// MAIN identity comes from exact TGID + lifetime correlation. Exact
-		// cgroup identity is optional additional provenance for this class.
-	case GuestKernelOOMVictimMember:
+	var victimClass GuestKernelOOMVictimClass
+	switch labels["scope"] {
+	case "main":
+		victimClass = GuestKernelOOMVictimMain
+		if uint32(victimTGID) != uint32(mainPID) || victimStartTimeTicks != mainStartTimeTicks {
+			return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: MAIN guest kernel OOM victim does not match exact main lifetime", ErrTaskOutcomeUnavailable)
+		}
+	case "member":
+		victimClass = GuestKernelOOMVictimMember
 		if cgroupV2ID == 0 {
 			return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: MEMBER guest kernel OOM victim requires exact cgroup-v2 identity", ErrTaskOutcomeUnavailable)
 		}
 	default:
-		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: invalid guest kernel OOM victim class %q", ErrTaskOutcomeUnavailable, labels["victim_class"])
+		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: invalid guest kernel OOM victim scope %q", ErrTaskOutcomeUnavailable, labels["scope"])
 	}
 	if labels["source"] != guestKernelOOMVictimSource {
 		return GuestKernelOOMVictimProof{}, fmt.Errorf("%w: unsupported guest kernel OOM victim source %q", ErrTaskOutcomeUnavailable, labels["source"])
@@ -137,10 +175,13 @@ func exactGuestKernelOOMVictimFromSample(labels map[string]string, rawValue stri
 	return GuestKernelOOMVictimProof{
 		SandboxID:                sandboxID,
 		Generation:               generation,
+		RealizationTokenHex:      realizationToken,
 		GuestBootID:              guestBootID,
-		TID:                      uint32(tid),
-		TGID:                     uint32(tgid),
-		StartTimeTicks:           startTimeTicks,
+		TID:                      uint32(victimTID),
+		TGID:                     uint32(victimTGID),
+		StartTimeTicks:           victimStartTimeTicks,
+		MainPID:                  uint32(mainPID),
+		MainStartTimeTicks:       mainStartTimeTicks,
 		EventBootNS:              eventBootNS,
 		CgroupV2ID:               cgroupV2ID,
 		VictimClass:              victimClass,
@@ -148,6 +189,22 @@ func exactGuestKernelOOMVictimFromSample(labels map[string]string, rawValue stri
 		OutcomeObservedBootNS:    outcomeBootNS,
 		Source:                   guestKernelOOMVictimSource,
 	}, nil
+}
+
+func sameGuestKernelOOMVictimAuthority(a, b GuestKernelOOMVictimProof) bool {
+	return a.SandboxID == b.SandboxID &&
+		a.Generation == b.Generation &&
+		a.RealizationTokenHex == b.RealizationTokenHex &&
+		a.GuestBootID == b.GuestBootID &&
+		a.MainPID == b.MainPID &&
+		a.MainStartTimeTicks == b.MainStartTimeTicks &&
+		a.RealizationStartedBootNS == b.RealizationStartedBootNS &&
+		a.OutcomeObservedBootNS == b.OutcomeObservedBootNS &&
+		a.Source == b.Source
+}
+
+func sameGuestKernelOOMVictimProof(a, b GuestKernelOOMVictimProof) bool {
+	return a == b
 }
 
 func correlateGuestKernelOOMVictim(outcome TaskOutcomeProof, victim GuestKernelOOMVictimProof) error {
