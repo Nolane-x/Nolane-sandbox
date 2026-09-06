@@ -5,8 +5,28 @@ package guestvictim
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 )
+
+const (
+	UpdateActionAnnotation     = "cube.shimapi.update.action"
+	RealizationTokenAnnotation = "cube.shimapi.update.oom_victim_realization_token"
+	BindAction                 = "BindOOMVictimRealization"
+)
+
+// TaskUpdateAnnotations encodes the exact internal one-shot Wave 21 binding
+// action consumed by CubeShim. The token remains an opaque realization nonce;
+// it is never derived from sandbox identity, process identity, or timestamps.
+func TaskUpdateAnnotations(token [32]byte) (map[string]string, error) {
+	if !validToken(token) {
+		return nil, fmt.Errorf("guest OOM victim realization token must be non-zero")
+	}
+	return map[string]string{
+		UpdateActionAnnotation:     BindAction,
+		RealizationTokenAnnotation: hex.EncodeToString(token[:]),
+	}, nil
+}
 
 // BindBeforeStartResult separates observational Wave 21 bind failures from
 // workload Start failures. Evidence setup must never mask or replace the
