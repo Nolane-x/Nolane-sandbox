@@ -40,10 +40,12 @@ pub fn probe_collector_capability() -> Result<CollectorCapability, String> {
 
     let id = std::fs::read_to_string(&mark_victim_id_path)
         .map_err(|e| format!("read {}: {}", mark_victim_id_path.display(), e))?;
-    let id = id
-        .trim()
-        .parse::<u64>()
-        .map_err(|_| format!("{} contains an invalid tracepoint id", mark_victim_id_path.display()))?;
+    let id = id.trim().parse::<u64>().map_err(|_| {
+        format!(
+            "{} contains an invalid tracepoint id",
+            mark_victim_id_path.display()
+        )
+    })?;
     if id == 0 {
         return Err(format!(
             "{} contains a zero tracepoint id",

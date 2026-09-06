@@ -337,6 +337,11 @@ impl Sandbox {
             .map_err(|e| anyhow!(e))
     }
 
+    pub fn note_guest_oom_victim_loss(&mut self) {
+        self.guest_oom_victim.note_loss();
+        self.guest_oom_victim_loss_epoch = self.guest_oom_victim_loss_epoch.saturating_add(1);
+    }
+
     pub fn finalize_guest_oom_victim_realization(
         &mut self,
         container_id: &str,
