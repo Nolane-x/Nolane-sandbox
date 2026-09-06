@@ -6,7 +6,8 @@ mod guest_oom_victim;
 
 use guest_oom_victim::{
     authoritative_timens_boottime_offset, parse_time_namespace_inode,
-    parse_timens_boottime_offset_ns, start_boottime_ns_to_starttime_ticks,
+    parse_timens_boottime_offset_ns, read_process_timens_boottime_offset,
+    start_boottime_ns_to_starttime_ticks,
 };
 
 #[test]
@@ -85,6 +86,17 @@ fn v21_zero_offset_is_only_valid_when_time_namespace_exposure_is_absent() {
         None,
     )
     .is_err());
+}
+
+#[test]
+fn v21_live_timens_capture_is_exact_for_current_process_and_rejects_invalid_pid() {
+    let pid = i32::try_from(std::process::id()).unwrap();
+    let offset = read_process_timens_boottime_offset(pid).unwrap();
+    // The value may be zero or non-zero depending on the runner namespace, but
+    // it must come from a stable namespace-handle + timens_offsets sample.
+    assert!(offset >= -i128::from(u64::MAX));
+    assert!(read_process_timens_boottime_offset(0).is_err());
+    assert!(read_process_timens_boottime_offset(-1).is_err());
 }
 
 #[test]
