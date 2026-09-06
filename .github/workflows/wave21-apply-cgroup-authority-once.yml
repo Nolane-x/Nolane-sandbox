@@ -7,6 +7,7 @@ on:
     branches: [gpt/wave21-guest-kernel-oom-victim-provenance]
     paths:
       - .github/workflows/wave21-apply-cgroup-authority-once.yml
+      - .github/scripts/wave21_apply_cgroup_authority.py
 
 permissions:
   contents: write
