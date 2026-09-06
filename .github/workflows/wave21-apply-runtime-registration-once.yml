@@ -1,0 +1,53 @@
+name: Wave21 Apply Runtime Registration Once
+
+on:
+  push:
+    branches: [gpt/wave21-guest-kernel-oom-victim-provenance]
+    paths:
+      - .github/workflows/wave21-apply-runtime-registration-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gpt/wave21-guest-kernel-oom-victim-provenance
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Register and verify object-free BPF runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('agent/src/main.rs')
+          text = path.read_text()
+          marker = 'mod oom_victim_bpf;\n'
+          registration = 'mod oom_victim_runtime;\n'
+          if registration not in text:
+              if marker not in text:
+                  raise SystemExit('Wave21 runtime registration anchor is missing')
+              text = text.replace(marker, marker + registration, 1)
+              path.write_text(text)
+          if path.read_text().count(registration) != 1:
+              raise SystemExit('Wave21 runtime registration must be unique')
+          PY
+          make -C agent MUSL=no SECCOMP=no src/version.rs
+          cargo check --locked --manifest-path agent/Cargo.toml
+          rm -f agent/src/version.rs
+          git diff --check
+          git diff --exit-code -- agent/src/guest_oom_victim.rs agent/src/oom_victim_bpf.rs agent/src/oom_victim_runtime.rs
+      - name: Commit verified runtime registration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add agent/src/main.rs
+          git diff --cached --check
+          git commit -m 'feat(wave21): register object-free BPF runtime' -m 'Autonomously-by: ChatGPT:GPT-5.6-Sol'
+          git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
