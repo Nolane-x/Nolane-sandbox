@@ -17,7 +17,11 @@ impl RealizationToken {
     }
 
     pub fn from_hex(value: &str) -> Result<Self, &'static str> {
-        if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) {
+        if value.len() != 64
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
             return Err("realization token must be 64 lowercase hexadecimal characters");
         }
 

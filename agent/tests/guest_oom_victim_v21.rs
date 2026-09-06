@@ -97,7 +97,10 @@ fn v21_guest_store_poisoned_on_loss_or_overflow() {
         )
         .unwrap();
     let proof = store.finalize(tok, 200, 11).unwrap().unwrap();
-    assert!(proof.poisoned, "collector loss must poison realization evidence");
+    assert!(
+        proof.poisoned,
+        "collector loss must poison realization evidence"
+    );
 
     let mut store = GuestVictimStore::default();
     let tok = token(0x24);
@@ -126,8 +129,14 @@ fn v21_guest_store_poisoned_on_loss_or_overflow() {
             .unwrap();
     }
     let proof = store.finalize(tok, 500, 0).unwrap().unwrap();
-    assert!(proof.poisoned, "65 victims must poison rather than truncate");
-    assert!(proof.victims.is_empty(), "poisoned proof must not expose a partial victim set");
+    assert!(
+        proof.poisoned,
+        "65 victims must poison rather than truncate"
+    );
+    assert!(
+        proof.victims.is_empty(),
+        "poisoned proof must not expose a partial victim set"
+    );
 }
 
 #[test]
