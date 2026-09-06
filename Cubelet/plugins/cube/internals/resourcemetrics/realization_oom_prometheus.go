@@ -59,14 +59,26 @@ func newServiceWithAllTaskEvidenceAndKernelVictims(
 	hostIdentity hostProcessIdentityProofVisitor,
 	victims hostKernelOOMVictimProofVisitor,
 ) *Service {
+	return newServiceWithAllTaskEvidenceAndKernelVictimsAndGuestVictims(cache, outcomes, oom, hostIdentity, victims, nil)
+}
+
+func newServiceWithAllTaskEvidenceAndKernelVictimsAndGuestVictims(
+	cache *SandboxResourceCache,
+	outcomes taskOutcomeProofVisitor,
+	oom realizationOOMProofVisitor,
+	hostIdentity hostProcessIdentityProofVisitor,
+	victims hostKernelOOMVictimProofVisitor,
+	guestVictims guestKernelOOMVictimProofVisitor,
+) *Service {
 	return &Service{
 		SandboxResourceCache: cache,
-		handler: newPrometheusHandlerWithAllTaskEvidenceAndKernelVictims(
+		handler: newPrometheusHandlerWithAllTaskEvidenceAndKernelVictimsAndGuestVictims(
 			cache,
 			outcomes,
 			oom,
 			hostIdentity,
 			victims,
+			guestVictims,
 			time.Now,
 		),
 	}
@@ -94,6 +106,18 @@ func newPrometheusHandlerWithAllTaskEvidenceAndKernelVictims(
 	victims hostKernelOOMVictimProofVisitor,
 	now func() time.Time,
 ) http.Handler {
+	return newPrometheusHandlerWithAllTaskEvidenceAndKernelVictimsAndGuestVictims(cache, outcomes, oom, hostIdentity, victims, nil, now)
+}
+
+func newPrometheusHandlerWithAllTaskEvidenceAndKernelVictimsAndGuestVictims(
+	cache *SandboxResourceCache,
+	outcomes taskOutcomeProofVisitor,
+	oom realizationOOMProofVisitor,
+	hostIdentity hostProcessIdentityProofVisitor,
+	victims hostKernelOOMVictimProofVisitor,
+	guestVictims guestKernelOOMVictimProofVisitor,
+	now func() time.Time,
+) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
@@ -110,6 +134,9 @@ func newPrometheusHandlerWithAllTaskEvidenceAndKernelVictims(
 	}
 	if victims != nil {
 		registry.MustRegister(&hostKernelOOMVictimPrometheusCollector{proofs: victims})
+	}
+	if guestVictims != nil {
+		registry.MustRegister(&guestKernelOOMVictimPrometheusCollector{proofs: guestVictims})
 	}
 	return promhttp.HandlerFor(registry, promhttp.HandlerOpts{MaxRequestsInFlight: maxConcurrentPrometheusScrapes})
 }
