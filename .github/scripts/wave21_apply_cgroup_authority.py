@@ -266,11 +266,11 @@ rpc.write_text(text)
 
 contract = Path("tests/wave21_agent_service_contract.py")
 text = contract.read_text()
-marker = '    "begin_guest_oom_victim_realization",\n'
+marker = '    "record_raw_with_disposition",\n'
 addition = '    "read_process_cgroup_v2_id",\n'
 if addition not in text:
     if marker not in text:
-        raise SystemExit("agent contract anchor missing")
+        raise SystemExit("agent authority contract anchor missing")
     contract.write_text(text.replace(marker, marker + addition, 1))
 
 contract_workflow = Path(".github/workflows/cube-guest-kernel-oom-victim-contract.yml")
