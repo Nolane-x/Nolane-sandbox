@@ -1,0 +1,36 @@
+name: Wave21 Live Collector RED
+
+on:
+  push:
+    branches: [gpt/wave21-live-collector-redgreen]
+    paths:
+      - .github/workflows/wave21-live-collector-red.yml
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove live collector boundary is RED after runtime registration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('agent/src/main.rs')
+          text = path.read_text()
+          registration = 'mod oom_victim_runtime;\n'
+          if registration not in text:
+              text = text.replace('mod oom_victim_bpf;\n', 'mod oom_victim_bpf;\n' + registration, 1)
+              path.write_text(text)
+          PY
+          set +e
+          output=$(python3 tests/wave21_agent_service_contract.py 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -ne 0
+          printf '%s\n' "$output" | grep -F 'missing Wave21 live collector boundary:'
