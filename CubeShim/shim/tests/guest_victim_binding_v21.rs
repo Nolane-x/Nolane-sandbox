@@ -12,7 +12,10 @@ use std::collections::HashMap;
 #[test]
 fn v21_shim_bind_parser_accepts_only_exact_action_and_token() {
     let mut annotations = HashMap::new();
-    annotations.insert(UPDATE_ACTION_ANNOTATION.to_string(), BIND_ACTION.to_string());
+    annotations.insert(
+        UPDATE_ACTION_ANNOTATION.to_string(),
+        BIND_ACTION.to_string(),
+    );
     annotations.insert(
         REALIZATION_TOKEN_ANNOTATION.to_string(),
         "2121212121212121212121212121212121212121212121212121212121212121".to_string(),
@@ -37,7 +40,10 @@ fn v21_shim_bind_parser_ignores_unrelated_updates() {
 #[test]
 fn v21_shim_bind_parser_rejects_malformed_token() {
     let mut annotations = HashMap::new();
-    annotations.insert(UPDATE_ACTION_ANNOTATION.to_string(), BIND_ACTION.to_string());
+    annotations.insert(
+        UPDATE_ACTION_ANNOTATION.to_string(),
+        BIND_ACTION.to_string(),
+    );
     annotations.insert(
         REALIZATION_TOKEN_ANNOTATION.to_string(),
         "ABCDEF".to_string(),
