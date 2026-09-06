@@ -262,12 +262,24 @@ impl GuestVictimStore {
     }
 }
 
+#[repr(C)]
+struct KernelTimespec {
+    tv_sec: core::ffi::c_long,
+    tv_nsec: core::ffi::c_long,
+}
+
+unsafe extern "C" {
+    fn clock_gettime(clock_id: core::ffi::c_int, ts: *mut KernelTimespec) -> core::ffi::c_int;
+}
+
+const CLOCK_BOOTTIME: core::ffi::c_int = 7;
+
 pub fn current_boottime_ns() -> Result<u64, String> {
-    let mut ts = libc::timespec {
+    let mut ts = KernelTimespec {
         tv_sec: 0,
         tv_nsec: 0,
     };
-    let rc = unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts) };
+    let rc = unsafe { clock_gettime(CLOCK_BOOTTIME, &mut ts) };
     if rc != 0 {
         return Err(format!(
             "clock_gettime(CLOCK_BOOTTIME) failed: {}",
