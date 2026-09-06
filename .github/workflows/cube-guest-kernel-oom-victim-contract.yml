@@ -58,6 +58,8 @@ jobs:
           /tmp/guest_oom_victim_bpf_wire_v21 --nocapture
           rustc --edition=2021 --test tests/guest_oom_victim_timebridge_v21.rs -o /tmp/guest_oom_victim_timebridge_v21
           /tmp/guest_oom_victim_timebridge_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_runtime_v21.rs -o /tmp/guest_oom_victim_runtime_v21
+          /tmp/guest_oom_victim_runtime_v21 --nocapture
 
   shim-wave21:
     runs-on: ubuntu-latest
