@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -29,6 +30,10 @@ use tokio::sync::Mutex;
 
 use crate::common::utils::Utils;
 use crate::container::{container_mgr::ContainerInfo, exec::Tty};
+use crate::guest_victim::parse_bind_annotations;
+use crate::guest_victim::{
+    EvidenceCache, RealizationToken, TokenBindings, EVIDENCE_METADATA_KEY, EVIDENCE_TYPE_URL,
+};
 use crate::log::{stat_defer, Log, LogLevel};
 use crate::sandbox::sb;
 use crate::service::update_ext;
@@ -278,6 +283,9 @@ pub struct TaskService {
     //debug: bool,
     exit: Arc<ExitSignal>,
     tx_containerd: Sender<(String, Box<dyn MessageDyn>)>,
+    victim_bindings: Arc<Mutex<TokenBindings>>,
+    victim_active: Arc<Mutex<HashMap<String, RealizationToken>>>,
+    victim_evidence: Arc<Mutex<EvidenceCache>>,
 }
 
 impl TaskService {
@@ -308,6 +316,9 @@ impl TaskService {
             //debug: debug,
             exit,
             tx_containerd: tx,
+            victim_bindings: Arc::new(Mutex::new(TokenBindings::default())),
+            victim_active: Arc::new(Mutex::new(HashMap::new())),
+            victim_evidence: Arc::new(Mutex::new(EvidenceCache::default())),
         }
     }
 
@@ -326,6 +337,9 @@ impl Task for TaskService {
         req: api::CreateTaskRequest,
     ) -> TtrpcResult<api::CreateTaskResponse> {
         infof!(self.log, "create req start");
+        self.victim_bindings.lock().await.clear(&req.id);
+        self.victim_active.lock().await.remove(&req.id);
+        self.victim_evidence.lock().await.clear(&req.id);
         let start = Instant::now();
         let mut stat = stat_defer::StatDefer::new(
             req.id.clone(),
@@ -434,16 +448,29 @@ impl Task for TaskService {
             req.id(),
             req.exec_id()
         );
+        let victim_token = if req.exec_id().is_empty() {
+            self.victim_bindings.lock().await.consume_main(&req.id)
+        } else {
+            None
+        };
         let mut sb = self.sandbox.lock().await;
         if sb.paused().await {
             errf!(self.log, "sandbox not in normal state");
             return Err(Others(format!("sandbox not in normal state")));
         }
         if req.exec_id().is_empty() {
-            sb.start_container(&req.id).await.map_err(|e| {
-                errf!(self.log, "Start container failed:{}", e);
-                e
-            })?;
+            sb.start_container_with_oom_victim(&req.id, victim_token)
+                .await
+                .map_err(|e| {
+                    errf!(self.log, "Start container failed:{}", e);
+                    e
+                })?;
+            if let Some(token) = victim_token {
+                self.victim_active
+                    .lock()
+                    .await
+                    .insert(req.id.clone(), token);
+            }
 
             let event = TaskStart {
                 container_id: req.id.clone(),
@@ -509,6 +536,38 @@ impl Task for TaskService {
                 errf!(self.log, "wait failed:{}", e);
                 e
             })?;
+        if req.exec_id().is_empty() {
+            if let Some(token) = self.victim_active.lock().await.remove(&req.id) {
+                match sb.get_oom_victim_evidence(&req.id, token.as_bytes()).await {
+                    Ok(payload) if !payload.is_empty() => {
+                        if let Err(e) = self
+                            .victim_evidence
+                            .lock()
+                            .await
+                            .insert_finalized(&req.id, token, payload)
+                        {
+                            warnf!(
+                                self.log,
+                                "cache Wave21 evidence failed for {}: {}",
+                                req.id,
+                                e
+                            );
+                        }
+                    }
+                    Ok(_) => warnf!(
+                        self.log,
+                        "guest returned empty Wave21 evidence for {}",
+                        req.id
+                    ),
+                    Err(e) => warnf!(
+                        self.log,
+                        "guest Wave21 evidence unavailable for {}: {}",
+                        req.id,
+                        e
+                    ),
+                }
+            }
+        }
         let e_tm: protobuf::well_known_types::timestamp::Timestamp =
             protobuf::well_known_types::timestamp::Timestamp {
                 seconds: tm.timestamp(),
@@ -531,11 +590,42 @@ impl Task for TaskService {
 
     async fn stats(
         &self,
-        _ctx: &TtrpcContext,
+        ctx: &TtrpcContext,
         req: api::StatsRequest,
     ) -> TtrpcResult<api::StatsResponse> {
         if req.id.is_empty() {
             return Err(Error::InvalidArgument("stats request id is empty".to_string()).into());
+        }
+        if let Some(values) = ctx.metadata.get(EVIDENCE_METADATA_KEY) {
+            if values.len() != 1 {
+                return Err(Error::InvalidArgument(
+                    "Wave21 evidence selector must have exactly one value".to_string(),
+                )
+                .into());
+            }
+            let mut metadata = HashMap::new();
+            metadata.insert(EVIDENCE_METADATA_KEY.to_string(), values[0].clone());
+            let selected = self
+                .victim_evidence
+                .lock()
+                .await
+                .select(&req.id, &metadata)
+                .map_err(|e| Error::InvalidArgument(e.to_string()))?;
+            let payload = selected.ok_or_else(|| {
+                Error::FailedPreconditionError(
+                    "Wave21 finalized evidence is unavailable for exact realization token"
+                        .to_string(),
+                )
+            })?;
+            let stats = protobuf::well_known_types::any::Any {
+                type_url: EVIDENCE_TYPE_URL.to_string(),
+                value: payload,
+                ..Default::default()
+            };
+            return Ok(api::StatsResponse {
+                stats: Some(stats).into(),
+                ..Default::default()
+            });
         }
 
         let sb = {
@@ -566,6 +656,11 @@ impl Task for TaskService {
             req.id(),
             req.exec_id()
         );
+        if req.exec_id().is_empty() {
+            self.victim_bindings.lock().await.clear(&req.id);
+            self.victim_active.lock().await.remove(&req.id);
+            self.victim_evidence.lock().await.clear(&req.id);
+        }
         let mut stat = stat_defer::StatDefer::new(
             req.id.clone(),
             stat_defer::CALLEE_SHIM.to_string(),
@@ -695,6 +790,16 @@ impl Task for TaskService {
         req: api::UpdateTaskRequest,
     ) -> TtrpcResult<api::Empty> {
         infof!(self.log, "update req start, id:{}", &req.id);
+        if let Some(token) = parse_bind_annotations(&req.annotations)
+            .map_err(|e| Error::InvalidArgument(e.to_string()))?
+        {
+            self.victim_bindings
+                .lock()
+                .await
+                .bind(&req.id, token)
+                .map_err(|e| Error::FailedPreconditionError(e.to_string()))?;
+            return Ok(api::Empty::default());
+        }
         let outcome = {
             let mut sb = self.sandbox.lock().await;
             if sb.paused().await {
@@ -759,6 +864,9 @@ impl Task for TaskService {
         _req: api::ShutdownRequest,
     ) -> TtrpcResult<api::Empty> {
         infof!(self.log, "shutdown req start");
+        self.victim_bindings.lock().await.clear_all();
+        self.victim_active.lock().await.clear();
+        self.victim_evidence.lock().await.clear_all();
 
         let mut sb = self.sandbox.lock().await;
         // After PauseToSnapshot the sandbox is Paused (MicroVM already gone).

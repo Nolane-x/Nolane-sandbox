@@ -37,6 +37,7 @@ use crate::common::{
 };
 use crate::container::container_mgr::ContainerInfo;
 use crate::container::{exec::Tty, Container, GUEST_DEV_SHM};
+use crate::guest_victim::RealizationToken;
 use crate::hypervisor::config::{HypConfig, VmConfig};
 use crate::hypervisor::cube_hypervisor as CH;
 use crate::hypervisor::snapshot::{enable_snapshot, SnapshotInfo};
@@ -1037,13 +1038,21 @@ impl SandBox {
     }
 
     pub async fn start_container(&mut self, id: &String) -> Result<()> {
+        self.start_container_with_oom_victim(id, None).await
+    }
+
+    pub async fn start_container_with_oom_victim(
+        &mut self,
+        id: &String,
+        token: Option<RealizationToken>,
+    ) -> Result<()> {
         let mut containers = self.containers.lock().await;
         let container = match containers.get_mut(id) {
             Some(c) => c,
             None => return Err(Error::NotFoundError(format!("not found container:{}", id))),
         };
         container
-            .start_container()
+            .start_container_with_oom_victim(token.as_ref().map(RealizationToken::as_bytes))
             .await
             .map_err(|e| Error::Other(e.to_string()))?;
         Ok(())
@@ -1127,6 +1136,32 @@ impl SandBox {
             .stats_container(self.ctx.clone(), &req)
             .await
             .map_err(|e| Error::Other(format!("StatsContainer failed for {}: {}", id, e)))
+    }
+
+    pub async fn get_oom_victim_evidence(&self, id: &str, token: &[u8; 32]) -> Result<Vec<u8>> {
+        use protobuf::Message;
+        let guest_container_id = self.guest_container_id(id).await?;
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| Error::Other("guest agent is not connected".to_string()))?
+            .lock()
+            .await;
+        let req = agent::GetOOMVictimEvidenceRequest {
+            container_id: guest_container_id,
+            realization_token: token.to_vec(),
+            ..Default::default()
+        };
+        let response = client
+            .get_oom_victim_evidence(self.ctx.clone(), &req)
+            .await
+            .map_err(|e| Error::Other(format!("GetOOMVictimEvidence failed for {}: {}", id, e)))?;
+        response.write_to_bytes().map_err(|e| {
+            Error::Other(format!(
+                "encode OOM victim evidence failed for {}: {}",
+                id, e
+            ))
+        })
     }
 
     pub async fn wait_container(&self, id: &String, exec_id: &str) -> Result<(u32, DateTime<Utc>)> {
