@@ -5,8 +5,8 @@
 mod guest_oom_victim;
 
 use guest_oom_victim::{
-    parse_time_namespace_inode, parse_timens_boottime_offset_ns,
-    start_boottime_ns_to_starttime_ticks,
+    authoritative_timens_boottime_offset, parse_time_namespace_inode,
+    parse_timens_boottime_offset_ns, start_boottime_ns_to_starttime_ticks,
 };
 
 #[test]
@@ -37,6 +37,54 @@ fn v21_time_namespace_handle_parser_is_canonical() {
     assert!(parse_time_namespace_inode("mnt:[4026531834]").is_err());
     assert!(parse_time_namespace_inode("time:4026531834").is_err());
     assert!(parse_time_namespace_inode(" time:[4026531834]").is_err());
+}
+
+#[test]
+fn v21_time_namespace_offset_requires_same_complete_authority() {
+    let offsets = "monotonic 0 0\nboottime 3 7\n";
+    assert_eq!(
+        authoritative_timens_boottime_offset(
+            Some("time:[4026531834]"),
+            Some("time:[4026531834]"),
+            Some(offsets),
+        )
+        .unwrap(),
+        3_000_000_007
+    );
+
+    assert!(authoritative_timens_boottime_offset(
+        Some("time:[4026531834]"),
+        Some("time:[4026532900]"),
+        Some(offsets),
+    )
+    .is_err());
+    assert!(authoritative_timens_boottime_offset(
+        Some("time:[4026531834]"),
+        None,
+        Some(offsets),
+    )
+    .is_err());
+    assert!(authoritative_timens_boottime_offset(None, None, Some(offsets)).is_err());
+}
+
+#[test]
+fn v21_zero_offset_is_only_valid_when_time_namespace_exposure_is_absent() {
+    assert_eq!(
+        authoritative_timens_boottime_offset(None, None, None).unwrap(),
+        0
+    );
+    assert!(authoritative_timens_boottime_offset(
+        Some("time:[4026531834]"),
+        Some("time:[4026531834]"),
+        None,
+    )
+    .is_err());
+    assert!(authoritative_timens_boottime_offset(
+        Some("time:[4026531834]"),
+        None,
+        None,
+    )
+    .is_err());
 }
 
 #[test]
