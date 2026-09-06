@@ -43,6 +43,7 @@ mod config;
 mod console;
 mod device;
 mod fixes;
+mod guest_oom_victim;
 mod linux_abi;
 mod metrics;
 mod mount;

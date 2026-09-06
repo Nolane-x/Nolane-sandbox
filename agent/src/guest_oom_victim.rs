@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::HashMap;
+use std::fs;
 
 pub const MAX_VICTIMS_PER_REALIZATION: usize = 64;
 
@@ -99,7 +100,7 @@ struct OpenRealization {
     start_loss_epoch: u64,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct GuestVictimStore {
     open: HashMap<RealizationToken, OpenRealization>,
     finalized: HashMap<RealizationToken, FinalizedEvidence>,
@@ -259,6 +260,68 @@ impl GuestVictimStore {
     pub fn finalized(&self, token: &RealizationToken) -> Option<FinalizedEvidence> {
         self.finalized.get(token).cloned()
     }
+}
+
+pub fn current_boottime_ns() -> Result<u64, String> {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    let rc = unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts) };
+    if rc != 0 {
+        return Err(format!(
+            "clock_gettime(CLOCK_BOOTTIME) failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    if ts.tv_sec < 0 || ts.tv_nsec < 0 {
+        return Err("CLOCK_BOOTTIME returned a negative value".to_string());
+    }
+    let sec =
+        u64::try_from(ts.tv_sec).map_err(|_| "CLOCK_BOOTTIME seconds overflow".to_string())?;
+    let nsec =
+        u64::try_from(ts.tv_nsec).map_err(|_| "CLOCK_BOOTTIME nanoseconds overflow".to_string())?;
+    sec.checked_mul(1_000_000_000)
+        .and_then(|v| v.checked_add(nsec))
+        .ok_or_else(|| "CLOCK_BOOTTIME nanoseconds overflow".to_string())
+}
+
+pub fn read_guest_boot_id() -> Result<String, String> {
+    let value = fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .map_err(|e| format!("read guest boot id failed: {}", e))?;
+    let value = value.trim().to_string();
+    if !canonical_boot_id(&value) {
+        return Err("guest boot id is not canonical".to_string());
+    }
+    Ok(value)
+}
+
+pub fn read_process_identity(pid: i32) -> Result<GuestProcessIdentity, String> {
+    if pid <= 0 {
+        return Err("guest process pid must be positive".to_string());
+    }
+    let stat = fs::read_to_string(format!("/proc/{}/stat", pid))
+        .map_err(|e| format!("read guest process stat failed: {}", e))?;
+    let close = stat
+        .rfind(')')
+        .ok_or_else(|| "guest process stat is missing comm terminator".to_string())?;
+    let tail = stat
+        .get(close + 1..)
+        .ok_or_else(|| "guest process stat tail is missing".to_string())?;
+    let fields: Vec<&str> = tail.split_whitespace().collect();
+    if fields.len() <= 19 {
+        return Err("guest process stat is missing field 22".to_string());
+    }
+    let starttime_ticks = fields[19]
+        .parse::<u64>()
+        .map_err(|_| "guest process starttime is invalid".to_string())?;
+    if starttime_ticks == 0 {
+        return Err("guest process starttime must be non-zero".to_string());
+    }
+    Ok(GuestProcessIdentity {
+        tgid: u32::try_from(pid).map_err(|_| "guest process pid overflow".to_string())?,
+        starttime_ticks,
+    })
 }
 
 fn canonical_boot_id(value: &str) -> bool {

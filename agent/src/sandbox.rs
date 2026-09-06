@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+use crate::guest_oom_victim::{
+    FinalizedEvidence, GuestProcessIdentity, GuestVictimStore, RawVictimEvent, RealizationToken,
+};
 use crate::linux_abi::*;
 use crate::mount::{get_mount_fs_type, remove_mounts, TYPE_ROOTFS};
 use crate::namespace::Namespace;
@@ -55,6 +58,9 @@ pub struct Sandbox {
     pub hooks: Option<Hooks>,
     pub event_tx: Option<BroadcastSender<String>>,
     pub bind_watcher: BindWatcher,
+    guest_oom_victim: GuestVictimStore,
+    guest_oom_victim_loss_epoch: u64,
+    guest_oom_victim_active: HashMap<String, RealizationToken>,
     pub pcimap: HashMap<pci::Address, pci::Address>,
 }
 
@@ -85,6 +91,9 @@ impl Sandbox {
             hooks: None,
             event_tx: Some(tx),
             bind_watcher: BindWatcher::new(),
+            guest_oom_victim: GuestVictimStore::default(),
+            guest_oom_victim_loss_epoch: 0,
+            guest_oom_victim_active: HashMap::new(),
             pcimap: HashMap::new(),
         })
     }
@@ -295,6 +304,65 @@ impl Sandbox {
         }
 
         Ok(())
+    }
+
+    pub fn begin_guest_oom_victim_realization(
+        &mut self,
+        container_id: &str,
+        token: RealizationToken,
+        started_boot_ns: u64,
+        guest_boot_id: &str,
+        main: GuestProcessIdentity,
+        expected_cgroup_v2_id: Option<u64>,
+    ) -> Result<()> {
+        self.guest_oom_victim_active.remove(container_id);
+        self.guest_oom_victim
+            .begin(
+                token,
+                started_boot_ns,
+                guest_boot_id,
+                main,
+                expected_cgroup_v2_id,
+                self.guest_oom_victim_loss_epoch,
+            )
+            .map_err(|e| anyhow!(e))?;
+        self.guest_oom_victim_active
+            .insert(container_id.to_string(), token);
+        Ok(())
+    }
+
+    pub fn record_guest_oom_victim_raw(&mut self, event: RawVictimEvent) -> Result<()> {
+        self.guest_oom_victim
+            .record_raw(event)
+            .map_err(|e| anyhow!(e))
+    }
+
+    pub fn finalize_guest_oom_victim_realization(
+        &mut self,
+        container_id: &str,
+        outcome_observed_boot_ns: u64,
+    ) -> Result<Option<FinalizedEvidence>> {
+        let Some(token) = self.guest_oom_victim_active.remove(container_id) else {
+            return Ok(None);
+        };
+        self.guest_oom_victim
+            .finalize(
+                token,
+                outcome_observed_boot_ns,
+                self.guest_oom_victim_loss_epoch,
+            )
+            .map_err(|e| anyhow!(e))
+    }
+
+    pub fn get_guest_oom_victim_evidence(
+        &self,
+        token: &RealizationToken,
+    ) -> Option<FinalizedEvidence> {
+        self.guest_oom_victim.finalized(token)
+    }
+
+    pub fn clear_guest_oom_victim_realization(&mut self, container_id: &str) {
+        self.guest_oom_victim_active.remove(container_id);
     }
 
     #[instrument]

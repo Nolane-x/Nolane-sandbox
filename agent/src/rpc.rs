@@ -43,9 +43,10 @@ use protobuf::MessageDyn;
 use protobuf::MessageField;
 use protocols::agent::{
     self, AddSwapRequest, AgentDetails, CopyFileRequest, GetIPTablesRequest, GetIPTablesResponse,
-    GuestDetailsResponse, Interfaces, Metrics, OOMEvent, ReadStreamResponse, Routes,
-    SetIPTablesRequest, SetIPTablesResponse, StatsContainerResponse, VolumeStatsRequest,
-    WaitProcessResponse, WriteStreamResponse,
+    GetOOMVictimEvidenceResponse, GuestDetailsResponse, Interfaces, Metrics, OOMEvent,
+    OOMVictimProof, OOMVictimScope, ReadStreamResponse, Routes, SetIPTablesRequest,
+    SetIPTablesResponse, StatsContainerResponse, VolumeStatsRequest, WaitProcessResponse,
+    WriteStreamResponse,
 };
 use protocols::csi::{volume_usage, VolumeCondition, VolumeStatsResponse, VolumeUsage};
 use protocols::empty::Empty;
@@ -75,6 +76,9 @@ use ttrpc::{
 use crate::device::{
     add_devices, get_virtio_blk_pci_device_name, update_device_cgroup, update_env_pci,
     wait_for_pci_net,
+};
+use crate::guest_oom_victim::{
+    current_boottime_ns, read_guest_boot_id, read_process_identity, RealizationToken, VictimClass,
 };
 use crate::linux_abi::*;
 use crate::metrics::get_metrics;
@@ -308,32 +312,89 @@ impl AgentService {
     #[instrument]
     async fn do_start_container(&self, req: protocols::agent::StartContainerRequest) -> Result<()> {
         let cid = req.container_id;
+        let token = if req.oom_victim_realization_token.is_empty() {
+            None
+        } else if req.oom_victim_realization_token.len() != 32 {
+            warn!(
+                sl!(),
+                "Wave21 realization token has invalid length for {}", cid
+            );
+            None
+        } else {
+            let mut raw = [0u8; 32];
+            raw.copy_from_slice(req.oom_victim_realization_token.as_slice());
+            match RealizationToken::from_bytes(raw) {
+                Ok(token) => Some(token),
+                Err(e) => {
+                    warn!(
+                        sl!(),
+                        "Wave21 realization token is invalid for {}: {}", cid, e
+                    );
+                    None
+                }
+            }
+        };
+        let started = token.and_then(|token| match current_boottime_ns() {
+            Ok(ts) => Some((token, ts)),
+            Err(e) => {
+                warn!(sl!(), "Wave21 start clock unavailable for {}: {}", cid, e);
+                None
+            }
+        });
 
         let sandbox = self.sandbox.clone();
         let mut s = sandbox.lock().await;
         let sid = s.id.clone();
+        if token.is_none() {
+            s.clear_guest_oom_victim_realization(&cid);
+        }
 
-        let ctr = s
-            .get_container(&cid)
-            .ok_or_else(|| anyhow!("Invalid container id"))?;
-
-        ctr.exec().await?;
+        let (init_pid, cg_path) = {
+            let ctr = s
+                .get_container(&cid)
+                .ok_or_else(|| anyhow!("Invalid container id"))?;
+            ctr.exec().await?;
+            let init_pid = ctr.init_process_pid;
+            let cg_path = ctr
+                .cgroup_manager
+                .as_ref()
+                .and_then(|manager| manager.get_cg_path("memory"));
+            (init_pid, cg_path)
+        };
 
         if sid == cid {
             return Ok(());
         }
 
-        // start oom event loop
-        if let Some(ref ctr) = ctr.cgroup_manager {
-            let cg_path = ctr.get_cg_path("memory");
-
-            if let Some(cg_path) = cg_path {
-                let rx = notifier::notify_oom(cid.as_str(), cg_path.to_string()).await?;
-
-                s.run_oom_event_monitor(rx, cid.clone()).await;
+        if let Some((token, started_boot_ns)) = started {
+            match (read_guest_boot_id(), read_process_identity(init_pid)) {
+                (Ok(boot_id), Ok(main)) => {
+                    if let Err(e) = s.begin_guest_oom_victim_realization(
+                        &cid,
+                        token,
+                        started_boot_ns,
+                        &boot_id,
+                        main,
+                        None,
+                    ) {
+                        warn!(sl!(), "Wave21 realization unavailable for {}: {}", cid, e);
+                    }
+                }
+                (boot, main) => warn!(
+                    sl!(),
+                    "Wave21 identity unavailable for {}: boot={:?} main={:?}",
+                    cid,
+                    boot.err(),
+                    main.err()
+                ),
             }
         }
 
+        // Compatibility OOM notification remains independent from Wave21 victim authority.
+        if let Some(cg_path) = cg_path {
+            let rx = notifier::notify_oom(cid.as_str(), cg_path.to_string()).await?;
+            s.run_oom_event_monitor(rx, cid.clone()).await;
+        }
         Ok(())
     }
 
@@ -343,6 +404,10 @@ impl AgentService {
         req: protocols::agent::RemoveContainerRequest,
     ) -> Result<()> {
         let cid = req.container_id.clone();
+        self.sandbox
+            .lock()
+            .await
+            .clear_guest_oom_victim_realization(&cid);
         let mut cmounts: Vec<String> = vec![];
 
         let mut remove_container_resources = |sandbox: &mut Sandbox| -> Result<()> {
@@ -601,6 +666,7 @@ impl AgentService {
         let total_start = Instant::now();
         let cid = req.container_id.clone();
         let eid = req.exec_id;
+        let is_main = eid.is_empty();
         let s = self.sandbox.clone();
         let mut resp = WaitProcessResponse::new();
         let pid: pid_t;
@@ -679,6 +745,19 @@ impl AgentService {
                     total_start.elapsed().as_millis()
                 );
 
+                if is_main {
+                    match current_boottime_ns() {
+                        Ok(ts) => {
+                            if let Err(e) = sandbox.finalize_guest_oom_victim_realization(&cid, ts)
+                            {
+                                warn!(sl!(), "Wave21 finalize unavailable for {}: {}", cid, e);
+                            }
+                        }
+                        Err(e) => {
+                            warn!(sl!(), "Wave21 outcome clock unavailable for {}: {}", cid, e)
+                        }
+                    }
+                }
                 return Ok(resp);
             }
         };
@@ -686,6 +765,16 @@ impl AgentService {
         let remove_start = Instant::now();
         ctr.processes.remove(&pid);
         let remove_ms = remove_start.elapsed().as_millis();
+        if is_main {
+            match current_boottime_ns() {
+                Ok(ts) => {
+                    if let Err(e) = sandbox.finalize_guest_oom_victim_realization(&cid, ts) {
+                        warn!(sl!(), "Wave21 finalize unavailable for {}: {}", cid, e);
+                    }
+                }
+                Err(e) => warn!(sl!(), "Wave21 outcome clock unavailable for {}: {}", cid, e),
+            }
+        }
 
         info!(
             sl!(),
@@ -1727,6 +1816,58 @@ impl protocols::agent_ttrpc::AgentService for AgentService {
         }
 
         Err(ttrpc_error!(ttrpc::Code::INTERNAL, ""))
+    }
+
+    async fn get_oom_victim_evidence(
+        &self,
+        _ctx: &TtrpcContext,
+        req: protocols::agent::GetOOMVictimEvidenceRequest,
+    ) -> ttrpc::Result<GetOOMVictimEvidenceResponse> {
+        is_allowed!(req);
+        if req.container_id.is_empty() || req.realization_token.len() != 32 {
+            return Err(ttrpc_error!(
+                ttrpc::Code::INVALID_ARGUMENT,
+                "Wave21 exact container id and 32-byte realization token are required"
+            ));
+        }
+        let mut raw = [0u8; 32];
+        raw.copy_from_slice(req.realization_token.as_slice());
+        let token = RealizationToken::from_bytes(raw)
+            .map_err(|e| ttrpc_error!(ttrpc::Code::INVALID_ARGUMENT, e))?;
+        let evidence = self
+            .sandbox
+            .lock()
+            .await
+            .get_guest_oom_victim_evidence(&token)
+            .ok_or_else(|| {
+                ttrpc_error!(
+                    ttrpc::Code::NOT_FOUND,
+                    "Wave21 finalized evidence unavailable"
+                )
+            })?;
+        if evidence.poisoned {
+            return Err(ttrpc_error!(
+                ttrpc::Code::FAILED_PRECONDITION,
+                "Wave21 finalized evidence is poisoned"
+            ));
+        }
+        let mut resp = GetOOMVictimEvidenceResponse::new();
+        resp.guest_boot_id = evidence.guest_boot_id;
+        for victim in evidence.victims {
+            let mut proof = OOMVictimProof::new();
+            proof.victim_tid = victim.tid;
+            proof.victim_tgid = victim.tgid;
+            proof.victim_starttime_ticks = victim.starttime_ticks;
+            proof.event_boot_time_ns = victim.event_boot_ns;
+            proof.cgroup_v2_id = victim.cgroup_v2_id.unwrap_or(0);
+            proof.scope = match victim.class {
+                VictimClass::Main => OOMVictimScope::OOM_VICTIM_SCOPE_MAIN,
+                VictimClass::Member => OOMVictimScope::OOM_VICTIM_SCOPE_MEMBER,
+            }
+            .into();
+            resp.proofs.push(proof);
+        }
+        Ok(resp)
     }
 
     async fn get_volume_stats(
