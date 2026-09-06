@@ -24,22 +24,20 @@ jobs:
           text = lib.read_text()
           helper = '''\n/// Serialize Wave21 guest-victim evidence using the protobuf runtime that\n/// generated the agent protocol types. CubeShim itself intentionally uses a\n/// newer protobuf runtime for containerd messages, so serialization authority\n/// stays inside this crate to avoid cross-version trait ambiguity.\npub fn encode_oom_victim_evidence(\n    response: &agent::GetOOMVictimEvidenceResponse,\n) -> protobuf::ProtobufResult<Vec<u8>> {\n    use protobuf::Message;\n    response.write_to_bytes()\n}\n'''
           if 'pub fn encode_oom_victim_evidence' not in text:
-              text = text.rstrip() + '\n' + helper
-              lib.write_text(text)
+              lib.write_text(text.rstrip() + '\n' + helper)
 
           sb = Path('CubeShim/shim/src/sandbox/sb.rs')
           text = sb.read_text()
-          old = '''        use protobuf::Message;\n\n        let client = self.agent_client().await?;'''
-          new = '''        let client = self.agent_client().await?;'''
-          if old not in text:
-              raise SystemExit('expected protobuf Message anchor missing')
+          old = '''        use protobuf::Message;\n        let guest_container_id = self.guest_container_id(id).await?;'''
+          new = '''        let guest_container_id = self.guest_container_id(id).await?;'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected protobuf Message anchor once, got {text.count(old)}')
           text = text.replace(old, new, 1)
-          old = '''        response\n            .write_to_bytes()\n            .map_err(|e| anyhow!("encode guest OOM-victim evidence failed: {}", e))'''
-          new = '''        protoc::encode_oom_victim_evidence(&response)\n            .map_err(|e| anyhow!("encode guest OOM-victim evidence failed: {}", e))'''
-          if old not in text:
-              raise SystemExit('expected response serialization anchor missing')
-          text = text.replace(old, new, 1)
-          sb.write_text(text)
+          old = '''        response.write_to_bytes().map_err(|e| {\n            Error::Other(format!(\n                "encode OOM victim evidence failed for {}: {}",\n                id, e\n            ))\n        })'''
+          new = '''        protoc::encode_oom_victim_evidence(&response).map_err(|e| {\n            Error::Other(format!(\n                "encode OOM victim evidence failed for {}: {}",\n                id, e\n            ))\n        })'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected response serialization anchor once, got {text.count(old)}')
+          sb.write_text(text.replace(old, new, 1))
           PY
           rustfmt --edition 2021 CubeShim/protoc/src/lib.rs CubeShim/shim/src/sandbox/sb.rs
           git diff --check
