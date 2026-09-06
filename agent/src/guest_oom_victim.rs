@@ -374,6 +374,8 @@ unsafe extern "C" {
 }
 
 const CLOCK_BOOTTIME: core::ffi::c_int = 7;
+const NANOSECONDS_PER_SECOND: i128 = 1_000_000_000;
+const USER_HZ_100_TICK_NS: u64 = 10_000_000;
 
 pub fn current_boottime_ns() -> Result<u64, String> {
     let mut ts = KernelTimespec {
@@ -397,6 +399,85 @@ pub fn current_boottime_ns() -> Result<u64, String> {
     sec.checked_mul(1_000_000_000)
         .and_then(|v| v.checked_add(nsec))
         .ok_or_else(|| "CLOCK_BOOTTIME nanoseconds overflow".to_string())
+}
+
+pub fn parse_time_namespace_inode(value: &str) -> Result<u64, String> {
+    let digits = value
+        .strip_prefix("time:[")
+        .and_then(|rest| rest.strip_suffix(']'))
+        .ok_or_else(|| "time namespace handle is not canonical".to_string())?;
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("time namespace inode is invalid".to_string());
+    }
+    let inode = digits
+        .parse::<u64>()
+        .map_err(|_| "time namespace inode overflow".to_string())?;
+    if inode == 0 || format!("time:[{}]", inode) != value {
+        return Err("time namespace handle is not canonical".to_string());
+    }
+    Ok(inode)
+}
+
+pub fn parse_timens_boottime_offset_ns(value: &str) -> Result<i128, String> {
+    let mut boottime_offset = None;
+
+    for line in value.lines() {
+        if line.trim().is_empty() {
+            return Err("time namespace offsets contain an empty record".to_string());
+        }
+        let mut fields = line.split_ascii_whitespace();
+        let clock = fields
+            .next()
+            .ok_or_else(|| "time namespace offset record is missing clock id".to_string())?;
+        let seconds_raw = fields
+            .next()
+            .ok_or_else(|| "time namespace offset record is missing seconds".to_string())?;
+        let nanoseconds_raw = fields
+            .next()
+            .ok_or_else(|| "time namespace offset record is missing nanoseconds".to_string())?;
+        if fields.next().is_some() {
+            return Err("time namespace offset record has extra fields".to_string());
+        }
+        if clock != "boottime" {
+            continue;
+        }
+        if boottime_offset.is_some() {
+            return Err("time namespace offsets contain duplicate boottime records".to_string());
+        }
+
+        let seconds = seconds_raw
+            .parse::<i128>()
+            .map_err(|_| "time namespace boottime seconds are invalid".to_string())?;
+        let nanoseconds = nanoseconds_raw
+            .parse::<i128>()
+            .map_err(|_| "time namespace boottime nanoseconds are invalid".to_string())?;
+        if !(0..NANOSECONDS_PER_SECOND).contains(&nanoseconds) {
+            return Err("time namespace boottime nanoseconds are out of range".to_string());
+        }
+
+        let offset = seconds
+            .checked_mul(NANOSECONDS_PER_SECOND)
+            .and_then(|base| base.checked_add(nanoseconds))
+            .ok_or_else(|| "time namespace boottime offset overflow".to_string())?;
+        boottime_offset = Some(offset);
+    }
+
+    boottime_offset.ok_or_else(|| "time namespace offsets are missing boottime".to_string())
+}
+
+pub fn start_boottime_ns_to_starttime_ticks(
+    start_boottime_ns: u64,
+    boottime_offset_ns: i128,
+) -> Result<u64, String> {
+    let visible_start_ns = i128::from(start_boottime_ns)
+        .checked_add(boottime_offset_ns)
+        .ok_or_else(|| "visible process start time overflow".to_string())?;
+    if visible_start_ns < 0 || visible_start_ns > i128::from(u64::MAX) {
+        return Err("visible process start time is outside the supported range".to_string());
+    }
+    let visible_start_ns = u64::try_from(visible_start_ns)
+        .map_err(|_| "visible process start time conversion failed".to_string())?;
+    Ok(visible_start_ns / USER_HZ_100_TICK_NS)
 }
 
 pub fn read_guest_boot_id() -> Result<String, String> {
