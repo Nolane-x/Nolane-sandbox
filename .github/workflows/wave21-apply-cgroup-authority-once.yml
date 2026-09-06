@@ -41,7 +41,14 @@ jobs:
           rustc --edition=2021 --test agent/tests/guest_oom_victim_loader_v21.rs -o /tmp/guest_oom_victim_loader_v21
           /tmp/guest_oom_victim_loader_v21 --nocapture
           python3 tests/wave21_agent_service_contract.py
+
+          # The canonical agent build generates src/version.rs from version.rs.in.
+          # Generate it for the real cargo check, then remove the artifact so the
+          # one-shot commit contains only source-of-truth changes.
+          make -C agent src/version.rs
           cargo check --locked --manifest-path agent/Cargo.toml
+          rm -f agent/src/version.rs
+
           git diff --check
 
           git rm \
