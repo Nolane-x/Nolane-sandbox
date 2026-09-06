@@ -18,7 +18,7 @@ required_task_fragments = [
     "insert_finalized(&req.id, token, payload)",
     "EVIDENCE_METADATA_KEY",
     "EVIDENCE_TYPE_URL",
-    "victim_evidence.lock().await.select(&req.id, &metadata)",
+    ".select(&req.id, &metadata)",
 ]
 
 for fragment in required_task_fragments:
