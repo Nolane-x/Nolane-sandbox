@@ -5,17 +5,62 @@ MAIN = Path("agent/src/main.rs").read_text()
 SANDBOX = Path("agent/src/sandbox.rs").read_text()
 RPC = Path("agent/src/rpc.rs").read_text()
 AUTHORITY = Path("agent/src/guest_oom_victim.rs").read_text()
+COLLECTOR = Path("agent/src/oom_victim.rs").read_text()
+BPF = Path("agent/src/oom_victim_bpf.rs").read_text()
+PROC = Path("agent/src/oom_victim_proc.rs").read_text()
 
-assert "mod guest_oom_victim;" in MAIN, "guest victim authority module must be production-linked"
+for fragment in [
+    "mod guest_oom_victim;",
+    "mod oom_victim;",
+    "mod oom_victim_bpf;",
+    "mod oom_victim_proc;",
+    "oom_victim::start_best_effort(",
+]:
+    assert fragment in MAIN, f"missing Wave21 Agent collector lifecycle seam: {fragment}"
 
 for fragment in [
     "guest_oom_victim: GuestVictimStore",
     "guest_oom_victim_loss_epoch: u64",
     "begin_guest_oom_victim_realization",
+    "record_guest_oom_victim_raw",
+    "note_guest_oom_victim_loss",
     "finalize_guest_oom_victim_realization",
     "get_guest_oom_victim_evidence",
 ]:
     assert fragment in SANDBOX, f"missing Wave21 Sandbox authority seam: {fragment}"
+
+for fragment in [
+    "MAX_RAW_VICTIM_EVENTS: usize = 1024",
+    "MAX_RAW_AGE_NS",
+    "MAX_FINALIZED_REALIZATIONS: usize = 256",
+    "MAX_FINALIZED_AGE_NS",
+    "start_store_loss_epoch",
+    "record_raw_with_disposition",
+    "RecordedWithLoss",
+]:
+    assert fragment in AUTHORITY, f"missing Wave21 bounded evidence invariant: {fragment}"
+
+for fragment in [
+    "Collector::start()",
+    "record_guest_oom_victim_raw(event)",
+    "note_guest_oom_victim_loss()",
+]:
+    assert fragment in COLLECTOR, f"missing Wave21 collector runtime seam: {fragment}"
+
+for fragment in [
+    "probe_collector_capability()?",
+    "no reviewed object-free raw-tracepoint BPF loader",
+    "refusing tracefs/dmesg/exit-code fallback",
+]:
+    assert fragment in BPF, f"missing Wave21 collector fail-closed boundary: {fragment}"
+
+for fragment in [
+    "/sys/kernel/btf/vmlinux",
+    "/sys/kernel/tracing/events/oom/mark_victim/id",
+    "x86_64",
+    "aarch64",
+]:
+    assert fragment in PROC, f"missing Wave21 collector capability probe: {fragment}"
 
 for fragment in [
     "RealizationToken::from_bytes",
@@ -30,9 +75,10 @@ for fragment in [
     assert fragment in RPC, f"missing Wave21 AgentService production wiring: {fragment}"
 
 # Compatibility/cgroup signals remain separate from exact victim authority.
-assert "GetOOMEvent" not in AUTHORITY
-assert "memory.events" not in AUTHORITY
-assert "oom_kill" not in AUTHORITY
+for source in [AUTHORITY, COLLECTOR, BPF, PROC]:
+    assert "GetOOMEvent" not in source
+    assert "memory.events" not in source
+    assert "oom_kill" not in source
 assert "exit_status == 137" not in RPC
 assert "exit_status: 137" not in RPC
 
