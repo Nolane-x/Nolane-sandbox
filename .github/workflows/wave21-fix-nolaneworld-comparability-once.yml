@@ -1,0 +1,125 @@
+name: Wave21 Fix NolaneWorld Comparable Evidence Once
+
+on:
+  push:
+    branches: [gpt/wave21-guest-kernel-oom-victim-provenance]
+    paths:
+      - .github/workflows/wave21-fix-nolaneworld-comparability-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gpt/wave21-guest-kernel-oom-victim-provenance
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: Cubelet/go.mod
+          cache: false
+
+      - name: Preserve Wave18 comparability while retaining Wave21 same-scrape proofs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          task = Path('NolaneWorld/substrate/cube/task_termination.go')
+          text = task.read_text()
+
+          old_struct = '''type TaskTerminationEvidence struct {
+          \tOutcome               TaskOutcomeProof
+          \tRealizationOOM        *RealizationOOMProof
+          \tHostProcessIdentity   *HostSandboxProcessIdentityProof
+          \tHostKernelOOMVictim   *HostKernelOOMVictimProof
+          \tGuestKernelOOMVictims []GuestKernelOOMVictimProof
+          }'''
+          new_struct = '''type guestKernelOOMVictimSet struct {
+          \tproofs []GuestKernelOOMVictimProof
+          }
+
+          type TaskTerminationEvidence struct {
+          \tOutcome               TaskOutcomeProof
+          \tRealizationOOM        *RealizationOOMProof
+          \tHostProcessIdentity   *HostSandboxProcessIdentityProof
+          \tHostKernelOOMVictim   *HostKernelOOMVictimProof
+          \tguestKernelOOMVictims *guestKernelOOMVictimSet
+          }
+
+          // GuestKernelOOMVictimProofs returns a defensive copy of positive Wave21
+          // proofs from this exact metrics scrape. Absence remains unknown.
+          func (e TaskTerminationEvidence) GuestKernelOOMVictimProofs() []GuestKernelOOMVictimProof {
+          \tif e.guestKernelOOMVictims == nil || len(e.guestKernelOOMVictims.proofs) == 0 {
+          \t\treturn nil
+          \t}
+          \treturn append([]GuestKernelOOMVictimProof(nil), e.guestKernelOOMVictims.proofs...)
+          }'''
+          if old_struct not in text:
+              raise SystemExit('TaskTerminationEvidence slice shape missing')
+          text = text.replace(old_struct, new_struct, 1)
+
+          old_assign = '''\tevidence.GuestKernelOOMVictims = append([]GuestKernelOOMVictimProof(nil), guestVictims...)
+          \treturn evidence, true, nil'''
+          new_assign = '''\tif len(guestVictims) > 0 {
+          \t\tevidence.guestKernelOOMVictims = &guestKernelOOMVictimSet{
+          \t\t\tproofs: append([]GuestKernelOOMVictimProof(nil), guestVictims...),
+          \t\t}
+          \t}
+          \treturn evidence, true, nil'''
+          if old_assign not in text:
+              raise SystemExit('same-scrape assignment anchor missing')
+          text = text.replace(old_assign, new_assign, 1)
+
+          if 'func correlateRealizationOOM(' not in text:
+              text = text.rstrip() + '''\n\nfunc correlateRealizationOOM(outcome TaskOutcomeProof, oom RealizationOOMProof) error {
+          \tif oom.SandboxID != outcome.SandboxID ||
+          \t\toom.Generation != outcome.Generation ||
+          \t\toom.OutcomeSource != outcome.Source ||
+          \t\t!oom.ExitedAt.Equal(outcome.ExitedAt) {
+          \t\treturn fmt.Errorf("%w: realization OOM proof does not match exact task outcome", ErrTaskOutcomeUnavailable)
+          \t}
+          \treturn nil
+          }\n'''
+          task.write_text(text)
+
+          helper = Path('NolaneWorld/substrate/cube/task_termination_guest_victim.go')
+          text = helper.read_text()
+          text = text.replace('len(e.GuestKernelOOMVictims)', 'len(e.GuestKernelOOMVictimProofs())')
+          text = text.replace('range e.GuestKernelOOMVictims', 'range e.GuestKernelOOMVictimProofs()')
+          helper.write_text(text)
+
+          test = Path('NolaneWorld/substrate/cube/task_termination_guest_victim_v21_test.go')
+          text = test.read_text()
+          text = text.replace(
+              'if len(evidence.GuestKernelOOMVictims) != 2 {\n\t\tt.Fatalf("guest victim count = %d, want 2", len(evidence.GuestKernelOOMVictims))\n\t}',
+              'proofs := evidence.GuestKernelOOMVictimProofs()\n\tif len(proofs) != 2 {\n\t\tt.Fatalf("guest victim count = %d, want 2", len(proofs))\n\t}',
+              1,
+          )
+          test.write_text(text)
+          PY
+
+          gofmt -w \
+            NolaneWorld/substrate/cube/task_termination.go \
+            NolaneWorld/substrate/cube/task_termination_guest_victim.go \
+            NolaneWorld/substrate/cube/task_termination_guest_victim_v21_test.go
+
+          (cd NolaneWorld && go test ./substrate/cube -run 'TestV21|TestTaskTermination|TaskOutcome' -count=1)
+          (cd NolaneWorld && go test ./substrate/cube -run 'TestV18' -count=1)
+          git diff --check
+          git rm .github/workflows/wave21-fix-nolaneworld-comparability-once.yml
+
+      - name: Commit verified compatibility closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(wave21): preserve termination evidence comparability" -m "Retain same-scrape guest victim proofs behind a defensive accessor and restore the Wave18 realization correlation tail." -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
+          git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
