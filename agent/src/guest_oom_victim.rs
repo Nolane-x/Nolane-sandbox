@@ -240,6 +240,13 @@ impl GuestVictimStore {
         self.finalized.insert(token, evidence.clone());
         Ok(Some(evidence))
     }
+
+    // finalized is a read-only, exact-token view of immutable guest evidence.
+    // It never finalizes an open realization and therefore cannot manufacture
+    // the authoritative WaitProcess boundary required by Wave 21.
+    pub fn finalized(&self, token: &RealizationToken) -> Option<FinalizedEvidence> {
+        self.finalized.get(token).cloned()
+    }
 }
 
 fn canonical_boot_id(value: &str) -> bool {
