@@ -46,6 +46,7 @@ mod fixes;
 mod guest_oom_victim;
 mod oom_victim;
 mod oom_victim_bpf;
+mod oom_victim_runtime;
 mod oom_victim_proc;
 mod linux_abi;
 mod metrics;
