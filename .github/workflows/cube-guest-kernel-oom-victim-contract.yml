@@ -18,6 +18,7 @@ jobs:
         run: |
           python3 tests/wave21_protocol_contract.py
           python3 tests/wave21_shim_service_contract.py
+          python3 tests/wave21_agent_service_contract.py
 
   cubelet-wave21:
     runs-on: ubuntu-latest
