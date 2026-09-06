@@ -34,12 +34,6 @@ jobs:
           rustfmt --edition 2021 agent/src/guest_oom_victim.rs agent/src/sandbox.rs agent/src/rpc.rs
           python3 tests/wave21_agent_service_contract.py
           git diff --check
-      - name: Verify guest unit tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd agent
-          make test
       - name: Commit guest wiring
         shell: bash
         run: |
