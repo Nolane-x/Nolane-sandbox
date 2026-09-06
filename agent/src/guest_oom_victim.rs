@@ -82,6 +82,10 @@ pub struct VictimProof {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FinalizedEvidence {
     pub guest_boot_id: String,
+    pub realization_started_boot_ns: u64,
+    pub outcome_observed_boot_ns: u64,
+    pub main: GuestProcessIdentity,
+    pub expected_cgroup_v2_id: Option<u64>,
     pub poisoned: bool,
     pub victims: Vec<VictimProof>,
 }
@@ -176,6 +180,10 @@ impl GuestVictimStore {
         if loss_epoch != realization.start_loss_epoch {
             let evidence = FinalizedEvidence {
                 guest_boot_id: realization.guest_boot_id,
+                realization_started_boot_ns: realization.started_boot_ns,
+                outcome_observed_boot_ns,
+                main: realization.main,
+                expected_cgroup_v2_id: realization.expected_cgroup_v2_id,
                 poisoned: true,
                 victims: Vec::new(),
             };
@@ -234,6 +242,10 @@ impl GuestVictimStore {
         }
         let evidence = FinalizedEvidence {
             guest_boot_id: realization.guest_boot_id,
+            realization_started_boot_ns: realization.started_boot_ns,
+            outcome_observed_boot_ns,
+            main: realization.main,
+            expected_cgroup_v2_id: realization.expected_cgroup_v2_id,
             poisoned,
             victims,
         };
