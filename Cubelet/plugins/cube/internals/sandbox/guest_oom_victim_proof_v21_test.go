@@ -77,8 +77,8 @@ func TestV21GuestVictimMemberRequiresExactCgroupIdentity(t *testing.T) {
 	proof := GuestKernelOOMVictimProof{
 		SandboxID: "sandbox-a", Generation: 1,
 		GuestBootID: "11111111-2222-3333-4444-555555555555",
-		TID: 42, TGID: 41, StartTimeTicks: 9001, EventBootNS: 150,
-		Class: GuestKernelOOMVictimClassMember,
+		TID:         42, TGID: 41, StartTimeTicks: 9001, EventBootNS: 150,
+		Class:                    GuestKernelOOMVictimClassMember,
 		RealizationStartedBootNS: 100, OutcomeObservedBootNS: 200,
 		Source: guestKernelOOMVictimSource,
 	}
