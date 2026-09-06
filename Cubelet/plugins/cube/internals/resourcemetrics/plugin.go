@@ -121,6 +121,10 @@ func init() {
 			if !ok {
 				return nil, fmt.Errorf("cube sandbox controller does not expose host kernel OOM victim proofs")
 			}
+			guestKernelVictimProofs, ok := controllerPlugin.(guestKernelOOMVictimProofVisitor)
+			if !ok {
+				return nil, fmt.Errorf("cube sandbox controller does not expose guest kernel OOM victim proofs")
+			}
 
 			cgroupPlugin, err := ic.GetByID(constants.InternalPlugin, constants.CgroupID.ID())
 			if err != nil {
@@ -179,12 +183,13 @@ func init() {
 					go hostSampler.Run(ic.Context)
 				}
 			}
-			return newServiceWithAllTaskEvidenceAndKernelVictims(
+			return newProductionTaskEvidenceService(
 				cache,
 				taskOutcomes,
 				oomProofs,
 				hostProcessProofs,
 				hostKernelVictimProofs,
+				guestKernelVictimProofs,
 			), nil
 		},
 	})
