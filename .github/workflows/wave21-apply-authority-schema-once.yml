@@ -111,8 +111,8 @@ jobs:
                       proof.victim_starttime_ticks = victim.starttime_ticks;
                       proof.event_boot_time_ns = victim.event_boot_ns;
                       proof.cgroup_v2_id = victim.cgroup_v2_id.unwrap_or(0);
-                      proof.main_pid = evidence.main.tgid;
-                      proof.main_starttime_ticks = evidence.main.starttime_ticks;
+                      proof.main_pid = evidence.main_identity.tgid;
+                      proof.main_starttime_ticks = evidence.main_identity.starttime_ticks;
                       proof.scope = match victim.class {
                           VictimClass::Main => OOMVictimScope::OOM_VICTIM_SCOPE_MAIN,
                           VictimClass::Member => OOMVictimScope::OOM_VICTIM_SCOPE_MEMBER,
@@ -138,8 +138,8 @@ jobs:
               '    "proof.version = 1",\n'
               '    "proof.container_id = req.container_id.clone()",\n'
               '    "proof.realization_token = req.realization_token.clone()",\n'
-              '    "proof.main_pid = evidence.main.tgid",\n'
-              '    "proof.main_starttime_ticks = evidence.main.starttime_ticks",\n'
+              '    "proof.main_pid = evidence.main_identity.tgid",\n'
+              '    "proof.main_starttime_ticks = evidence.main_identity.starttime_ticks",\n'
               '    "proof.realization_started_boot_ns = evidence.realization_started_boot_ns",\n'
               '    "proof.outcome_observed_boot_ns = evidence.outcome_observed_boot_ns",\n'
               '    "guest.kernel.oom.mark_victim.raw_tracepoint",\n'
