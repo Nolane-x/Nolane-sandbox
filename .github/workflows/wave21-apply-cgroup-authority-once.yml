@@ -1,4 +1,6 @@
 name: Wave21 Apply Guest Cgroup Authority Once
+# One-shot worker: close the exact guest cgroup-v2 authority seam from the
+# already-RED Wave21 contract, verify the real agent build, then self-delete.
 
 on:
   push:
@@ -18,307 +20,113 @@ jobs:
           ref: gpt/wave21-guest-kernel-oom-victim-provenance
           fetch-depth: 0
 
-      - name: Apply exact cgroup-v2 authority and loader compile closure
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Apply exact cgroup-v2 authority
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
+          from base64 import b64decode
           from pathlib import Path
 
-          authority = Path('agent/src/guest_oom_victim.rs')
+          authority = Path("agent/src/guest_oom_victim.rs")
           text = authority.read_text()
-          anchor = '''#[repr(C)]
-          struct KernelTimespec {'''
-          helper = r'''pub fn parse_process_cgroup_v2_path(raw: &str) -> Result<Option<String>, String> {
-              let mut seen_unified = false;
-              let mut result = None;
-              for line in raw.lines() {
-                  if line.is_empty() {
-                      continue;
-                  }
-                  let mut parts = line.splitn(3, ':');
-                  let hierarchy = parts.next().unwrap_or_default();
-                  let controllers = parts
-                      .next()
-                      .ok_or_else(|| "guest process cgroup record is malformed".to_string())?;
-                  let path = parts
-                      .next()
-                      .ok_or_else(|| "guest process cgroup record is malformed".to_string())?;
-                  if hierarchy == "0" && controllers.is_empty() {
-                      if seen_unified {
-                          return Err("guest process has ambiguous cgroup-v2 membership".to_string());
-                      }
-                      seen_unified = true;
-                      if path == "/" {
-                          result = None;
-                      } else {
-                          validate_cgroup_path(path)?;
-                          result = Some(path.to_string());
-                      }
-                  }
-              }
-              Ok(result)
-          }
-
-          fn validate_cgroup_path(path: &str) -> Result<(), String> {
-              if !path.starts_with('/') || path == "/" || path.contains('\0') {
-                  return Err("guest cgroup-v2 path is not a non-root absolute path".to_string());
-              }
-              if path.ends_with('/') || path.contains("//") {
-                  return Err("guest cgroup-v2 path is not canonical".to_string());
-              }
-              for component in path.split('/').skip(1) {
-                  if component.is_empty() || component == "." || component == ".." {
-                      return Err("guest cgroup-v2 path is not canonical".to_string());
-                  }
-              }
-              Ok(())
-          }
-
-          pub fn parse_cgroup2_mount(raw: &str) -> Result<String, String> {
-              let mut mount = None;
-              for line in raw.lines() {
-                  let Some((pre, post)) = line.split_once(" - ") else {
-                      continue;
-                  };
-                  let post_fields: Vec<&str> = post.split_whitespace().collect();
-                  if post_fields.first().copied() != Some("cgroup2") {
-                      continue;
-                  }
-                  let pre_fields: Vec<&str> = pre.split_whitespace().collect();
-                  if pre_fields.len() < 5 {
-                      return Err("malformed cgroup2 mountinfo record".to_string());
-                  }
-                  let candidate = unescape_mountinfo_path(pre_fields[4])?;
-                  if !candidate.starts_with('/') || candidate.contains("//") {
-                      return Err("cgroup2 mount point is not canonical".to_string());
-                  }
-                  match &mount {
-                      Some(existing) if existing != &candidate => {
-                          return Err("multiple cgroup2 mounts are ambiguous".to_string())
-                      }
-                      Some(_) => {}
-                      None => mount = Some(candidate),
-                  }
-              }
-              mount.ok_or_else(|| "cgroup2 mount is unavailable".to_string())
-          }
-
-          fn unescape_mountinfo_path(raw: &str) -> Result<String, String> {
-              let value = raw
-                  .replace("\\040", " ")
-                  .replace("\\011", "\t")
-                  .replace("\\012", "\n")
-                  .replace("\\134", "\\");
-              if value.contains('\0') || value.contains('\n') || value.contains('\t') {
-                  return Err("cgroup2 mount point contains unsafe characters".to_string());
-              }
-              Ok(value)
-          }
-
-          pub fn decode_cgroup_v2_handle(raw: &[u8]) -> Result<u64, String> {
-              let bytes: [u8; 8] = raw
-                  .try_into()
-                  .map_err(|_| format!("cgroup-v2 handle must be exactly 8 bytes, got {}", raw.len()))?;
-              let id = u64::from_ne_bytes(bytes);
-              if id == 0 {
-                  return Err("cgroup-v2 handle resolved zero identity".to_string());
-              }
-              Ok(id)
-          }
-
-          #[repr(C)]
-          struct ExactFileHandle {
-              handle_bytes: u32,
-              handle_type: core::ffi::c_int,
-              bytes: [u8; 8],
-          }
-
-          unsafe extern "C" {
-              fn name_to_handle_at(
-                  dirfd: core::ffi::c_int,
-                  pathname: *const core::ffi::c_char,
-                  handle: *mut ExactFileHandle,
-                  mount_id: *mut core::ffi::c_int,
-                  flags: core::ffi::c_int,
-              ) -> core::ffi::c_int;
-          }
-
-          const AT_FDCWD: core::ffi::c_int = -100;
-
-          fn resolve_cgroup_v2_id(path: &str) -> Result<u64, String> {
-              validate_cgroup_path(path)?;
-              let mountinfo = fs::read_to_string("/proc/self/mountinfo")
-                  .map_err(|e| format!("read guest mountinfo failed: {}", e))?;
-              let mount = parse_cgroup2_mount(&mountinfo)?;
-              let full = format!("{}/{}", mount.trim_end_matches('/'), path.trim_start_matches('/'));
-              let c_path = std::ffi::CString::new(full.as_bytes())
-                  .map_err(|_| "guest cgroup-v2 filesystem path contains NUL".to_string())?;
-              let mut handle = ExactFileHandle {
-                  handle_bytes: 8,
-                  handle_type: 0,
-                  bytes: [0u8; 8],
-              };
-              let mut mount_id = 0;
-              let rc = unsafe {
-                  name_to_handle_at(
-                      AT_FDCWD,
-                      c_path.as_ptr(),
-                      &mut handle,
-                      &mut mount_id,
-                      0,
-                  )
-              };
-              if rc != 0 {
-                  return Err(format!(
-                      "name_to_handle_at for guest cgroup-v2 identity failed: {}",
-                      std::io::Error::last_os_error()
-                  ));
-              }
-              if handle.handle_bytes != 8 {
-                  return Err(format!(
-                      "guest cgroup-v2 handle payload must be exactly 8 bytes, got {}",
-                      handle.handle_bytes
-                  ));
-              }
-              decode_cgroup_v2_handle(&handle.bytes)
-          }
-
-          pub fn read_process_cgroup_v2_id(pid: i32) -> Result<Option<u64>, String> {
-              if pid <= 0 {
-                  return Err("guest process pid must be positive".to_string());
-              }
-              let proc_path = format!("/proc/{}/cgroup", pid);
-              let first_raw = fs::read_to_string(&proc_path)
-                  .map_err(|e| format!("read guest process cgroup failed: {}", e))?;
-              let first = parse_process_cgroup_v2_path(&first_raw)?;
-              let Some(first_path) = first else {
-                  return Ok(None);
-              };
-              let id = resolve_cgroup_v2_id(&first_path)?;
-              let second_raw = fs::read_to_string(&proc_path)
-                  .map_err(|e| format!("re-read guest process cgroup failed: {}", e))?;
-              let second = parse_process_cgroup_v2_path(&second_raw)?;
-              if second.as_deref() != Some(first_path.as_str()) {
-                  return Err("guest process cgroup-v2 membership changed during identity capture".to_string());
-              }
-              Ok(Some(id))
-          }
-
-          #[repr(C)]
-          struct KernelTimespec {'''
-          if 'pub fn read_process_cgroup_v2_id' not in text:
-              if anchor not in text:
-                  raise SystemExit('guest authority insertion anchor missing')
-              text = text.replace(anchor, helper, 1)
+          marker = "#[repr(C)]\nstruct KernelTimespec {"
+          helper = b64decode("cHViIGZuIHBhcnNlX3Byb2Nlc3NfY2dyb3VwX3YyX3BhdGgocmF3OiAmc3RyKSAtPiBSZXN1bHQ8T3B0aW9uPFN0cmluZz4sIFN0cmluZz4gewogICAgbGV0IG11dCBzZWVuX3VuaWZpZWQgPSBmYWxzZTsKICAgIGxldCBtdXQgcmVzdWx0ID0gTm9uZTsKICAgIGZvciBsaW5lIGluIHJhdy5saW5lcygpIHsKICAgICAgICBpZiBsaW5lLmlzX2VtcHR5KCkgewogICAgICAgICAgICBjb250aW51ZTsKICAgICAgICB9CiAgICAgICAgbGV0IG11dCBwYXJ0cyA9IGxpbmUuc3BsaXRuKDMsICc6Jyk7CiAgICAgICAgbGV0IGhpZXJhcmNoeSA9IHBhcnRzLm5leHQoKS51bndyYXBfb3JfZGVmYXVsdCgpOwogICAgICAgIGxldCBjb250cm9sbGVycyA9IHBhcnRzCiAgICAgICAgICAgIC5uZXh0KCkKICAgICAgICAgICAgLm9rX29yX2Vsc2UofHwgImd1ZXN0IHByb2Nlc3MgY2dyb3VwIHJlY29yZCBpcyBtYWxmb3JtZWQiLnRvX3N0cmluZygpKT8KICAgICAgICBsZXQgcGF0aCA9IHBhcnRzCiAgICAgICAgICAgIC5uZXh0KCkKICAgICAgICAgICAgLm9rX29yX2Vsc2UofHwgImd1ZXN0IHByb2Nlc3MgY2dyb3VwIHJlY29yZCBpcyBtYWxmb3JtZWQiLnRvX3N0cmluZygpKT8KICAgICAgICBpZiBoaWVyYXJjaHkgPT0gIjAiICYmIGNvbnRyb2xsZXJzLmlzX2VtcHR5KCkgewogICAgICAgICAgICBpZiBzZWVuX3VuaWZpZWQgewogICAgICAgICAgICAgICAgcmV0dXJuIEVycigiZ3Vlc3QgcHJvY2VzcyBoYXMgYW1iaWd1b3VzIGNncm91cC12MiBtZW1iZXJzaGlwIi50b19zdHJpbmcoKSk7CiAgICAgICAgICAgIH0KICAgICAgICAgICAgc2Vlbl91bmlmaWVkID0gdHJ1ZTsKICAgICAgICAgICAgaWYgcGF0aCA9PSAiLyIgewogICAgICAgICAgICAgICAgcmVzdWx0ID0gTm9uZTsKICAgICAgICAgICAgfSBlbHNlIHsKICAgICAgICAgICAgICAgIHZhbGlkYXRlX2Nncm91cF9wYXRoKHBhdGgpPzsKICAgICAgICAgICAgICAgIHJlc3VsdCA9IFNvbWUocGF0aC50b19zdHJpbmcoKSk7CiAgICAgICAgICAgIH0KICAgICAgICB9CiAgICB9CiAgICBPayhyZXN1bHQpCn0KCmZuIHZhbGlkYXRlX2Nncm91cF9wYXRoKHBhdGg6ICZzdHIpIC0+IFJlc3VsdDwoKSwgU3RyaW5nPiB7CiAgICBpZiAhaC5zdGFydHNfd2l0aCgnLycpIHx8IHBhdGggPT0gIi8iIHx8IHBhdGguY29udGFpbnMoJ1wwJykgewogICAgICAgIHJldHVybiBFcnIoImd1ZXN0IGNncm91cC12MiBwYXRoIGlzIG5vdCBhIG5vbi1yb290IGFic29sdXRlIHBhdGgiLnRvX3N0cmluZygpKTsKICAgIH0KICAgIGlmIHBhdGguZW5kc193aXRoKCcvJykgfHwgcGF0aC5jb250YWlucygiLy8iKSB7CiAgICAgICAgcmV0dXJuIEVycigiZ3Vlc3QgY2dyb3VwLXYyIHBhdGggaXMgbm90IGNhbm9uaWNhbCIudG9fc3RyaW5nKCkpOwogICAgfQogICAgZm9yIGNvbXBvbmVudCBpbiBwYXRoLnNwbGl0KCcvJykuc2tpcCgxKSB7CiAgICAgICAgaWYgY29tcG9uZW50LmlzX2VtcHR5KCkgfHwgY29tcG9uZW50ID09ICIuIiB8fCBjb21wb25lbnQgPT0gIi4uIiB7CiAgICAgICAgICAgIHJldHVybiBFcnIoImd1ZXN0IGNncm91cC12MiBwYXRoIGlzIG5vdCBjYW5vbmljYWwiLnRvX3N0cmluZygpKTsKICAgICAgICB9CiAgICB9CiAgICBPaygoKSkKfQoKcHViIGZuIHBhcnNlX2Nncm91cDJfbW91bnQocmF3OiAmc3RyKSAtPiBSZXN1bHQ8U3RyaW5nLCBTdHJpbmc+IHsKICAgIGxldCBtdXQgbW91bnQgPSBOb25lOwogICAgZm9yIGxpbmUgaW4gcmF3LmxpbmVzKCkgewogICAgICAgIGxldCBTb21lKChwcmUsIHBvc3QpKSA9IGxpbmUuc3BsaXRfb25jZSgiIC0gIikgZWxzZSB7CiAgICAgICAgICAgIGNvbnRpbnVlOwogICAgICAgIH07CiAgICAgICAgbGV0IHBvc3RfZmllbGRzOiBWZWM8JnN0cj4gPSBwb3N0LnNwbGl0X3doaXRlc3BhY2UoKS5jb2xsZWN0KCk7CiAgICAgICAgaWYgcG9zdF9maWVsZHMuZmlyc3QoKS5jb3BpZWQoKSAhPSBTb21lKCJjZ3JvdXAyIikgewogICAgICAgICAgICBjb250aW51ZTsKICAgICAgICB9CiAgICAgICAgbGV0IHByZV9maWVsZHM6IFZlYzwmc3RyPiA9IHByZS5zcGxpdF93aGl0ZXNwYWNlKCkuY29sbGVjdCgpOwogICAgICAgIGlmIHByZV9maWVsZHMubGVuKCkgPCA1IHsKICAgICAgICAgICAgcmV0dXJuIEVycigibWFsZm9ybWVkIGNncm91cDIgbW91bnRpbmZvIHJlY29yZCIudG9fc3RyaW5nKCkpOwogICAgICAgIH0KICAgICAgICBsZXQgY2FuZGlkYXRlID0gdW5lc2NhcGVfbW91bnRpbmZvX3BhdGgocHJlX2ZpZWxkc1s0XSk/OwogICAgICAgIGlmICFjYW5kaWRhdGUuc3RhcnRzX3dpdGgoJy8nKSB8fCBjYW5kaWRhdGUuY29udGFpbnMoIi8vIikgewogICAgICAgICAgICByZXR1cm4gRXJyKCJjZ3JvdXAyIG1vdW50IHBvaW50IGlzIG5vdCBjYW5vbmljYWwiLnRvX3N0cmluZygpKTsKICAgICAgICB9CiAgICAgICAgbWF0Y2ggJm1vdW50IHsKICAgICAgICAgICAgU29tZShleGlzdGluZykgaWYgZXhpc3RpbmcgIT0gJmNhbmRpZGF0ZSA9PiB7CiAgICAgICAgICAgICAgICByZXR1cm4gRXJyKCJtdWx0aXBsZSBjZ3JvdXAyIG1vdW50cyBhcmUgYW1iaWd1b3VzIi50b19zdHJpbmcoKSkKICAgICAgICAgICAgfQogICAgICAgICAgICBTb21lKF8pID0+IHt9CiAgICAgICAgICAgIE5vbmUgPT4gbW91bnQgPSBTb21lKGNhbmRpZGF0ZSksCiAgICAgICAgfQogICAgfQogICAgbW91bnQub2tfb3JfZWxzZSh8fCAiY2dyb3VwMiBtb3VudCBpcyB1bmF2YWlsYWJsZSIudG9fc3RyaW5nKCkpCn0KCmZuIHVuZXNjYXBlX21vdW50aW5mb19wYXRoKHJhdzogJnN0cikgLT4gUmVzdWx0PFN0cmluZywgU3RyaW5nPiB7CiAgICBsZXQgdmFsdWUgPSByYXcKICAgICAgICAucmVwbGFjZSgiXFwwNDAiLCAiICIpCiAgICAgICAgLnJlcGxhY2UoIlxcMDExIiwgIlx0IikKICAgICAgICAucmVwbGFjZSgiXFwwMTIiLCAiXG4iKQogICAgICAgIC5yZXBsYWNlKCJcXDEzNCIsICJcXCIpOwogICAgaWYgdmFsdWUuY29udGFpbnMoJ1wwJykgfHwgdmFsdWUuY29udGFpbnMoJ1xuJykgfHwgdmFsdWUuY29udGFpbnMoJ1x0JykgewogICAgICAgIHJldHVybiBFcnIoImNncm91cDIgbW91bnQgcG9pbnQgY29udGFpbnMgdW5zYWZlIGNoYXJhY3RlcnMiLnRvX3N0cmluZygpKTsKICAgIH0KICAgIE9rKHZhbHVlKQp9CgpwdWIgZm4gZGVjb2RlX2Nncm91cF92Ml9oYW5kbGUocmF3OiAmW3U4XSkgLT4gUmVzdWx0PHU2NCwgU3RyaW5nPiB7CiAgICBsZXQgYnl0ZXM6IFt1ODsgOF0gPSByYXcKICAgICAgICAudHJ5X2ludG8oKQogICAgICAgIC5tYXBfZXJyKHxffCBmb3JtYXQhKCJjZ3JvdXAtdjIgaGFuZGxlIG11c3QgYmUgZXhhY3RseSA4IGJ5dGVzLCBnb3Qge30iLCByYXcubGVuKCkpKT87CiAgICBsZXQgaWQgPSB1NjQ6OmZyb21fbmVfYnl0ZXMoYnl0ZXMpOwogICAgaWYgaWQgPT0gMCB7CiAgICAgICAgcmV0dXJuIEVycigiY2dyb3VwLXYyIGhhbmRsZSByZXNvbHZlZCB6ZXJvIGlkZW50aXR5Ii50b19zdHJpbmcoKSk7CiAgICB9CiAgICBPayhpZCkKfQoKI1tyZXByKEMpXQpzdHJ1Y3QgRXhhY3RGaWxlSGFuZGxlIHsKICAgIGhhbmRsZV9ieXRlczogdTMyLAogICAgaGFuZGxlX3R5cGU6IGNvcmU6OmZmaTo6Y19pbnQsCiAgICBieXRlczogW3U4OyA4XSwKfQoKdW5zYWZlIGV4dGVybiAiQyIgewogICAgZm4gbmFtZV90b19oYW5kbGVfYXQoCiAgICAgICAgZGlyZmQ6IGNvcmU6OmZmaTo6Y19pbnQsCiAgICAgICAgcGF0aG5hbWU6ICpjb25zdCBjb3JlOjpmZmk6OmNfY2hhciwKICAgICAgICBoYW5kbGU6ICptdXQgRXhhY3RGaWxlSGFuZGxlLAogICAgICAgIG1vdW50X2lkOiAqbXV0IGNvcmU6OmZmaTo6Y19pbnQsCiAgICAgICAgZmxhZ3M6IGNvcmU6OmZmaTo6Y19pbnQsCiAgICApIC0+IGNvcmU6OmZmaTo6Y19pbnQ7Cn0KCmNvbnN0IEFUX0ZEQ1dEOiBjb3JlOjpmZmk6OmNfaW50ID0gLTEwMDsKCmZuIHJlc29sdmVfY2dyb3VwX3YyX2lkKHBhdGg6ICZzdHIpIC0+IFJlc3VsdDx1NjQsIFN0cmluZz4gewogICAgdmFsaWRhdGVfY2dyb3VwX3BhdGgocGF0aCk/OwogICAgbGV0IG1vdW50aW5mbyA9IGZzOjpyZWFkX3RvX3N0cmluZygiL3Byb2Mvc2VsZi9tb3VudGluZm8iKQogICAgICAgIC5tYXBfZXJyKHxlfCBmb3JtYXQhKCJyZWFkIGd1ZXN0IG1vdW50aW5mbyBmYWlsZWQ6IHt9IiwgZSkpPzsKICAgIGxldCBtb3VudCA9IHBhcnNlX2Nncm91cDJfbW91bnQoJm1vdW50aW5mbyk/OwogICAgbGV0IGZ1bGwgPSBmb3JtYXQhKAogICAgICAgICJ7fS97fSIsCiAgICAgICAgbW91bnQudHJpbV9lbmRfbWF0Y2hlcygnLycpLAogICAgICAgIHBhdGgudHJpbV9zdGFydF9tYXRjaGVzKCcvJykKICAgICk7CiAgICBsZXQgY19wYXRoID0gc3RkOjpmZmk6OkNTdHJpbmc6Om5ldyhmdWxsLmFzX2J5dGVzKCkpCiAgICAgICAgLm1hcF9lcnIofF98ICJndWVzdCBjZ3JvdXAtdjIgZmlsZXN5c3RlbSBwYXRoIGNvbnRhaW5zIE5VTCIudG9fc3RyaW5nKCkpPzsKICAgIGxldCBtdXQgaGFuZGxlID0gRXhhY3RGaWxlSGFuZGxlIHsKICAgICAgICBoYW5kbGVfYnl0ZXM6IDgsCiAgICAgICAgaGFuZGxlX3R5cGU6IDAsCiAgICAgICAgYnl0ZXM6IFswdTg7IDhdLAogICAgfTsKICAgIGxldCBtdXQgbW91bnRfaWQgPSAwOwogICAgbGV0IHJjID0gdW5zYWZlIHsKICAgICAgICBuYW1lX3RvX2hhbmRsZV9hdCgKICAgICAgICAgICAgQVRfRkRDV0QsCiAgICAgICAgICAgIGNfcGF0aC5hc19wdHIoKSwKICAgICAgICAgICAgJm11dCBoYW5kbGUsCiAgICAgICAgICAgICZtdXQgbW91bnRfaWQsCiAgICAgICAgICAgIDAsCiAgICAgICAgKQogICAgfTsKICAgIGlmIHJjICE9IDAgewogICAgICAgIHJldHVybiBFcnIoZm9ybWF0ISgKICAgICAgICAgICAgIm5hbWVfdG9faGFuZGxlX2F0IGZvciBndWVzdCBjZ3JvdXAtdjIgaWRlbnRpdHkgZmFpbGVkOiB7fSIsCiAgICAgICAgICAgIHN0ZDo6aW86OkVycm9yOjpsYXN0X29zX2Vycm9yKCkKICAgICAgICApKTsKICAgIH0KICAgIGlmIGhhbmRsZS5oYW5kbGVfYnl0ZXMgIT0gOCB7CiAgICAgICAgcmV0dXJuIEVycihmb3JtYXQhKAogICAgICAgICAgICAiZ3Vlc3QgY2dyb3VwLXYyIGhhbmRsZSBwYXlsb2FkIG11c3QgYmUgZXhhY3RseSA4IGJ5dGVzLCBnb3Qge30iLAogICAgICAgICAgICBoYW5kbGUuaGFuZGxlX2J5dGVzCiAgICAgICAgKSk7CiAgICB9CiAgICBkZWNvZGVfY2dyb3VwX3YyX2hhbmRsZSgmaGFuZGxlLmJ5dGVzKQp9CgpwdWIgZm4gcmVhZF9wcm9jZXNzX2Nncm91cF92Ml9pZChwaWQ6IGkzMikgLT4gUmVzdWx0PE9wdGlvbjx1NjQ+LCBTdHJpbmc+IHsKICAgIGlmIHBpZCA8PSAwIHsKICAgICAgICByZXR1cm4gRXJyKCJndWVzdCBwcm9jZXNzIHBpZCBtdXN0IGJlIHBvc2l0aXZlIi50b19zdHJpbmcoKSk7CiAgICB9CiAgICBsZXQgcHJvY19wYXRoID0gZm9ybWF0ISgiL3Byb2Mve30vY2dyb3VwIiwgcGlkKTsKICAgIGxldCBmaXJzdF9yYXcgPSBmczo6cmVhZF90b19zdHJpbmcoJnByb2NfcGF0aCkKICAgICAgICAubWFwX2Vycih8ZXwgZm9ybWF0ISgicmVhZCBndWVzdCBwcm9jZXNzIGNncm91cCBmYWlsZWQ6IHt9IiwgZSkpPzsKICAgIGxldCBmaXJzdCA9IHBhcnNlX3Byb2Nlc3NfY2dyb3VwX3YyX3BhdGgoJmZpcnN0X3Jhdyk/OwogICAgbGV0IFNvbWUoZmlyc3RfcGF0aCkgPSBmaXJzdCBlbHNlIHsKICAgICAgICByZXR1cm4gT2soTm9uZSk7CiAgICB9OwogICAgbGV0IGlkID0gcmVzb2x2ZV9jZ3JvdXBfdjJfaWQoJmZpcnN0X3BhdGgpPzsKICAgIGxldCBzZWNvbmRfcmF3ID0gZnM6OnJlYWRfdG9fc3RyaW5nKCZwcm9jX3BhdGgpCiAgICAgICAgLm1hcF9lcnIofGV8IGZvcm1hdCEoInJlLXJlYWQgZ3Vlc3QgcHJvY2VzcyBjZ3JvdXAgZmFpbGVkOiB7fSIsIGUpKT87CiAgICBsZXQgc2Vjb25kID0gcGFyc2VfcHJvY2Vzc19jZ3JvdXBfdjJfcGF0aCgmc2Vjb25kX3Jhdyk/OwogICAgaWYgc2Vjb25kLmFzX2RlcmVmKCkgIT0gU29tZShmaXJzdF9wYXRoLmFzX3N0cigpKSB7CiAgICAgICAgcmV0dXJuIEVycigiZ3Vlc3QgcHJvY2VzcyBjZ3JvdXAtdjIgbWVtYmVyc2hpcCBjaGFuZ2VkIGR1cmluZyBpZGVudGl0eSBjYXB0dXJlIi50b19zdHJpbmcoKSk7CiAgICB9CiAgICBPayhTb21lKGlkKSkKfQ==").decode()
+          if "pub fn read_process_cgroup_v2_id" not in text:
+              if marker not in text:
+                  raise SystemExit("guest authority insertion anchor missing")
+              text = text.replace(marker, helper + "\n\n" + marker, 1)
               authority.write_text(text)
 
-          loader = Path('agent/src/oom_victim_loader.rs')
+          loader = Path("agent/src/oom_victim_loader.rs")
           text = loader.read_text()
-          text = text.replace(
-              'let actual_encoding = match ty.payload {\n            BtfPayload::Int { encoding } => encoding,',
-              'let actual_encoding = match &ty.payload {\n            BtfPayload::Int { encoding } => *encoding,',
-          )
-          text = text.replace(
-              'matches!(id_type.payload, BtfPayload::Int { encoding: 0 })',
-              'matches!(&id_type.payload, BtfPayload::Int { encoding: 0 })',
-          )
-          text = text.replace(
-              'matches!(inner_type.payload, BtfPayload::Int { encoding: 0 })',
-              'matches!(&inner_type.payload, BtfPayload::Int { encoding: 0 })',
-          )
+          replacements = [
+              (
+                  "let actual_encoding = match ty.payload {\n            BtfPayload::Int { encoding } => encoding,",
+                  "let actual_encoding = match &ty.payload {\n            BtfPayload::Int { encoding } => *encoding,",
+              ),
+              (
+                  "matches!(id_type.payload, BtfPayload::Int { encoding: 0 })",
+                  "matches!(&id_type.payload, BtfPayload::Int { encoding: 0 })",
+              ),
+              (
+                  "matches!(inner_type.payload, BtfPayload::Int { encoding: 0 })",
+                  "matches!(&inner_type.payload, BtfPayload::Int { encoding: 0 })",
+              ),
+          ]
+          for old, new in replacements:
+              if old in text:
+                  text = text.replace(old, new, 1)
           loader.write_text(text)
 
-          rpc = Path('agent/src/rpc.rs')
+          rpc = Path("agent/src/rpc.rs")
           text = rpc.read_text()
-          old = '''    current_boottime_ns, read_guest_boot_id, read_process_identity, RealizationToken, VictimClass,
-          };'''
-          new = '''    current_boottime_ns, read_guest_boot_id, read_process_cgroup_v2_id, read_process_identity,
-              RealizationToken, VictimClass,
-          };'''
-          if 'read_process_cgroup_v2_id' not in text:
-              if old not in text:
-                  raise SystemExit('rpc Wave21 import anchor missing')
-              text = text.replace(old, new, 1)
+          old_import = (
+              "current_boottime_ns, read_guest_boot_id, read_process_identity, "
+              "RealizationToken, VictimClass,"
+          )
+          new_import = (
+              "current_boottime_ns, read_guest_boot_id, read_process_cgroup_v2_id, "
+              "read_process_identity, RealizationToken, VictimClass,"
+          )
+          if "read_process_cgroup_v2_id" not in text:
+              if old_import not in text:
+                  raise SystemExit("rpc Wave21 import anchor missing")
+              text = text.replace(old_import, new_import, 1)
 
-          old = '''                (Ok(boot_id), Ok(main)) => {
-                      if let Err(e) = s.begin_guest_oom_victim_realization(
-                          &cid,
-                          token,
-                          started_boot_ns,
-                          &boot_id,
-                          main,
-                          None,
-                      ) {'''
-          new = '''                (Ok(boot_id), Ok(main)) => {
-                      let expected_cgroup_v2_id = match read_process_cgroup_v2_id(init_pid) {
-                          Ok(id) => id,
-                          Err(e) => {
-                              warn!(
-                                  sl!(),
-                                  "Wave21 exact cgroup-v2 identity unavailable for {}: {}",
-                                  cid,
-                                  e
-                              );
-                              None
-                          }
-                      };
-                      if let Err(e) = s.begin_guest_oom_victim_realization(
-                          &cid,
-                          token,
-                          started_boot_ns,
-                          &boot_id,
-                          main,
-                          expected_cgroup_v2_id,
-                      ) {'''
-          if 'let expected_cgroup_v2_id = match read_process_cgroup_v2_id' not in text:
-              if old not in text:
-                  raise SystemExit('rpc begin-realization anchor missing')
-              text = text.replace(old, new, 1)
+          old_begin = b64decode("ICAgICAgICAgICAgICAgIChPayhib290X2lkKSwgT2sobWFpbikpID0+IHsKICAgICAgICAgICAgICAgICAgICBpZiBsZXQgRXJyKGUpID0gcy5iZWdpbl9ndWVzdF9vb21fdmljdGltX3JlYWxpemF0aW9uKAogICAgICAgICAgICAgICAgICAgICAgICAmY2lkLAogICAgICAgICAgICAgICAgICAgICAgICB0b2tlbiwKICAgICAgICAgICAgICAgICAgICAgICAgc3RhcnRlZF9ib290X25zLAogICAgICAgICAgICAgICAgICAgICAgICAmYm9vdF9pZCwKICAgICAgICAgICAgICAgICAgICAgICAgbWFpbiwKICAgICAgICAgICAgICAgICAgICAgICAgTm9uZSwKICAgICAgICAgICAgICAgICAgICApIHs=").decode()
+          new_begin = b64decode("ICAgICAgICAgICAgICAgIChPayhib290X2lkKSwgT2sobWFpbikpID0+IHsKICAgICAgICAgICAgICAgICAgICBsZXQgZXhwZWN0ZWRfY2dyb3VwX3YyX2lkID0gbWF0Y2ggcmVhZF9wcm9jZXNzX2Nncm91cF92Ml9pZChpbml0X3BpZCkgewogICAgICAgICAgICAgICAgICAgICAgICBPayhpZCkgPT4gaWQsCiAgICAgICAgICAgICAgICAgICAgICAgIEVychKZSk9PiB7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICB3YXJuISgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBzbCEoKSwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAiV2F2ZTIxIGV4YWN0IGNncm91cC12MiBpZGVudGl0eSB1bmF2YWlsYWJsZSBmb3Ige306IHt9IiwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBjaWQsCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgZQogICAgICAgICAgICAgICAgICAgICAgICAgICAgKTsKICAgICAgICAgICAgICAgICAgICAgICAgICAgIE5vbmUKICAgICAgICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgICAgIH07CiAgICAgICAgICAgICAgICAgICAgaWYgbGV0IEVychKZSk9ID0gcy5iZWdpbl9ndWVzdF9vb21fdmljdGltX3JlYWxpemF0aW9uKAogICAgICAgICAgICAgICAgICAgICAgICAmY2lkLAogICAgICAgICAgICAgICAgICAgICAgICB0b2tlbiwKICAgICAgICAgICAgICAgICAgICAgICAgc3RhcnRlZF9ib290X25zLAogICAgICAgICAgICAgICAgICAgICAgICAmYm9vdF9pZCwKICAgICAgICAgICAgICAgICAgICAgICAgbWFpbiwKICAgICAgICAgICAgICAgICAgICAgICAgZXhwZWN0ZWRfY2dyb3VwX3YyX2lkLAogICAgICAgICAgICAgICAgICAgICkgew==").decode()
+          if "let expected_cgroup_v2_id = match read_process_cgroup_v2_id" not in text:
+              if old_begin not in text:
+                  raise SystemExit("rpc begin-realization anchor missing")
+              text = text.replace(old_begin, new_begin, 1)
           rpc.write_text(text)
 
-          contract = Path('tests/wave21_agent_service_contract.py')
+          contract = Path("tests/wave21_agent_service_contract.py")
           text = contract.read_text()
           marker = '    "begin_guest_oom_victim_realization",\n'
-          if '    "read_process_cgroup_v2_id",\n' not in text:
+          addition = '    "read_process_cgroup_v2_id",\n'
+          if addition not in text:
               if marker not in text:
-                  raise SystemExit('agent contract anchor missing')
-              text = text.replace(marker, marker + '    "read_process_cgroup_v2_id",\n', 1)
+                  raise SystemExit("agent contract anchor missing")
+              text = text.replace(marker, marker + addition, 1)
               contract.write_text(text)
 
-          workflow = Path('.github/workflows/cube-guest-kernel-oom-victim-contract.yml')
-          text = workflow.read_text()
-          anchor = '''          rustc --edition=2021 --test tests/guest_oom_victim_bounds_v21.rs -o /tmp/guest_oom_victim_bounds_v21
-              /tmp/guest_oom_victim_bounds_v21 --nocapture
-          '''
-          insertion = '''          rustc --edition=2021 --test tests/guest_oom_victim_bounds_v21.rs -o /tmp/guest_oom_victim_bounds_v21
-              /tmp/guest_oom_victim_bounds_v21 --nocapture
-              rustc --edition=2021 --test tests/guest_oom_victim_cgroup_v21.rs -o /tmp/guest_oom_victim_cgroup_v21
-              /tmp/guest_oom_victim_cgroup_v21 --nocapture
-          '''
-          if 'guest_oom_victim_cgroup_v21.rs' not in text:
-              if anchor not in text:
-                  # YAML indentation after read_text is exactly ten spaces in the repository.
-                  anchor = '''          rustc --edition=2021 --test tests/guest_oom_victim_bounds_v21.rs -o /tmp/guest_oom_victim_bounds_v21
-              /tmp/guest_oom_victim_bounds_v21 --nocapture
-          '''
-              text = text.replace(
-                  '          rustc --edition=2021 --test tests/guest_oom_victim_bounds_v21.rs -o /tmp/guest_oom_victim_bounds_v21\n          /tmp/guest_oom_victim_bounds_v21 --nocapture\n',
-                  '          rustc --edition=2021 --test tests/guest_oom_victim_bounds_v21.rs -o /tmp/guest_oom_victim_bounds_v21\n          /tmp/guest_oom_victim_bounds_v21 --nocapture\n          rustc --edition=2021 --test tests/guest_oom_victim_cgroup_v21.rs -o /tmp/guest_oom_victim_cgroup_v21\n          /tmp/guest_oom_victim_cgroup_v21 --nocapture\n',
-                  1,
+          contract_workflow = Path(".github/workflows/cube-guest-kernel-oom-victim-contract.yml")
+          text = contract_workflow.read_text()
+          cgroup_test = (
+              "          rustc --edition=2021 --test tests/guest_oom_victim_cgroup_v21.rs "
+              "-o /tmp/guest_oom_victim_cgroup_v21\n"
+              "          /tmp/guest_oom_victim_cgroup_v21 --nocapture\n"
+          )
+          if "rustc --edition=2021 --test tests/guest_oom_victim_cgroup_v21.rs" not in text:
+              anchor = (
+                  "          rustc --edition=2021 --test tests/guest_oom_victim_bounds_v21.rs "
+                  "-o /tmp/guest_oom_victim_bounds_v21\n"
+                  "          /tmp/guest_oom_victim_bounds_v21 --nocapture\n"
               )
-              workflow.write_text(text)
+              if anchor not in text:
+                  raise SystemExit("Wave21 guest contract bounds anchor missing")
+              text = text.replace(anchor, anchor + cgroup_test, 1)
+              contract_workflow.write_text(text)
           PY
 
-          rustfmt --edition 2021 agent/src/guest_oom_victim.rs agent/src/oom_victim_loader.rs agent/src/rpc.rs agent/tests/guest_oom_victim_cgroup_v21.rs
-          rustc --edition=2021 --test agent/tests/guest_oom_victim_loader_v21.rs -o /tmp/guest_oom_victim_loader_v21
-          /tmp/guest_oom_victim_loader_v21 --nocapture
+          rustfmt --edition 2021 \
+            agent/src/guest_oom_victim.rs \
+            agent/src/oom_victim_loader.rs \
+            agent/src/rpc.rs \
+            agent/tests/guest_oom_victim_cgroup_v21.rs
+
           rustc --edition=2021 --test agent/tests/guest_oom_victim_cgroup_v21.rs -o /tmp/guest_oom_victim_cgroup_v21
           /tmp/guest_oom_victim_cgroup_v21 --nocapture
-          rustc --edition=2021 --test agent/tests/guest_oom_victim_v21.rs -o /tmp/guest_oom_victim_v21
-          /tmp/guest_oom_victim_v21 --nocapture
+          rustc --edition=2021 --test agent/tests/guest_oom_victim_loader_v21.rs -o /tmp/guest_oom_victim_loader_v21
+          /tmp/guest_oom_victim_loader_v21 --nocapture
           python3 tests/wave21_agent_service_contract.py
+          cargo check --locked --manifest-path agent/Cargo.toml
           git diff --check
+
           git rm .github/workflows/wave21-apply-cgroup-authority-once.yml
 
       - name: Commit verified cgroup authority
@@ -327,12 +135,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            agent/src/guest_oom_victim.rs \
-            agent/src/oom_victim_loader.rs \
-            agent/src/rpc.rs \
-            agent/tests/guest_oom_victim_cgroup_v21.rs \
-            tests/wave21_agent_service_contract.py \
-            .github/workflows/cube-guest-kernel-oom-victim-contract.yml
-          git commit -m "feat(wave21): capture exact guest cgroup-v2 identity" -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
+          git add -A
+          git commit -m "feat(wave21): capture exact guest cgroup-v2 identity" \
+            -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
           git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
