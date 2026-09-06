@@ -1,4 +1,5 @@
 name: Wave21 Apply Full Guest Authority Schema Once
+# Triggered after same-scrape fusion closure so the canonical wire authority can be verified on the updated branch.
 
 on:
   push:
