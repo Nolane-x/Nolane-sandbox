@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify CubeShim realization-token contract
+      - name: Verify CubeShim realization-token and evidence-validation contracts
         working-directory: CubeShim/shim
         run: |
           rustc --edition=2021 --test tests/guest_victim_v21.rs -o /tmp/guest_victim_v21
@@ -66,6 +66,8 @@ jobs:
           /tmp/guest_victim_binding_v21 --nocapture
           rustc --edition=2021 --test tests/guest_victim_transport_v21.rs -o /tmp/guest_victim_transport_v21
           /tmp/guest_victim_transport_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_victim_evidence_validation_v21.rs -o /tmp/guest_victim_evidence_validation_v21
+          /tmp/guest_victim_evidence_validation_v21 --nocapture
 
   nolaneworld-wave21:
     runs-on: ubuntu-latest
