@@ -18,9 +18,7 @@ jobs:
           ref: gpt/wave21-guest-kernel-oom-victim-provenance
           fetch-depth: 0
 
-      - uses: actions/setup-rust@v1
-        with:
-          rust-version: stable
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Apply full authority wire schema and producer mapping
         shell: bash
