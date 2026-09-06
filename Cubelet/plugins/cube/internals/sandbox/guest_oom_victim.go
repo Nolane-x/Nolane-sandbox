@@ -4,6 +4,7 @@
 package sandbox
 
 import (
+	"crypto/rand"
 	"fmt"
 	"sync"
 )
@@ -42,6 +43,17 @@ func validGuestOOMVictimToken(token [32]byte) bool {
 		}
 	}
 	return false
+}
+
+func secureGuestOOMVictimToken() ([32]byte, error) {
+	var token [32]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return [32]byte{}, fmt.Errorf("generate guest OOM victim realization token: %w", err)
+	}
+	if !validGuestOOMVictimToken(token) {
+		return [32]byte{}, fmt.Errorf("generated guest OOM victim realization token is zero")
+	}
+	return token, nil
 }
 
 // BeginGuestOOMVictimRealization attaches an opaque Wave 21 nonce only to an
@@ -96,4 +108,14 @@ func (s *taskOutcomeProofStore) GuestOOMVictimToken(sandboxID string, generation
 		return [32]byte{}, false
 	}
 	return state.Token, true
+}
+
+// GuestOOMVictimToken exposes only an exact generation-bound token through the
+// controller. It does not recover, infer, or create generation authority.
+func (c *controllerLocal) GuestOOMVictimToken(sandboxID string, generation uint64) ([32]byte, bool) {
+	store := c.ensureTaskOutcomeProofStore()
+	if store == nil {
+		return [32]byte{}, false
+	}
+	return store.GuestOOMVictimToken(sandboxID, generation)
 }
