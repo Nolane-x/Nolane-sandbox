@@ -4,9 +4,7 @@
 #[path = "../src/guest_victim.rs"]
 mod guest_victim;
 
-use guest_victim::{
-    EvidenceCache, RealizationToken, TokenBindings, EVIDENCE_METADATA_KEY,
-};
+use guest_victim::{EvidenceCache, RealizationToken, TokenBindings, EVIDENCE_METADATA_KEY};
 use std::collections::HashMap;
 
 fn token(byte: u8) -> RealizationToken {
@@ -47,7 +45,9 @@ fn v21_evidence_selector_requires_exact_metadata_token_and_cache_key() {
     let a = token(0x61);
     let b = token(0x62);
     let mut cache = EvidenceCache::default();
-    cache.insert_finalized("sandbox-a", a, vec![1, 2, 3]).unwrap();
+    cache
+        .insert_finalized("sandbox-a", a, vec![1, 2, 3])
+        .unwrap();
 
     let mut metadata = HashMap::new();
     metadata.insert(
