@@ -606,6 +606,13 @@ impl Container {
     }
 
     pub async fn start_container(&mut self) -> CResult<()> {
+        self.start_container_with_oom_victim(None).await
+    }
+
+    pub async fn start_container_with_oom_victim(
+        &mut self,
+        oom_victim_realization_token: Option<&[u8; 32]>,
+    ) -> CResult<()> {
         if !self.passfd_io_enabled() {
             self.start_log_forward().await?;
         }
@@ -614,6 +621,9 @@ impl Container {
         if self.is_cold_start() {
             let req = agent::StartContainerRequest {
                 container_id: self.id.clone(),
+                oom_victim_realization_token: oom_victim_realization_token
+                    .map(|token| token.to_vec())
+                    .unwrap_or_default(),
                 ..Default::default()
             };
             client
