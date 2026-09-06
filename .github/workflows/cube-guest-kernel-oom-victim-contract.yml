@@ -17,8 +17,8 @@ jobs:
       - name: Verify guest/shim Wave21 protocol parity and production seams
         run: |
           python3 tests/wave21_protocol_contract.py
-          python3 tests/wave21_shim_service_contract.py
           python3 tests/wave21_agent_service_contract.py
+          python3 tests/wave21_shim_service_contract.py
 
   cubelet-wave21:
     runs-on: ubuntu-latest
