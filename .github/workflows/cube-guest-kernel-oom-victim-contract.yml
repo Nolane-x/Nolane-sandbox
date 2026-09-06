@@ -45,6 +45,8 @@ jobs:
           /tmp/guest_oom_victim_v21 --nocapture
           rustc --edition=2021 --test tests/guest_oom_victim_lookup_v21.rs -o /tmp/guest_oom_victim_lookup_v21
           /tmp/guest_oom_victim_lookup_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_metadata_v21.rs -o /tmp/guest_oom_victim_metadata_v21
+          /tmp/guest_oom_victim_metadata_v21 --nocapture
 
   shim-wave21:
     runs-on: ubuntu-latest
