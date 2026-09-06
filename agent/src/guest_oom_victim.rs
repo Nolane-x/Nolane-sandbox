@@ -5,6 +5,10 @@ use std::collections::HashMap;
 use std::fs;
 
 pub const MAX_VICTIMS_PER_REALIZATION: usize = 64;
+pub const MAX_RAW_VICTIM_EVENTS: usize = 1024;
+pub const MAX_RAW_AGE_NS: u64 = 10 * 60 * 1_000_000_000;
+pub const MAX_FINALIZED_REALIZATIONS: usize = 256;
+pub const MAX_FINALIZED_AGE_NS: u64 = 10 * 60 * 1_000_000_000;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct RealizationToken([u8; 32]);
@@ -17,6 +21,7 @@ impl RealizationToken {
         Ok(Self(bytes))
     }
 
+    #[cfg(test)]
     pub fn from_hex(value: &str) -> Result<Self, &'static str> {
         if value.len() != 64
             || !value
@@ -36,11 +41,13 @@ impl RealizationToken {
         Self::from_bytes(bytes)
     }
 
+    #[cfg(test)]
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 }
 
+#[cfg(test)]
 fn decode_hex(value: u8) -> Result<u8, &'static str> {
     match value {
         b'0'..=b'9' => Ok(value - b'0'),
@@ -62,6 +69,13 @@ pub struct RawVictimEvent {
     pub starttime_ticks: u64,
     pub event_boot_ns: u64,
     pub cgroup_v2_id: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RawRecordDisposition {
+    Recorded,
+    Duplicate,
+    RecordedWithLoss,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -105,6 +119,8 @@ pub struct GuestVictimStore {
     open: HashMap<RealizationToken, OpenRealization>,
     finalized: HashMap<RealizationToken, FinalizedEvidence>,
     raw: Vec<RawVictimEvent>,
+    raw_watermark_boot_ns: u64,
+    finalized_watermark_boot_ns: u64,
 }
 
 impl GuestVictimStore {
@@ -146,7 +162,10 @@ impl GuestVictimStore {
         Ok(())
     }
 
-    pub fn record_raw(&mut self, event: RawVictimEvent) -> Result<(), &'static str> {
+    pub fn record_raw(
+        &mut self,
+        event: RawVictimEvent,
+    ) -> Result<RawRecordDisposition, &'static str> {
         if event.tid == 0
             || event.tgid == 0
             || event.starttime_ticks == 0
@@ -155,10 +174,43 @@ impl GuestVictimStore {
         {
             return Err("raw victim event identity must be exact and non-zero");
         }
-        if !self.raw.contains(&event) {
-            self.raw.push(event);
+        if self.raw.contains(&event) {
+            return Ok(RawRecordDisposition::Duplicate);
         }
-        Ok(())
+
+        self.raw_watermark_boot_ns = self.raw_watermark_boot_ns.max(event.event_boot_ns);
+        let cutoff = self.raw_watermark_boot_ns.saturating_sub(MAX_RAW_AGE_NS);
+        let before = self.raw.len();
+        self.raw.retain(|existing| existing.event_boot_ns >= cutoff);
+        let mut lost = self.raw.len() != before;
+
+        // An out-of-order event that is already outside the retention window is
+        // itself unavailable for authoritative correlation. Treat the drop as
+        // loss instead of allowing stale data to grow the bounded buffer.
+        if event.event_boot_ns < cutoff {
+            return Ok(RawRecordDisposition::RecordedWithLoss);
+        }
+
+        if self.raw.len() >= MAX_RAW_VICTIM_EVENTS {
+            if let Some((oldest, _)) = self.raw.iter().enumerate().min_by_key(|(_, existing)| {
+                (
+                    existing.event_boot_ns,
+                    existing.tgid,
+                    existing.tid,
+                    existing.starttime_ticks,
+                )
+            }) {
+                self.raw.remove(oldest);
+                lost = true;
+            }
+        }
+        self.raw.push(event);
+
+        Ok(if lost {
+            RawRecordDisposition::RecordedWithLoss
+        } else {
+            RawRecordDisposition::Recorded
+        })
     }
 
     pub fn finalize(
@@ -188,7 +240,7 @@ impl GuestVictimStore {
                 poisoned: true,
                 victims: Vec::new(),
             };
-            self.finalized.insert(token, evidence.clone());
+            self.insert_finalized(token, evidence.clone());
             return Ok(Some(evidence));
         }
 
@@ -250,8 +302,35 @@ impl GuestVictimStore {
             poisoned,
             victims,
         };
-        self.finalized.insert(token, evidence.clone());
+        self.insert_finalized(token, evidence.clone());
         Ok(Some(evidence))
+    }
+
+    fn insert_finalized(&mut self, token: RealizationToken, evidence: FinalizedEvidence) {
+        self.finalized_watermark_boot_ns = self
+            .finalized_watermark_boot_ns
+            .max(evidence.outcome_observed_boot_ns);
+        let cutoff = self
+            .finalized_watermark_boot_ns
+            .saturating_sub(MAX_FINALIZED_AGE_NS);
+        self.finalized
+            .retain(|_, existing| existing.outcome_observed_boot_ns >= cutoff);
+
+        if !self.finalized.contains_key(&token)
+            && self.finalized.len() >= MAX_FINALIZED_REALIZATIONS
+        {
+            let oldest = self
+                .finalized
+                .iter()
+                .min_by_key(|(existing_token, existing)| {
+                    (existing.outcome_observed_boot_ns, existing_token.0)
+                })
+                .map(|(existing_token, _)| *existing_token);
+            if let Some(oldest) = oldest {
+                self.finalized.remove(&oldest);
+            }
+        }
+        self.finalized.insert(token, evidence);
     }
 
     // finalized is a read-only, exact-token view of immutable guest evidence.
@@ -259,6 +338,16 @@ impl GuestVictimStore {
     // the authoritative WaitProcess boundary required by Wave 21.
     pub fn finalized(&self, token: &RealizationToken) -> Option<FinalizedEvidence> {
         self.finalized.get(token).cloned()
+    }
+
+    #[cfg(test)]
+    pub fn raw_len(&self) -> usize {
+        self.raw.len()
+    }
+
+    #[cfg(test)]
+    pub fn finalized_len(&self) -> usize {
+        self.finalized.len()
     }
 }
 
