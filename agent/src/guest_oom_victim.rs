@@ -111,7 +111,8 @@ struct OpenRealization {
     guest_boot_id: String,
     main: GuestProcessIdentity,
     expected_cgroup_v2_id: Option<u64>,
-    start_loss_epoch: u64,
+    start_external_loss_epoch: u64,
+    start_store_loss_epoch: u128,
 }
 
 #[derive(Debug, Default)]
@@ -121,6 +122,7 @@ pub struct GuestVictimStore {
     raw: Vec<RawVictimEvent>,
     raw_watermark_boot_ns: u64,
     finalized_watermark_boot_ns: u64,
+    store_loss_epoch: u128,
 }
 
 impl GuestVictimStore {
@@ -156,13 +158,22 @@ impl GuestVictimStore {
                 guest_boot_id: guest_boot_id.to_owned(),
                 main,
                 expected_cgroup_v2_id,
-                start_loss_epoch: loss_epoch,
+                start_external_loss_epoch: loss_epoch,
+                start_store_loss_epoch: self.store_loss_epoch,
             },
         );
         Ok(())
     }
 
-    pub fn record_raw(
+    pub fn record_raw(&mut self, event: RawVictimEvent) -> Result<(), &'static str> {
+        let disposition = self.record_raw_with_disposition(event)?;
+        if disposition == RawRecordDisposition::RecordedWithLoss {
+            self.note_loss();
+        }
+        Ok(())
+    }
+
+    pub fn record_raw_with_disposition(
         &mut self,
         event: RawVictimEvent,
     ) -> Result<RawRecordDisposition, &'static str> {
@@ -172,6 +183,7 @@ impl GuestVictimStore {
             || event.event_boot_ns == 0
             || matches!(event.cgroup_v2_id, Some(0))
         {
+            self.note_loss();
             return Err("raw victim event identity must be exact and non-zero");
         }
         if self.raw.contains(&event) {
@@ -184,9 +196,6 @@ impl GuestVictimStore {
         self.raw.retain(|existing| existing.event_boot_ns >= cutoff);
         let mut lost = self.raw.len() != before;
 
-        // An out-of-order event that is already outside the retention window is
-        // itself unavailable for authoritative correlation. Treat the drop as
-        // loss instead of allowing stale data to grow the bounded buffer.
         if event.event_boot_ns < cutoff {
             return Ok(RawRecordDisposition::RecordedWithLoss);
         }
@@ -213,6 +222,10 @@ impl GuestVictimStore {
         })
     }
 
+    pub fn note_loss(&mut self) {
+        self.store_loss_epoch = self.store_loss_epoch.saturating_add(1);
+    }
+
     pub fn finalize(
         &mut self,
         token: RealizationToken,
@@ -230,7 +243,9 @@ impl GuestVictimStore {
             return Err("outcome observation precedes realization start");
         }
 
-        if loss_epoch != realization.start_loss_epoch {
+        if loss_epoch != realization.start_external_loss_epoch
+            || self.store_loss_epoch != realization.start_store_loss_epoch
+        {
             let evidence = FinalizedEvidence {
                 guest_boot_id: realization.guest_boot_id,
                 realization_started_boot_ns: realization.started_boot_ns,
@@ -333,9 +348,6 @@ impl GuestVictimStore {
         self.finalized.insert(token, evidence);
     }
 
-    // finalized is a read-only, exact-token view of immutable guest evidence.
-    // It never finalizes an open realization and therefore cannot manufacture
-    // the authoritative WaitProcess boundary required by Wave 21.
     pub fn finalized(&self, token: &RealizationToken) -> Option<FinalizedEvidence> {
         self.finalized.get(token).cloned()
     }
