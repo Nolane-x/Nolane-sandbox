@@ -577,9 +577,9 @@ pub fn build_raw_tracepoint_program(
     p.emit(st_imm_w(BPF_REG_FP, -60, 0));
     p.emit(st_imm_dw(BPF_REG_FP, -32, 0));
 
-    emit_probe_read(&mut p, -56, 4, 6, layout.pid_offset, "exit");
-    emit_probe_read(&mut p, -52, 4, 6, layout.tgid_offset, "exit");
-    emit_probe_read(&mut p, -48, 8, 6, layout.start_boottime_offset, "exit");
+    emit_probe_read(&mut p, -56, 4, 6, layout.pid_offset, "loss");
+    emit_probe_read(&mut p, -52, 4, 6, layout.tgid_offset, "loss");
+    emit_probe_read(&mut p, -48, 8, 6, layout.start_boottime_offset, "loss");
 
     if let Some(cg) = layout.cgroup_v2 {
         // task_struct.cgroups -> temporary FP[-72]
@@ -621,6 +621,7 @@ pub fn build_raw_tracepoint_program(
     // A ring-buffer output failure is evidence loss. Increment a one-entry
     // array-map epoch with atomic XADD; failure to resolve the map entry is
     // itself fail-closed because userspace also treats reader errors as loss.
+    p.label("loss");
     p.emit(st_imm_w(BPF_REG_FP, -76, 0));
     p.ld_map_fd(1, loss_map_fd);
     p.emit(mov64_reg(2, BPF_REG_FP));
