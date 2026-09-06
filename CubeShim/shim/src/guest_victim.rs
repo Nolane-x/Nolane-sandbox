@@ -8,6 +8,8 @@ pub const REALIZATION_TOKEN_ANNOTATION: &str = "cube.shimapi.update.oom_victim_r
 pub const BIND_ACTION: &str = "BindOOMVictimRealization";
 pub const EVIDENCE_METADATA_KEY: &str = "cube-wave21-guest-oom-evidence";
 pub const EVIDENCE_TYPE_URL: &str = "io.cubesandbox.v1.GuestOOMVictimEvidenceSet";
+pub const EVIDENCE_SOURCE: &str = "guest.kernel.oom.mark_victim.raw_tracepoint";
+pub const MAX_EVIDENCE_RECORDS: usize = 64;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct RealizationToken([u8; 32]);
@@ -48,6 +50,164 @@ fn decode_hex(value: u8) -> Result<u8, &'static str> {
         b'a'..=b'f' => Ok(value - b'a' + 10),
         _ => Err("invalid hexadecimal digit"),
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EvidenceScope {
+    Main,
+    Member,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceRecord {
+    pub version: u32,
+    pub container_id: String,
+    pub realization_token: RealizationToken,
+    pub guest_boot_id: String,
+    pub victim_tid: u32,
+    pub victim_tgid: u32,
+    pub victim_starttime_ticks: u64,
+    pub event_boot_time_ns: u64,
+    pub cgroup_v2_id: Option<u64>,
+    pub main_pid: u32,
+    pub main_starttime_ticks: u64,
+    pub scope: EvidenceScope,
+    pub realization_started_boot_ns: u64,
+    pub outcome_observed_boot_ns: u64,
+    pub source: String,
+}
+
+fn canonical_lower_uuid(value: &str) -> bool {
+    if value.len() != 36 {
+        return false;
+    }
+    value.bytes().enumerate().all(|(index, byte)| match index {
+        8 | 13 | 18 | 23 => byte == b'-',
+        _ => byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte),
+    })
+}
+
+fn same_evidence_authority(a: &EvidenceRecord, b: &EvidenceRecord) -> bool {
+    a.container_id == b.container_id
+        && a.realization_token == b.realization_token
+        && a.guest_boot_id == b.guest_boot_id
+        && a.main_pid == b.main_pid
+        && a.main_starttime_ticks == b.main_starttime_ticks
+        && a.realization_started_boot_ns == b.realization_started_boot_ns
+        && a.outcome_observed_boot_ns == b.outcome_observed_boot_ns
+        && a.source == b.source
+}
+
+fn validate_evidence_record(
+    expected_container_id: &str,
+    expected_token: RealizationToken,
+    record: &EvidenceRecord,
+) -> Result<(), &'static str> {
+    if record.version != 1 {
+        return Err("Wave21 evidence version must be exactly one");
+    }
+    if record.container_id.is_empty()
+        || record.container_id.trim() != record.container_id
+        || record.container_id != expected_container_id
+    {
+        return Err("Wave21 evidence container identity does not match exact request");
+    }
+    if record.realization_token != expected_token {
+        return Err("Wave21 evidence realization token does not match exact request");
+    }
+    if !canonical_lower_uuid(&record.guest_boot_id) {
+        return Err("Wave21 evidence guest boot ID is not canonical");
+    }
+    if record.victim_tid == 0 || record.victim_tgid == 0 || record.victim_starttime_ticks == 0 {
+        return Err("Wave21 evidence victim process identity is incomplete");
+    }
+    if record.main_pid == 0 || record.main_starttime_ticks == 0 {
+        return Err("Wave21 evidence main-process authority is incomplete");
+    }
+    if record.realization_started_boot_ns == 0
+        || record.outcome_observed_boot_ns == 0
+        || record.event_boot_time_ns == 0
+        || record.outcome_observed_boot_ns < record.realization_started_boot_ns
+        || record.event_boot_time_ns < record.realization_started_boot_ns
+        || record.event_boot_time_ns > record.outcome_observed_boot_ns
+    {
+        return Err("Wave21 evidence event is outside the exact guest realization window");
+    }
+    if record.source != EVIDENCE_SOURCE {
+        return Err("Wave21 evidence source is not authoritative");
+    }
+    if matches!(record.cgroup_v2_id, Some(0)) {
+        return Err("Wave21 evidence cgroup-v2 identity cannot be zero when present");
+    }
+
+    match record.scope {
+        EvidenceScope::Main => {
+            if record.victim_tgid != record.main_pid
+                || record.victim_starttime_ticks != record.main_starttime_ticks
+            {
+                return Err("Wave21 MAIN evidence does not match exact main lifetime");
+            }
+        }
+        EvidenceScope::Member => {
+            if record.cgroup_v2_id.is_none() {
+                return Err("Wave21 MEMBER evidence requires exact cgroup-v2 identity");
+            }
+        }
+    }
+    Ok(())
+}
+
+// validate_evidence_set is the CubeShim trust gate between the guest RPC and
+// the immutable exact-token cache. It accepts positive evidence only and never
+// reconstructs missing authority from containerd state, exit status, TaskOOM,
+// cgroup counters, or any other ambient signal.
+pub fn validate_evidence_set(
+    container_id: &str,
+    token: RealizationToken,
+    records: &[EvidenceRecord],
+) -> Result<Vec<EvidenceRecord>, &'static str> {
+    if container_id.is_empty() || container_id.trim() != container_id {
+        return Err("Wave21 evidence request container identity is invalid");
+    }
+    if records.is_empty() {
+        return Err("Wave21 finalized evidence payload must contain positive records");
+    }
+    if records.len() > MAX_EVIDENCE_RECORDS {
+        return Err("Wave21 finalized evidence payload exceeds 64 records");
+    }
+
+    let mut validated = records.to_vec();
+    for record in &validated {
+        validate_evidence_record(container_id, token, record)?;
+        if !same_evidence_authority(&validated[0], record) {
+            return Err("Wave21 evidence set mixes realization authority");
+        }
+    }
+
+    validated.sort_by(|a, b| {
+        let a_scope = match a.scope {
+            EvidenceScope::Main => 0u8,
+            EvidenceScope::Member => 1u8,
+        };
+        let b_scope = match b.scope {
+            EvidenceScope::Main => 0u8,
+            EvidenceScope::Member => 1u8,
+        };
+        a.event_boot_time_ns
+            .cmp(&b.event_boot_time_ns)
+            .then_with(|| a.victim_tgid.cmp(&b.victim_tgid))
+            .then_with(|| a.victim_tid.cmp(&b.victim_tid))
+            .then_with(|| a.victim_starttime_ticks.cmp(&b.victim_starttime_ticks))
+            .then_with(|| a_scope.cmp(&b_scope))
+            .then_with(|| a.cgroup_v2_id.cmp(&b.cgroup_v2_id))
+    });
+
+    for pair in validated.windows(2) {
+        if pair[0] == pair[1] {
+            return Err("Wave21 evidence set contains a duplicate record");
+        }
+    }
+    Ok(validated)
 }
 
 // parse_bind_annotations recognizes only the reviewed Wave 21 Update action.
