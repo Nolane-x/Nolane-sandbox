@@ -39,7 +39,7 @@ for fragment in [
     "start_store_loss_epoch",
     "record_raw_with_disposition",
     "read_process_cgroup_v2_id",
-    "read_process_timens_boottime_offset",
+    "read_current_timens_boottime_offset",
     "RecordedWithLoss",
 ]:
     assert fragment in AUTHORITY, f"missing Wave21 bounded evidence invariant: {fragment}"
@@ -59,7 +59,7 @@ for fragment in [
     "MapCreateAttr::ringbuf",
     "open_raw_tracepoint",
     "lookup_loss_epoch",
-    "read_process_timens_boottime_offset",
+    "read_current_timens_boottime_offset",
     "start_boottime_ns_to_starttime_ticks",
 ]:
     assert fragment in BPF, f"missing Wave21 live collector boundary: {fragment}"
