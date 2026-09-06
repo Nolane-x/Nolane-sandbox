@@ -25,11 +25,12 @@ jobs:
         with:
           go-version-file: Cubelet/go.mod
           cache-dependency-path: Cubelet/go.sum
-      - name: Verify Wave21 generation-token and pre-start sequencing contracts
+      - name: Verify Wave21 generation, binding, and Prometheus contracts
         working-directory: Cubelet
         run: |
           go test ./plugins/cube/internals/sandbox -run '^TestV21' -count=1
           go test ./plugins/cube/internals/guestvictim -run '^(TestBindBeforeStart|TestV21)' -count=1
+          go test ./plugins/cube/internals/resourcemetrics -run '^TestV21' -count=1
 
   guest-wave21:
     runs-on: ubuntu-latest
@@ -40,6 +41,8 @@ jobs:
         run: |
           rustc --edition=2021 --test tests/guest_oom_victim_v21.rs -o /tmp/guest_oom_victim_v21
           /tmp/guest_oom_victim_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_lookup_v21.rs -o /tmp/guest_oom_victim_lookup_v21
+          /tmp/guest_oom_victim_lookup_v21 --nocapture
 
   shim-wave21:
     runs-on: ubuntu-latest
@@ -50,3 +53,17 @@ jobs:
         run: |
           rustc --edition=2021 --test tests/guest_victim_v21.rs -o /tmp/guest_victim_v21
           /tmp/guest_victim_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_victim_binding_v21.rs -o /tmp/guest_victim_binding_v21
+          /tmp/guest_victim_binding_v21 --nocapture
+
+  nolaneworld-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: NolaneWorld/go.mod
+          cache-dependency-path: NolaneWorld/go.sum
+      - name: Verify Wave21 strict consumer contract
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run '^TestV21' -count=1
