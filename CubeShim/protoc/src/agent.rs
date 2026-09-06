@@ -2577,14 +2577,23 @@ impl ::protobuf::reflect::ProtobufValue for GetOOMVictimEvidenceRequest {
 #[derive(PartialEq,Clone,Default)]
 #[cfg_attr(feature = "with-serde", derive(::serde::Serialize, ::serde::Deserialize))]
 #[cfg_attr(feature = "with-serde", serde(default))]
-pub struct OOMVictimProof {
+pub struct OOMVictimEvidence {
     // message fields
+    pub version: u32,
+    pub container_id: ::std::string::String,
+    pub realization_token: ::std::vec::Vec<u8>,
+    pub guest_boot_id: ::std::string::String,
     pub victim_tid: u32,
     pub victim_tgid: u32,
     pub victim_starttime_ticks: u64,
     pub event_boot_time_ns: u64,
     pub cgroup_v2_id: u64,
+    pub main_pid: u32,
+    pub main_starttime_ticks: u64,
     pub scope: OOMVictimScope,
+    pub realization_started_boot_ns: u64,
+    pub outcome_observed_boot_ns: u64,
+    pub source: ::std::string::String,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -2592,18 +2601,111 @@ pub struct OOMVictimProof {
     pub cached_size: ::protobuf::CachedSize,
 }
 
-impl<'a> ::std::default::Default for &'a OOMVictimProof {
-    fn default() -> &'a OOMVictimProof {
-        <OOMVictimProof as ::protobuf::Message>::default_instance()
+impl<'a> ::std::default::Default for &'a OOMVictimEvidence {
+    fn default() -> &'a OOMVictimEvidence {
+        <OOMVictimEvidence as ::protobuf::Message>::default_instance()
     }
 }
 
-impl OOMVictimProof {
-    pub fn new() -> OOMVictimProof {
+impl OOMVictimEvidence {
+    pub fn new() -> OOMVictimEvidence {
         ::std::default::Default::default()
     }
 
-    // uint32 victim_tid = 1;
+    // uint32 version = 1;
+
+
+    pub fn get_version(&self) -> u32 {
+        self.version
+    }
+    pub fn clear_version(&mut self) {
+        self.version = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_version(&mut self, v: u32) {
+        self.version = v;
+    }
+
+    // string container_id = 2;
+
+
+    pub fn get_container_id(&self) -> &str {
+        &self.container_id
+    }
+    pub fn clear_container_id(&mut self) {
+        self.container_id.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_container_id(&mut self, v: ::std::string::String) {
+        self.container_id = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_container_id(&mut self) -> &mut ::std::string::String {
+        &mut self.container_id
+    }
+
+    // Take field
+    pub fn take_container_id(&mut self) -> ::std::string::String {
+        ::std::mem::replace(&mut self.container_id, ::std::string::String::new())
+    }
+
+    // bytes realization_token = 3;
+
+
+    pub fn get_realization_token(&self) -> &[u8] {
+        &self.realization_token
+    }
+    pub fn clear_realization_token(&mut self) {
+        self.realization_token.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_realization_token(&mut self, v: ::std::vec::Vec<u8>) {
+        self.realization_token = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_realization_token(&mut self) -> &mut ::std::vec::Vec<u8> {
+        &mut self.realization_token
+    }
+
+    // Take field
+    pub fn take_realization_token(&mut self) -> ::std::vec::Vec<u8> {
+        ::std::mem::replace(&mut self.realization_token, ::std::vec::Vec::new())
+    }
+
+    // string guest_boot_id = 4;
+
+
+    pub fn get_guest_boot_id(&self) -> &str {
+        &self.guest_boot_id
+    }
+    pub fn clear_guest_boot_id(&mut self) {
+        self.guest_boot_id.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_guest_boot_id(&mut self, v: ::std::string::String) {
+        self.guest_boot_id = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_guest_boot_id(&mut self) -> &mut ::std::string::String {
+        &mut self.guest_boot_id
+    }
+
+    // Take field
+    pub fn take_guest_boot_id(&mut self) -> ::std::string::String {
+        ::std::mem::replace(&mut self.guest_boot_id, ::std::string::String::new())
+    }
+
+    // uint32 victim_tid = 5;
 
 
     pub fn get_victim_tid(&self) -> u32 {
@@ -2618,7 +2720,7 @@ impl OOMVictimProof {
         self.victim_tid = v;
     }
 
-    // uint32 victim_tgid = 2;
+    // uint32 victim_tgid = 6;
 
 
     pub fn get_victim_tgid(&self) -> u32 {
@@ -2633,7 +2735,7 @@ impl OOMVictimProof {
         self.victim_tgid = v;
     }
 
-    // uint64 victim_starttime_ticks = 3;
+    // uint64 victim_starttime_ticks = 7;
 
 
     pub fn get_victim_starttime_ticks(&self) -> u64 {
@@ -2648,7 +2750,7 @@ impl OOMVictimProof {
         self.victim_starttime_ticks = v;
     }
 
-    // uint64 event_boot_time_ns = 4;
+    // uint64 event_boot_time_ns = 8;
 
 
     pub fn get_event_boot_time_ns(&self) -> u64 {
@@ -2663,7 +2765,7 @@ impl OOMVictimProof {
         self.event_boot_time_ns = v;
     }
 
-    // uint64 cgroup_v2_id = 5;
+    // uint64 cgroup_v2_id = 9;
 
 
     pub fn get_cgroup_v2_id(&self) -> u64 {
@@ -2678,7 +2780,37 @@ impl OOMVictimProof {
         self.cgroup_v2_id = v;
     }
 
-    // .grpc.OOMVictimScope scope = 6;
+    // uint32 main_pid = 10;
+
+
+    pub fn get_main_pid(&self) -> u32 {
+        self.main_pid
+    }
+    pub fn clear_main_pid(&mut self) {
+        self.main_pid = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_main_pid(&mut self, v: u32) {
+        self.main_pid = v;
+    }
+
+    // uint64 main_starttime_ticks = 11;
+
+
+    pub fn get_main_starttime_ticks(&self) -> u64 {
+        self.main_starttime_ticks
+    }
+    pub fn clear_main_starttime_ticks(&mut self) {
+        self.main_starttime_ticks = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_main_starttime_ticks(&mut self, v: u64) {
+        self.main_starttime_ticks = v;
+    }
+
+    // .grpc.OOMVictimScope scope = 12;
 
 
     pub fn get_scope(&self) -> OOMVictimScope {
@@ -2692,9 +2824,65 @@ impl OOMVictimProof {
     pub fn set_scope(&mut self, v: OOMVictimScope) {
         self.scope = v;
     }
+
+    // uint64 realization_started_boot_ns = 13;
+
+
+    pub fn get_realization_started_boot_ns(&self) -> u64 {
+        self.realization_started_boot_ns
+    }
+    pub fn clear_realization_started_boot_ns(&mut self) {
+        self.realization_started_boot_ns = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_realization_started_boot_ns(&mut self, v: u64) {
+        self.realization_started_boot_ns = v;
+    }
+
+    // uint64 outcome_observed_boot_ns = 14;
+
+
+    pub fn get_outcome_observed_boot_ns(&self) -> u64 {
+        self.outcome_observed_boot_ns
+    }
+    pub fn clear_outcome_observed_boot_ns(&mut self) {
+        self.outcome_observed_boot_ns = 0;
+    }
+
+    // Param is passed by value, moved
+    pub fn set_outcome_observed_boot_ns(&mut self, v: u64) {
+        self.outcome_observed_boot_ns = v;
+    }
+
+    // string source = 15;
+
+
+    pub fn get_source(&self) -> &str {
+        &self.source
+    }
+    pub fn clear_source(&mut self) {
+        self.source.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_source(&mut self, v: ::std::string::String) {
+        self.source = v;
+    }
+
+    // Mutable pointer to the field.
+    // If field is not initialized, it is initialized with default value first.
+    pub fn mut_source(&mut self) -> &mut ::std::string::String {
+        &mut self.source
+    }
+
+    // Take field
+    pub fn take_source(&mut self) -> ::std::string::String {
+        ::std::mem::replace(&mut self.source, ::std::string::String::new())
+    }
 }
 
-impl ::protobuf::Message for OOMVictimProof {
+impl ::protobuf::Message for OOMVictimEvidence {
     fn is_initialized(&self) -> bool {
         true
     }
@@ -2708,38 +2896,85 @@ impl ::protobuf::Message for OOMVictimProof {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint32()?;
-                    self.victim_tid = tmp;
+                    self.version = tmp;
                 },
                 2 => {
+                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.container_id)?;
+                },
+                3 => {
+                    ::protobuf::rt::read_singular_proto3_bytes_into(wire_type, is, &mut self.realization_token)?;
+                },
+                4 => {
+                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.guest_boot_id)?;
+                },
+                5 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint32()?;
+                    self.victim_tid = tmp;
+                },
+                6 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint32()?;
                     self.victim_tgid = tmp;
                 },
-                3 => {
+                7 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
                     self.victim_starttime_ticks = tmp;
                 },
-                4 => {
+                8 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
                     self.event_boot_time_ns = tmp;
                 },
-                5 => {
+                9 => {
                     if wire_type != ::protobuf::wire_format::WireTypeVarint {
                         return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
                     }
                     let tmp = is.read_uint64()?;
                     self.cgroup_v2_id = tmp;
                 },
-                6 => {
-                    ::protobuf::rt::read_proto3_enum_with_unknown_fields_into(wire_type, is, &mut self.scope, 6, &mut self.unknown_fields)?
+                10 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint32()?;
+                    self.main_pid = tmp;
+                },
+                11 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.main_starttime_ticks = tmp;
+                },
+                12 => {
+                    ::protobuf::rt::read_proto3_enum_with_unknown_fields_into(wire_type, is, &mut self.scope, 12, &mut self.unknown_fields)?
+                },
+                13 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.realization_started_boot_ns = tmp;
+                },
+                14 => {
+                    if wire_type != ::protobuf::wire_format::WireTypeVarint {
+                        return ::std::result::Result::Err(::protobuf::rt::unexpected_wire_type(wire_type));
+                    }
+                    let tmp = is.read_uint64()?;
+                    self.outcome_observed_boot_ns = tmp;
+                },
+                15 => {
+                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.source)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -2753,23 +2988,50 @@ impl ::protobuf::Message for OOMVictimProof {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
+        if self.version != 0 {
+            my_size += ::protobuf::rt::value_size(1, self.version, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if !self.container_id.is_empty() {
+            my_size += ::protobuf::rt::string_size(2, &self.container_id);
+        }
+        if !self.realization_token.is_empty() {
+            my_size += ::protobuf::rt::bytes_size(3, &self.realization_token);
+        }
+        if !self.guest_boot_id.is_empty() {
+            my_size += ::protobuf::rt::string_size(4, &self.guest_boot_id);
+        }
         if self.victim_tid != 0 {
-            my_size += ::protobuf::rt::value_size(1, self.victim_tid, ::protobuf::wire_format::WireTypeVarint);
+            my_size += ::protobuf::rt::value_size(5, self.victim_tid, ::protobuf::wire_format::WireTypeVarint);
         }
         if self.victim_tgid != 0 {
-            my_size += ::protobuf::rt::value_size(2, self.victim_tgid, ::protobuf::wire_format::WireTypeVarint);
+            my_size += ::protobuf::rt::value_size(6, self.victim_tgid, ::protobuf::wire_format::WireTypeVarint);
         }
         if self.victim_starttime_ticks != 0 {
-            my_size += ::protobuf::rt::value_size(3, self.victim_starttime_ticks, ::protobuf::wire_format::WireTypeVarint);
+            my_size += ::protobuf::rt::value_size(7, self.victim_starttime_ticks, ::protobuf::wire_format::WireTypeVarint);
         }
         if self.event_boot_time_ns != 0 {
-            my_size += ::protobuf::rt::value_size(4, self.event_boot_time_ns, ::protobuf::wire_format::WireTypeVarint);
+            my_size += ::protobuf::rt::value_size(8, self.event_boot_time_ns, ::protobuf::wire_format::WireTypeVarint);
         }
         if self.cgroup_v2_id != 0 {
-            my_size += ::protobuf::rt::value_size(5, self.cgroup_v2_id, ::protobuf::wire_format::WireTypeVarint);
+            my_size += ::protobuf::rt::value_size(9, self.cgroup_v2_id, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if self.main_pid != 0 {
+            my_size += ::protobuf::rt::value_size(10, self.main_pid, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if self.main_starttime_ticks != 0 {
+            my_size += ::protobuf::rt::value_size(11, self.main_starttime_ticks, ::protobuf::wire_format::WireTypeVarint);
         }
         if self.scope != OOMVictimScope::OOM_VICTIM_SCOPE_UNSPECIFIED {
-            my_size += ::protobuf::rt::enum_size(6, self.scope);
+            my_size += ::protobuf::rt::enum_size(12, self.scope);
+        }
+        if self.realization_started_boot_ns != 0 {
+            my_size += ::protobuf::rt::value_size(13, self.realization_started_boot_ns, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if self.outcome_observed_boot_ns != 0 {
+            my_size += ::protobuf::rt::value_size(14, self.outcome_observed_boot_ns, ::protobuf::wire_format::WireTypeVarint);
+        }
+        if !self.source.is_empty() {
+            my_size += ::protobuf::rt::string_size(15, &self.source);
         }
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
         self.cached_size.set(my_size);
@@ -2777,23 +3039,50 @@ impl ::protobuf::Message for OOMVictimProof {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
+        if self.version != 0 {
+            os.write_uint32(1, self.version)?;
+        }
+        if !self.container_id.is_empty() {
+            os.write_string(2, &self.container_id)?;
+        }
+        if !self.realization_token.is_empty() {
+            os.write_bytes(3, &self.realization_token)?;
+        }
+        if !self.guest_boot_id.is_empty() {
+            os.write_string(4, &self.guest_boot_id)?;
+        }
         if self.victim_tid != 0 {
-            os.write_uint32(1, self.victim_tid)?;
+            os.write_uint32(5, self.victim_tid)?;
         }
         if self.victim_tgid != 0 {
-            os.write_uint32(2, self.victim_tgid)?;
+            os.write_uint32(6, self.victim_tgid)?;
         }
         if self.victim_starttime_ticks != 0 {
-            os.write_uint64(3, self.victim_starttime_ticks)?;
+            os.write_uint64(7, self.victim_starttime_ticks)?;
         }
         if self.event_boot_time_ns != 0 {
-            os.write_uint64(4, self.event_boot_time_ns)?;
+            os.write_uint64(8, self.event_boot_time_ns)?;
         }
         if self.cgroup_v2_id != 0 {
-            os.write_uint64(5, self.cgroup_v2_id)?;
+            os.write_uint64(9, self.cgroup_v2_id)?;
+        }
+        if self.main_pid != 0 {
+            os.write_uint32(10, self.main_pid)?;
+        }
+        if self.main_starttime_ticks != 0 {
+            os.write_uint64(11, self.main_starttime_ticks)?;
         }
         if self.scope != OOMVictimScope::OOM_VICTIM_SCOPE_UNSPECIFIED {
-            os.write_enum(6, ::protobuf::ProtobufEnum::value(&self.scope))?;
+            os.write_enum(12, ::protobuf::ProtobufEnum::value(&self.scope))?;
+        }
+        if self.realization_started_boot_ns != 0 {
+            os.write_uint64(13, self.realization_started_boot_ns)?;
+        }
+        if self.outcome_observed_boot_ns != 0 {
+            os.write_uint64(14, self.outcome_observed_boot_ns)?;
+        }
+        if !self.source.is_empty() {
+            os.write_string(15, &self.source)?;
         }
         os.write_unknown_fields(self.get_unknown_fields())?;
         ::std::result::Result::Ok(())
@@ -2825,8 +3114,8 @@ impl ::protobuf::Message for OOMVictimProof {
         Self::descriptor_static()
     }
 
-    fn new() -> OOMVictimProof {
-        OOMVictimProof::new()
+    fn new() -> OOMVictimEvidence {
+        OOMVictimEvidence::new()
     }
 
     fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
@@ -2834,68 +3123,122 @@ impl ::protobuf::Message for OOMVictimProof {
         descriptor.get(|| {
             let mut fields = ::std::vec::Vec::new();
             fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
+                "version",
+                |m: &OOMVictimEvidence| { &m.version },
+                |m: &mut OOMVictimEvidence| { &mut m.version },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "container_id",
+                |m: &OOMVictimEvidence| { &m.container_id },
+                |m: &mut OOMVictimEvidence| { &mut m.container_id },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeBytes>(
+                "realization_token",
+                |m: &OOMVictimEvidence| { &m.realization_token },
+                |m: &mut OOMVictimEvidence| { &mut m.realization_token },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "guest_boot_id",
+                |m: &OOMVictimEvidence| { &m.guest_boot_id },
+                |m: &mut OOMVictimEvidence| { &mut m.guest_boot_id },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
                 "victim_tid",
-                |m: &OOMVictimProof| { &m.victim_tid },
-                |m: &mut OOMVictimProof| { &mut m.victim_tid },
+                |m: &OOMVictimEvidence| { &m.victim_tid },
+                |m: &mut OOMVictimEvidence| { &mut m.victim_tid },
             ));
             fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
                 "victim_tgid",
-                |m: &OOMVictimProof| { &m.victim_tgid },
-                |m: &mut OOMVictimProof| { &mut m.victim_tgid },
+                |m: &OOMVictimEvidence| { &m.victim_tgid },
+                |m: &mut OOMVictimEvidence| { &mut m.victim_tgid },
             ));
             fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                 "victim_starttime_ticks",
-                |m: &OOMVictimProof| { &m.victim_starttime_ticks },
-                |m: &mut OOMVictimProof| { &mut m.victim_starttime_ticks },
+                |m: &OOMVictimEvidence| { &m.victim_starttime_ticks },
+                |m: &mut OOMVictimEvidence| { &mut m.victim_starttime_ticks },
             ));
             fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                 "event_boot_time_ns",
-                |m: &OOMVictimProof| { &m.event_boot_time_ns },
-                |m: &mut OOMVictimProof| { &mut m.event_boot_time_ns },
+                |m: &OOMVictimEvidence| { &m.event_boot_time_ns },
+                |m: &mut OOMVictimEvidence| { &mut m.event_boot_time_ns },
             ));
             fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
                 "cgroup_v2_id",
-                |m: &OOMVictimProof| { &m.cgroup_v2_id },
-                |m: &mut OOMVictimProof| { &mut m.cgroup_v2_id },
+                |m: &OOMVictimEvidence| { &m.cgroup_v2_id },
+                |m: &mut OOMVictimEvidence| { &mut m.cgroup_v2_id },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint32>(
+                "main_pid",
+                |m: &OOMVictimEvidence| { &m.main_pid },
+                |m: &mut OOMVictimEvidence| { &mut m.main_pid },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "main_starttime_ticks",
+                |m: &OOMVictimEvidence| { &m.main_starttime_ticks },
+                |m: &mut OOMVictimEvidence| { &mut m.main_starttime_ticks },
             ));
             fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeEnum<OOMVictimScope>>(
                 "scope",
-                |m: &OOMVictimProof| { &m.scope },
-                |m: &mut OOMVictimProof| { &mut m.scope },
+                |m: &OOMVictimEvidence| { &m.scope },
+                |m: &mut OOMVictimEvidence| { &mut m.scope },
             ));
-            ::protobuf::reflect::MessageDescriptor::new_pb_name::<OOMVictimProof>(
-                "OOMVictimProof",
+            fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "realization_started_boot_ns",
+                |m: &OOMVictimEvidence| { &m.realization_started_boot_ns },
+                |m: &mut OOMVictimEvidence| { &mut m.realization_started_boot_ns },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeUint64>(
+                "outcome_observed_boot_ns",
+                |m: &OOMVictimEvidence| { &m.outcome_observed_boot_ns },
+                |m: &mut OOMVictimEvidence| { &mut m.outcome_observed_boot_ns },
+            ));
+            fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                "source",
+                |m: &OOMVictimEvidence| { &m.source },
+                |m: &mut OOMVictimEvidence| { &mut m.source },
+            ));
+            ::protobuf::reflect::MessageDescriptor::new_pb_name::<OOMVictimEvidence>(
+                "OOMVictimEvidence",
                 fields,
                 file_descriptor_proto()
             )
         })
     }
 
-    fn default_instance() -> &'static OOMVictimProof {
-        static instance: ::protobuf::rt::LazyV2<OOMVictimProof> = ::protobuf::rt::LazyV2::INIT;
-        instance.get(OOMVictimProof::new)
+    fn default_instance() -> &'static OOMVictimEvidence {
+        static instance: ::protobuf::rt::LazyV2<OOMVictimEvidence> = ::protobuf::rt::LazyV2::INIT;
+        instance.get(OOMVictimEvidence::new)
     }
 }
 
-impl ::protobuf::Clear for OOMVictimProof {
+impl ::protobuf::Clear for OOMVictimEvidence {
     fn clear(&mut self) {
+        self.version = 0;
+        self.container_id.clear();
+        self.realization_token.clear();
+        self.guest_boot_id.clear();
         self.victim_tid = 0;
         self.victim_tgid = 0;
         self.victim_starttime_ticks = 0;
         self.event_boot_time_ns = 0;
         self.cgroup_v2_id = 0;
+        self.main_pid = 0;
+        self.main_starttime_ticks = 0;
         self.scope = OOMVictimScope::OOM_VICTIM_SCOPE_UNSPECIFIED;
+        self.realization_started_boot_ns = 0;
+        self.outcome_observed_boot_ns = 0;
+        self.source.clear();
         self.unknown_fields.clear();
     }
 }
 
-impl ::std::fmt::Debug for OOMVictimProof {
+impl ::std::fmt::Debug for OOMVictimEvidence {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         ::protobuf::text_format::fmt(self, f)
     }
 }
 
-impl ::protobuf::reflect::ProtobufValue for OOMVictimProof {
+impl ::protobuf::reflect::ProtobufValue for OOMVictimEvidence {
     fn as_ref(&self) -> ::protobuf::reflect::ReflectValueRef {
         ::protobuf::reflect::ReflectValueRef::Message(self)
     }
@@ -2906,8 +3249,7 @@ impl ::protobuf::reflect::ProtobufValue for OOMVictimProof {
 #[cfg_attr(feature = "with-serde", serde(default))]
 pub struct GetOOMVictimEvidenceResponse {
     // message fields
-    pub guest_boot_id: ::std::string::String,
-    pub proofs: ::protobuf::RepeatedField<OOMVictimProof>,
+    pub evidence: ::protobuf::RepeatedField<OOMVictimEvidence>,
     // special fields
     #[cfg_attr(feature = "with-serde", serde(skip))]
     pub unknown_fields: ::protobuf::UnknownFields,
@@ -2926,61 +3268,35 @@ impl GetOOMVictimEvidenceResponse {
         ::std::default::Default::default()
     }
 
-    // string guest_boot_id = 1;
+    // repeated .grpc.OOMVictimEvidence evidence = 1;
 
 
-    pub fn get_guest_boot_id(&self) -> &str {
-        &self.guest_boot_id
+    pub fn get_evidence(&self) -> &[OOMVictimEvidence] {
+        &self.evidence
     }
-    pub fn clear_guest_boot_id(&mut self) {
-        self.guest_boot_id.clear();
-    }
-
-    // Param is passed by value, moved
-    pub fn set_guest_boot_id(&mut self, v: ::std::string::String) {
-        self.guest_boot_id = v;
-    }
-
-    // Mutable pointer to the field.
-    // If field is not initialized, it is initialized with default value first.
-    pub fn mut_guest_boot_id(&mut self) -> &mut ::std::string::String {
-        &mut self.guest_boot_id
-    }
-
-    // Take field
-    pub fn take_guest_boot_id(&mut self) -> ::std::string::String {
-        ::std::mem::replace(&mut self.guest_boot_id, ::std::string::String::new())
-    }
-
-    // repeated .grpc.OOMVictimProof proofs = 2;
-
-
-    pub fn get_proofs(&self) -> &[OOMVictimProof] {
-        &self.proofs
-    }
-    pub fn clear_proofs(&mut self) {
-        self.proofs.clear();
+    pub fn clear_evidence(&mut self) {
+        self.evidence.clear();
     }
 
     // Param is passed by value, moved
-    pub fn set_proofs(&mut self, v: ::protobuf::RepeatedField<OOMVictimProof>) {
-        self.proofs = v;
+    pub fn set_evidence(&mut self, v: ::protobuf::RepeatedField<OOMVictimEvidence>) {
+        self.evidence = v;
     }
 
     // Mutable pointer to the field.
-    pub fn mut_proofs(&mut self) -> &mut ::protobuf::RepeatedField<OOMVictimProof> {
-        &mut self.proofs
+    pub fn mut_evidence(&mut self) -> &mut ::protobuf::RepeatedField<OOMVictimEvidence> {
+        &mut self.evidence
     }
 
     // Take field
-    pub fn take_proofs(&mut self) -> ::protobuf::RepeatedField<OOMVictimProof> {
-        ::std::mem::replace(&mut self.proofs, ::protobuf::RepeatedField::new())
+    pub fn take_evidence(&mut self) -> ::protobuf::RepeatedField<OOMVictimEvidence> {
+        ::std::mem::replace(&mut self.evidence, ::protobuf::RepeatedField::new())
     }
 }
 
 impl ::protobuf::Message for GetOOMVictimEvidenceResponse {
     fn is_initialized(&self) -> bool {
-        for v in &self.proofs {
+        for v in &self.evidence {
             if !v.is_initialized() {
                 return false;
             }
@@ -2993,10 +3309,7 @@ impl ::protobuf::Message for GetOOMVictimEvidenceResponse {
             let (field_number, wire_type) = is.read_tag_unpack()?;
             match field_number {
                 1 => {
-                    ::protobuf::rt::read_singular_proto3_string_into(wire_type, is, &mut self.guest_boot_id)?;
-                },
-                2 => {
-                    ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.proofs)?;
+                    ::protobuf::rt::read_repeated_message_into(wire_type, is, &mut self.evidence)?;
                 },
                 _ => {
                     ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
@@ -3010,10 +3323,7 @@ impl ::protobuf::Message for GetOOMVictimEvidenceResponse {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        if !self.guest_boot_id.is_empty() {
-            my_size += ::protobuf::rt::string_size(1, &self.guest_boot_id);
-        }
-        for value in &self.proofs {
+        for value in &self.evidence {
             let len = value.compute_size();
             my_size += 1 + ::protobuf::rt::compute_raw_varint32_size(len) + len;
         };
@@ -3023,11 +3333,8 @@ impl ::protobuf::Message for GetOOMVictimEvidenceResponse {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream<'_>) -> ::protobuf::ProtobufResult<()> {
-        if !self.guest_boot_id.is_empty() {
-            os.write_string(1, &self.guest_boot_id)?;
-        }
-        for v in &self.proofs {
-            os.write_tag(2, ::protobuf::wire_format::WireTypeLengthDelimited)?;
+        for v in &self.evidence {
+            os.write_tag(1, ::protobuf::wire_format::WireTypeLengthDelimited)?;
             os.write_raw_varint32(v.get_cached_size())?;
             v.write_to_with_cached_sizes(os)?;
         };
@@ -3069,15 +3376,10 @@ impl ::protobuf::Message for GetOOMVictimEvidenceResponse {
         static descriptor: ::protobuf::rt::LazyV2<::protobuf::reflect::MessageDescriptor> = ::protobuf::rt::LazyV2::INIT;
         descriptor.get(|| {
             let mut fields = ::std::vec::Vec::new();
-            fields.push(::protobuf::reflect::accessor::make_simple_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
-                "guest_boot_id",
-                |m: &GetOOMVictimEvidenceResponse| { &m.guest_boot_id },
-                |m: &mut GetOOMVictimEvidenceResponse| { &mut m.guest_boot_id },
-            ));
-            fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<OOMVictimProof>>(
-                "proofs",
-                |m: &GetOOMVictimEvidenceResponse| { &m.proofs },
-                |m: &mut GetOOMVictimEvidenceResponse| { &mut m.proofs },
+            fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeMessage<OOMVictimEvidence>>(
+                "evidence",
+                |m: &GetOOMVictimEvidenceResponse| { &m.evidence },
+                |m: &mut GetOOMVictimEvidenceResponse| { &mut m.evidence },
             ));
             ::protobuf::reflect::MessageDescriptor::new_pb_name::<GetOOMVictimEvidenceResponse>(
                 "GetOOMVictimEvidenceResponse",
@@ -3095,8 +3397,7 @@ impl ::protobuf::Message for GetOOMVictimEvidenceResponse {
 
 impl ::protobuf::Clear for GetOOMVictimEvidenceResponse {
     fn clear(&mut self) {
-        self.guest_boot_id.clear();
-        self.proofs.clear();
+        self.evidence.clear();
         self.unknown_fields.clear();
     }
 }
@@ -16393,94 +16694,102 @@ static file_descriptor_proto_data: &'static [u8] = b"\
     \x01\x20\x01(\x05R\x06statusB\0:\0\"s\n\x1bGetOOMVictimEvidenceRequest\
     \x12#\n\x0ccontainer_id\x18\x01\x20\x01(\tR\x0bcontainerIdB\0\x12-\n\x11\
     realization_token\x18\x02\x20\x01(\x0cR\x10realizationTokenB\0:\0\"\x8f\
-    \x02\n\x0eOOMVictimProof\x12\x1f\n\nvictim_tid\x18\x01\x20\x01(\rR\tvict\
-    imTidB\0\x12!\n\x0bvictim_tgid\x18\x02\x20\x01(\rR\nvictimTgidB\0\x126\n\
-    \x16victim_starttime_ticks\x18\x03\x20\x01(\x04R\x14victimStarttimeTicks\
-    B\0\x12-\n\x12event_boot_time_ns\x18\x04\x20\x01(\x04R\x0feventBootTimeN\
-    sB\0\x12\"\n\x0ccgroup_v2_id\x18\x05\x20\x01(\x04R\ncgroupV2IdB\0\x12,\n\
-    \x05scope\x18\x06\x20\x01(\x0e2\x14.grpc.OOMVictimScopeR\x05scopeB\0:\0\
-    \"v\n\x1cGetOOMVictimEvidenceResponse\x12$\n\rguest_boot_id\x18\x01\x20\
-    \x01(\tR\x0bguestBootIdB\0\x12.\n\x06proofs\x18\x02\x20\x03(\x0b2\x14.gr\
-    pc.OOMVictimProofR\x06proofsB\0:\0\"u\n\x16UpdateContainerRequest\x12#\n\
-    \x0ccontainer_id\x18\x01\x20\x01(\tR\x0bcontainerIdB\0\x124\n\tresources\
-    \x18\x02\x20\x01(\x0b2\x14.grpc.LinuxResourcesR\tresourcesB\0:\0\">\n\
-    \x15StatsContainerRequest\x12#\n\x0ccontainer_id\x18\x01\x20\x01(\tR\x0b\
-    containerIdB\0:\0\">\n\x15PauseContainerRequest\x12#\n\x0ccontainer_id\
-    \x18\x01\x20\x01(\tR\x0bcontainerIdB\0:\0\"?\n\x16ResumeContainerRequest\
-    \x12#\n\x0ccontainer_id\x18\x01\x20\x01(\tR\x0bcontainerIdB\0:\0\"\xb4\
-    \x01\n\x08CpuUsage\x12!\n\x0btotal_usage\x18\x01\x20\x01(\x04R\ntotalUsa\
-    geB\0\x12#\n\x0cpercpu_usage\x18\x02\x20\x03(\x04R\x0bpercpuUsageB\0\x12\
-    0\n\x13usage_in_kernelmode\x18\x03\x20\x01(\x04R\x11usageInKernelmodeB\0\
-    \x12,\n\x11usage_in_usermode\x18\x04\x20\x01(\x04R\x0fusageInUsermodeB\0\
-    :\0\"\x86\x01\n\x0eThrottlingData\x12\x1a\n\x07periods\x18\x01\x20\x01(\
-    \x04R\x07periodsB\0\x12-\n\x11throttled_periods\x18\x02\x20\x01(\x04R\
-    \x10throttledPeriodsB\0\x12'\n\x0ethrottled_time\x18\x03\x20\x01(\x04R\r\
-    throttledTimeB\0:\0\"|\n\x08CpuStats\x12-\n\tcpu_usage\x18\x01\x20\x01(\
-    \x0b2\x0e.grpc.CpuUsageR\x08cpuUsageB\0\x12?\n\x0fthrottling_data\x18\
-    \x02\x20\x01(\x0b2\x14.grpc.ThrottlingDataR\x0ethrottlingDataB\0:\0\"A\n\
-    \tPidsStats\x12\x1a\n\x07current\x18\x01\x20\x01(\x04R\x07currentB\0\x12\
-    \x16\n\x05limit\x18\x02\x20\x01(\x04R\x05limitB\0:\0\"y\n\nMemoryData\
-    \x12\x16\n\x05usage\x18\x01\x20\x01(\x04R\x05usageB\0\x12\x1d\n\tmax_usa\
-    ge\x18\x02\x20\x01(\x04R\x08maxUsageB\0\x12\x1a\n\x07failcnt\x18\x03\x20\
-    \x01(\x04R\x07failcntB\0\x12\x16\n\x05limit\x18\x04\x20\x01(\x04R\x05lim\
-    itB\0:\0\"\xd6\x02\n\x0bMemoryStats\x12\x16\n\x05cache\x18\x01\x20\x01(\
-    \x04R\x05cacheB\0\x12(\n\x05usage\x18\x02\x20\x01(\x0b2\x10.grpc.MemoryD\
-    ataR\x05usageB\0\x121\n\nswap_usage\x18\x03\x20\x01(\x0b2\x10.grpc.Memor\
-    yDataR\tswapUsageB\0\x125\n\x0ckernel_usage\x18\x04\x20\x01(\x0b2\x10.gr\
-    pc.MemoryDataR\x0bkernelUsageB\0\x12%\n\ruse_hierarchy\x18\x05\x20\x01(\
-    \x08R\x0cuseHierarchyB\0\x128\n\x05stats\x18\x06\x20\x03(\x0b2\x20.grpc.\
-    MemoryStats.stats_MapEntryR\x05statsB\0\x1a8\n\x0estats_MapEntry\x12\x0e\
-    \n\x03key\x18\x01(\tR\x03key\x12\x12\n\x05value\x18\x02(\x04R\x05value:\
-    \x028\x01:\0\"m\n\x0fBlkioStatsEntry\x12\x16\n\x05major\x18\x01\x20\x01(\
-    \x04R\x05majorB\0\x12\x16\n\x05minor\x18\x02\x20\x01(\x04R\x05minorB\0\
-    \x12\x10\n\x02op\x18\x03\x20\x01(\tR\x02opB\0\x12\x16\n\x05value\x18\x04\
-    \x20\x01(\x04R\x05valueB\0:\0\"\xf0\x04\n\nBlkioStats\x12T\n\x1aio_servi\
-    ce_bytes_recursive\x18\x01\x20\x03(\x0b2\x15.grpc.BlkioStatsEntryR\x17io\
-    ServiceBytesRecursiveB\0\x12K\n\x15io_serviced_recursive\x18\x02\x20\x03\
-    (\x0b2\x15.grpc.BlkioStatsEntryR\x13ioServicedRecursiveB\0\x12G\n\x13io_\
-    queued_recursive\x18\x03\x20\x03(\x0b2\x15.grpc.BlkioStatsEntryR\x11ioQu\
-    euedRecursiveB\0\x12R\n\x19io_service_time_recursive\x18\x04\x20\x03(\
-    \x0b2\x15.grpc.BlkioStatsEntryR\x16ioServiceTimeRecursiveB\0\x12L\n\x16i\
-    o_wait_time_recursive\x18\x05\x20\x03(\x0b2\x15.grpc.BlkioStatsEntryR\
-    \x13ioWaitTimeRecursiveB\0\x12G\n\x13io_merged_recursive\x18\x06\x20\x03\
-    (\x0b2\x15.grpc.BlkioStatsEntryR\x11ioMergedRecursiveB\0\x12C\n\x11io_ti\
-    me_recursive\x18\x07\x20\x03(\x0b2\x15.grpc.BlkioStatsEntryR\x0fioTimeRe\
-    cursiveB\0\x12D\n\x11sectors_recursive\x18\x08\x20\x03(\x0b2\x15.grpc.Bl\
-    kioStatsEntryR\x10sectorsRecursiveB\0:\0\"c\n\x0cHugetlbStats\x12\x16\n\
-    \x05usage\x18\x01\x20\x01(\x04R\x05usageB\0\x12\x1d\n\tmax_usage\x18\x02\
-    \x20\x01(\x04R\x08maxUsageB\0\x12\x1a\n\x07failcnt\x18\x03\x20\x01(\x04R\
-    \x07failcntB\0:\0\"\x84\x03\n\x0bCgroupStats\x12-\n\tcpu_stats\x18\x01\
-    \x20\x01(\x0b2\x0e.grpc.CpuStatsR\x08cpuStatsB\0\x126\n\x0cmemory_stats\
-    \x18\x02\x20\x01(\x0b2\x11.grpc.MemoryStatsR\x0bmemoryStatsB\0\x120\n\np\
-    ids_stats\x18\x03\x20\x01(\x0b2\x0f.grpc.PidsStatsR\tpidsStatsB\0\x123\n\
-    \x0bblkio_stats\x18\x04\x20\x01(\x0b2\x10.grpc.BlkioStatsR\nblkioStatsB\
-    \0\x12O\n\rhugetlb_stats\x18\x05\x20\x03(\x0b2(.grpc.CgroupStats.hugetlb\
-    _stats_MapEntryR\x0chugetlbStatsB\0\x1aT\n\x16hugetlb_stats_MapEntry\x12\
-    \x0e\n\x03key\x18\x01(\tR\x03key\x12&\n\x05value\x18\x02(\x0b2\x12.grpc.\
-    HugetlbStatsR\x05value:\x028\x01:\0\"\xa2\x02\n\x0cNetworkStats\x12\x14\
-    \n\x04name\x18\x01\x20\x01(\tR\x04nameB\0\x12\x1b\n\x08rx_bytes\x18\x02\
-    \x20\x01(\x04R\x07rxBytesB\0\x12\x1f\n\nrx_packets\x18\x03\x20\x01(\x04R\
-    \trxPacketsB\0\x12\x1d\n\trx_errors\x18\x04\x20\x01(\x04R\x08rxErrorsB\0\
-    \x12\x1f\n\nrx_dropped\x18\x05\x20\x01(\x04R\trxDroppedB\0\x12\x1b\n\x08\
-    tx_bytes\x18\x06\x20\x01(\x04R\x07txBytesB\0\x12\x1f\n\ntx_packets\x18\
-    \x07\x20\x01(\x04R\ttxPacketsB\0\x12\x1d\n\ttx_errors\x18\x08\x20\x01(\
-    \x04R\x08txErrorsB\0\x12\x1f\n\ntx_dropped\x18\t\x20\x01(\x04R\ttxDroppe\
-    dB\0:\0\"\xc9\x01\n\x16StatsContainerResponse\x126\n\x0ccgroup_stats\x18\
-    \x01\x20\x01(\x0b2\x11.grpc.CgroupStatsR\x0bcgroupStatsB\0\x129\n\rnetwo\
-    rk_stats\x18\x02\x20\x03(\x0b2\x12.grpc.NetworkStatsR\x0cnetworkStatsB\0\
-    \x12:\n\x18resource_metrics_version\x18\x03\x20\x01(\rR\x16resourceMetri\
-    csVersionB\0:\0\"l\n\x12WriteStreamRequest\x12#\n\x0ccontainer_id\x18\
-    \x01\x20\x01(\tR\x0bcontainerIdB\0\x12\x19\n\x07exec_id\x18\x02\x20\x01(\
-    \tR\x06execIdB\0\x12\x14\n\x04data\x18\x03\x20\x01(\x0cR\x04dataB\0:\0\"\
-    +\n\x13WriteStreamResponse\x12\x12\n\x03len\x18\x01\x20\x01(\rR\x03lenB\
-    \0:\0\"i\n\x11ReadStreamRequest\x12#\n\x0ccontainer_id\x18\x01\x20\x01(\
-    \tR\x0bcontainerIdB\0\x12\x19\n\x07exec_id\x18\x02\x20\x01(\tR\x06execId\
-    B\0\x12\x12\n\x03len\x18\x03\x20\x01(\rR\x03lenB\0:\0\",\n\x12ReadStream\
-    Response\x12\x14\n\x04data\x18\x01\x20\x01(\x0cR\x04dataB\0:\0\"U\n\x11C\
-    loseStdinRequest\x12#\n\x0ccontainer_id\x18\x01\x20\x01(\tR\x0bcontainer\
-    IdB\0\x12\x19\n\x07exec_id\x18\x02\x20\x01(\tR\x06execIdB\0:\0\"\x85\x01\
-    \n\x13TtyWinResizeRequest\x12#\n\x0ccontainer_id\x18\x01\x20\x01(\tR\x0b\
-    containerIdB\0\x12\x19\n\x07exec_id\x18\x02\x20\x01(\tR\x06execIdB\0\x12\
+    \x05\n\x11OOMVictimEvidence\x12\x1a\n\x07version\x18\x01\x20\x01(\rR\x07\
+    versionB\0\x12#\n\x0ccontainer_id\x18\x02\x20\x01(\tR\x0bcontainerIdB\0\
+    \x12-\n\x11realization_token\x18\x03\x20\x01(\x0cR\x10realizationTokenB\
+    \0\x12$\n\rguest_boot_id\x18\x04\x20\x01(\tR\x0bguestBootIdB\0\x12\x1f\n\
+    \nvictim_tid\x18\x05\x20\x01(\rR\tvictimTidB\0\x12!\n\x0bvictim_tgid\x18\
+    \x06\x20\x01(\rR\nvictimTgidB\0\x126\n\x16victim_starttime_ticks\x18\x07\
+    \x20\x01(\x04R\x14victimStarttimeTicksB\0\x12-\n\x12event_boot_time_ns\
+    \x18\x08\x20\x01(\x04R\x0feventBootTimeNsB\0\x12\"\n\x0ccgroup_v2_id\x18\
+    \t\x20\x01(\x04R\ncgroupV2IdB\0\x12\x1b\n\x08main_pid\x18\n\x20\x01(\rR\
+    \x07mainPidB\0\x122\n\x14main_starttime_ticks\x18\x0b\x20\x01(\x04R\x12m\
+    ainStarttimeTicksB\0\x12,\n\x05scope\x18\x0c\x20\x01(\x0e2\x14.grpc.OOMV\
+    ictimScopeR\x05scopeB\0\x12?\n\x1brealization_started_boot_ns\x18\r\x20\
+    \x01(\x04R\x18realizationStartedBootNsB\0\x129\n\x18outcome_observed_boo\
+    t_ns\x18\x0e\x20\x01(\x04R\x15outcomeObservedBootNsB\0\x12\x18\n\x06sour\
+    ce\x18\x0f\x20\x01(\tR\x06sourceB\0:\0\"W\n\x1cGetOOMVictimEvidenceRespo\
+    nse\x125\n\x08evidence\x18\x01\x20\x03(\x0b2\x17.grpc.OOMVictimEvidenceR\
+    \x08evidenceB\0:\0\"u\n\x16UpdateContainerRequest\x12#\n\x0ccontainer_id\
+    \x18\x01\x20\x01(\tR\x0bcontainerIdB\0\x124\n\tresources\x18\x02\x20\x01\
+    (\x0b2\x14.grpc.LinuxResourcesR\tresourcesB\0:\0\">\n\x15StatsContainerR\
+    equest\x12#\n\x0ccontainer_id\x18\x01\x20\x01(\tR\x0bcontainerIdB\0:\0\"\
+    >\n\x15PauseContainerRequest\x12#\n\x0ccontainer_id\x18\x01\x20\x01(\tR\
+    \x0bcontainerIdB\0:\0\"?\n\x16ResumeContainerRequest\x12#\n\x0ccontainer\
+    _id\x18\x01\x20\x01(\tR\x0bcontainerIdB\0:\0\"\xb4\x01\n\x08CpuUsage\x12\
+    !\n\x0btotal_usage\x18\x01\x20\x01(\x04R\ntotalUsageB\0\x12#\n\x0cpercpu\
+    _usage\x18\x02\x20\x03(\x04R\x0bpercpuUsageB\0\x120\n\x13usage_in_kernel\
+    mode\x18\x03\x20\x01(\x04R\x11usageInKernelmodeB\0\x12,\n\x11usage_in_us\
+    ermode\x18\x04\x20\x01(\x04R\x0fusageInUsermodeB\0:\0\"\x86\x01\n\x0eThr\
+    ottlingData\x12\x1a\n\x07periods\x18\x01\x20\x01(\x04R\x07periodsB\0\x12\
+    -\n\x11throttled_periods\x18\x02\x20\x01(\x04R\x10throttledPeriodsB\0\
+    \x12'\n\x0ethrottled_time\x18\x03\x20\x01(\x04R\rthrottledTimeB\0:\0\"|\
+    \n\x08CpuStats\x12-\n\tcpu_usage\x18\x01\x20\x01(\x0b2\x0e.grpc.CpuUsage\
+    R\x08cpuUsageB\0\x12?\n\x0fthrottling_data\x18\x02\x20\x01(\x0b2\x14.grp\
+    c.ThrottlingDataR\x0ethrottlingDataB\0:\0\"A\n\tPidsStats\x12\x1a\n\x07c\
+    urrent\x18\x01\x20\x01(\x04R\x07currentB\0\x12\x16\n\x05limit\x18\x02\
+    \x20\x01(\x04R\x05limitB\0:\0\"y\n\nMemoryData\x12\x16\n\x05usage\x18\
+    \x01\x20\x01(\x04R\x05usageB\0\x12\x1d\n\tmax_usage\x18\x02\x20\x01(\x04\
+    R\x08maxUsageB\0\x12\x1a\n\x07failcnt\x18\x03\x20\x01(\x04R\x07failcntB\
+    \0\x12\x16\n\x05limit\x18\x04\x20\x01(\x04R\x05limitB\0:\0\"\xd6\x02\n\
+    \x0bMemoryStats\x12\x16\n\x05cache\x18\x01\x20\x01(\x04R\x05cacheB\0\x12\
+    (\n\x05usage\x18\x02\x20\x01(\x0b2\x10.grpc.MemoryDataR\x05usageB\0\x121\
+    \n\nswap_usage\x18\x03\x20\x01(\x0b2\x10.grpc.MemoryDataR\tswapUsageB\0\
+    \x125\n\x0ckernel_usage\x18\x04\x20\x01(\x0b2\x10.grpc.MemoryDataR\x0bke\
+    rnelUsageB\0\x12%\n\ruse_hierarchy\x18\x05\x20\x01(\x08R\x0cuseHierarchy\
+    B\0\x128\n\x05stats\x18\x06\x20\x03(\x0b2\x20.grpc.MemoryStats.stats_Map\
+    EntryR\x05statsB\0\x1a8\n\x0estats_MapEntry\x12\x0e\n\x03key\x18\x01(\tR\
+    \x03key\x12\x12\n\x05value\x18\x02(\x04R\x05value:\x028\x01:\0\"m\n\x0fB\
+    lkioStatsEntry\x12\x16\n\x05major\x18\x01\x20\x01(\x04R\x05majorB\0\x12\
+    \x16\n\x05minor\x18\x02\x20\x01(\x04R\x05minorB\0\x12\x10\n\x02op\x18\
+    \x03\x20\x01(\tR\x02opB\0\x12\x16\n\x05value\x18\x04\x20\x01(\x04R\x05va\
+    lueB\0:\0\"\xf0\x04\n\nBlkioStats\x12T\n\x1aio_service_bytes_recursive\
+    \x18\x01\x20\x03(\x0b2\x15.grpc.BlkioStatsEntryR\x17ioServiceBytesRecurs\
+    iveB\0\x12K\n\x15io_serviced_recursive\x18\x02\x20\x03(\x0b2\x15.grpc.Bl\
+    kioStatsEntryR\x13ioServicedRecursiveB\0\x12G\n\x13io_queued_recursive\
+    \x18\x03\x20\x03(\x0b2\x15.grpc.BlkioStatsEntryR\x11ioQueuedRecursiveB\0\
+    \x12R\n\x19io_service_time_recursive\x18\x04\x20\x03(\x0b2\x15.grpc.Blki\
+    oStatsEntryR\x16ioServiceTimeRecursiveB\0\x12L\n\x16io_wait_time_recursi\
+    ve\x18\x05\x20\x03(\x0b2\x15.grpc.BlkioStatsEntryR\x13ioWaitTimeRecursiv\
+    eB\0\x12G\n\x13io_merged_recursive\x18\x06\x20\x03(\x0b2\x15.grpc.BlkioS\
+    tatsEntryR\x11ioMergedRecursiveB\0\x12C\n\x11io_time_recursive\x18\x07\
+    \x20\x03(\x0b2\x15.grpc.BlkioStatsEntryR\x0fioTimeRecursiveB\0\x12D\n\
+    \x11sectors_recursive\x18\x08\x20\x03(\x0b2\x15.grpc.BlkioStatsEntryR\
+    \x10sectorsRecursiveB\0:\0\"c\n\x0cHugetlbStats\x12\x16\n\x05usage\x18\
+    \x01\x20\x01(\x04R\x05usageB\0\x12\x1d\n\tmax_usage\x18\x02\x20\x01(\x04\
+    R\x08maxUsageB\0\x12\x1a\n\x07failcnt\x18\x03\x20\x01(\x04R\x07failcntB\
+    \0:\0\"\x84\x03\n\x0bCgroupStats\x12-\n\tcpu_stats\x18\x01\x20\x01(\x0b2\
+    \x0e.grpc.CpuStatsR\x08cpuStatsB\0\x126\n\x0cmemory_stats\x18\x02\x20\
+    \x01(\x0b2\x11.grpc.MemoryStatsR\x0bmemoryStatsB\0\x120\n\npids_stats\
+    \x18\x03\x20\x01(\x0b2\x0f.grpc.PidsStatsR\tpidsStatsB\0\x123\n\x0bblkio\
+    _stats\x18\x04\x20\x01(\x0b2\x10.grpc.BlkioStatsR\nblkioStatsB\0\x12O\n\
+    \rhugetlb_stats\x18\x05\x20\x03(\x0b2(.grpc.CgroupStats.hugetlb_stats_Ma\
+    pEntryR\x0chugetlbStatsB\0\x1aT\n\x16hugetlb_stats_MapEntry\x12\x0e\n\
+    \x03key\x18\x01(\tR\x03key\x12&\n\x05value\x18\x02(\x0b2\x12.grpc.Hugetl\
+    bStatsR\x05value:\x028\x01:\0\"\xa2\x02\n\x0cNetworkStats\x12\x14\n\x04n\
+    ame\x18\x01\x20\x01(\tR\x04nameB\0\x12\x1b\n\x08rx_bytes\x18\x02\x20\x01\
+    (\x04R\x07rxBytesB\0\x12\x1f\n\nrx_packets\x18\x03\x20\x01(\x04R\trxPack\
+    etsB\0\x12\x1d\n\trx_errors\x18\x04\x20\x01(\x04R\x08rxErrorsB\0\x12\x1f\
+    \n\nrx_dropped\x18\x05\x20\x01(\x04R\trxDroppedB\0\x12\x1b\n\x08tx_bytes\
+    \x18\x06\x20\x01(\x04R\x07txBytesB\0\x12\x1f\n\ntx_packets\x18\x07\x20\
+    \x01(\x04R\ttxPacketsB\0\x12\x1d\n\ttx_errors\x18\x08\x20\x01(\x04R\x08t\
+    xErrorsB\0\x12\x1f\n\ntx_dropped\x18\t\x20\x01(\x04R\ttxDroppedB\0:\0\"\
+    \xc9\x01\n\x16StatsContainerResponse\x126\n\x0ccgroup_stats\x18\x01\x20\
+    \x01(\x0b2\x11.grpc.CgroupStatsR\x0bcgroupStatsB\0\x129\n\rnetwork_stats\
+    \x18\x02\x20\x03(\x0b2\x12.grpc.NetworkStatsR\x0cnetworkStatsB\0\x12:\n\
+    \x18resource_metrics_version\x18\x03\x20\x01(\rR\x16resourceMetricsVersi\
+    onB\0:\0\"l\n\x12WriteStreamRequest\x12#\n\x0ccontainer_id\x18\x01\x20\
+    \x01(\tR\x0bcontainerIdB\0\x12\x19\n\x07exec_id\x18\x02\x20\x01(\tR\x06e\
+    xecIdB\0\x12\x14\n\x04data\x18\x03\x20\x01(\x0cR\x04dataB\0:\0\"+\n\x13W\
+    riteStreamResponse\x12\x12\n\x03len\x18\x01\x20\x01(\rR\x03lenB\0:\0\"i\
+    \n\x11ReadStreamRequest\x12#\n\x0ccontainer_id\x18\x01\x20\x01(\tR\x0bco\
+    ntainerIdB\0\x12\x19\n\x07exec_id\x18\x02\x20\x01(\tR\x06execIdB\0\x12\
+    \x12\n\x03len\x18\x03\x20\x01(\rR\x03lenB\0:\0\",\n\x12ReadStreamRespons\
+    e\x12\x14\n\x04data\x18\x01\x20\x01(\x0cR\x04dataB\0:\0\"U\n\x11CloseStd\
+    inRequest\x12#\n\x0ccontainer_id\x18\x01\x20\x01(\tR\x0bcontainerIdB\0\
+    \x12\x19\n\x07exec_id\x18\x02\x20\x01(\tR\x06execIdB\0:\0\"\x85\x01\n\
+    \x13TtyWinResizeRequest\x12#\n\x0ccontainer_id\x18\x01\x20\x01(\tR\x0bco\
+    ntainerIdB\0\x12\x19\n\x07exec_id\x18\x02\x20\x01(\tR\x06execIdB\0\x12\
     \x12\n\x03row\x18\x03\x20\x01(\rR\x03rowB\0\x12\x18\n\x06column\x18\x04\
     \x20\x01(\rR\x06columnB\0:\0\"H\n\x0cKernelModule\x12\x14\n\x04name\x18\
     \x01\x20\x01(\tR\x04nameB\0\x12\x20\n\nparameters\x18\x02\x20\x03(\tR\np\

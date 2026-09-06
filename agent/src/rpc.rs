@@ -44,7 +44,7 @@ use protobuf::MessageField;
 use protocols::agent::{
     self, AddSwapRequest, AgentDetails, CopyFileRequest, GetIPTablesRequest, GetIPTablesResponse,
     GetOOMVictimEvidenceResponse, GuestDetailsResponse, Interfaces, Metrics, OOMEvent,
-    OOMVictimProof, OOMVictimScope, ReadStreamResponse, Routes, SetIPTablesRequest,
+    OOMVictimEvidence, OOMVictimScope, ReadStreamResponse, Routes, SetIPTablesRequest,
     SetIPTablesResponse, StatsContainerResponse, VolumeStatsRequest, WaitProcessResponse,
     WriteStreamResponse,
 };
@@ -1863,20 +1863,28 @@ impl protocols::agent_ttrpc::AgentService for AgentService {
             ));
         }
         let mut resp = GetOOMVictimEvidenceResponse::new();
-        resp.guest_boot_id = evidence.guest_boot_id;
         for victim in evidence.victims {
-            let mut proof = OOMVictimProof::new();
+            let mut proof = OOMVictimEvidence::new();
+            proof.version = 1;
+            proof.container_id = req.container_id.clone();
+            proof.realization_token = req.realization_token.clone();
+            proof.guest_boot_id = evidence.guest_boot_id.clone();
             proof.victim_tid = victim.tid;
             proof.victim_tgid = victim.tgid;
             proof.victim_starttime_ticks = victim.starttime_ticks;
             proof.event_boot_time_ns = victim.event_boot_ns;
             proof.cgroup_v2_id = victim.cgroup_v2_id.unwrap_or(0);
+            proof.main_pid = evidence.main.tgid;
+            proof.main_starttime_ticks = evidence.main.starttime_ticks;
             proof.scope = match victim.class {
                 VictimClass::Main => OOMVictimScope::OOM_VICTIM_SCOPE_MAIN,
                 VictimClass::Member => OOMVictimScope::OOM_VICTIM_SCOPE_MEMBER,
             }
             .into();
-            resp.proofs.push(proof);
+            proof.realization_started_boot_ns = evidence.realization_started_boot_ns;
+            proof.outcome_observed_boot_ns = evidence.outcome_observed_boot_ns;
+            proof.source = "guest.kernel.oom.mark_victim.raw_tracepoint".to_string();
+            resp.evidence.push(proof);
         }
         Ok(resp)
     }

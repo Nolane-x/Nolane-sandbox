@@ -165,18 +165,26 @@ enum OOMVictimScope {
 	OOM_VICTIM_SCOPE_MEMBER = 2;
 }
 
-message OOMVictimProof {
-	uint32 victim_tid = 1;
-	uint32 victim_tgid = 2;
-	uint64 victim_starttime_ticks = 3;
-	uint64 event_boot_time_ns = 4;
-	uint64 cgroup_v2_id = 5;
-	OOMVictimScope scope = 6;
+message OOMVictimEvidence {
+	uint32 version = 1;
+	string container_id = 2;
+	bytes realization_token = 3;
+	string guest_boot_id = 4;
+	uint32 victim_tid = 5;
+	uint32 victim_tgid = 6;
+	uint64 victim_starttime_ticks = 7;
+	uint64 event_boot_time_ns = 8;
+	uint64 cgroup_v2_id = 9;
+	uint32 main_pid = 10;
+	uint64 main_starttime_ticks = 11;
+	OOMVictimScope scope = 12;
+	uint64 realization_started_boot_ns = 13;
+	uint64 outcome_observed_boot_ns = 14;
+	string source = 15;
 }
 
 message GetOOMVictimEvidenceResponse {
-	string guest_boot_id = 1;
-	repeated OOMVictimProof proofs = 2;
+	repeated OOMVictimEvidence evidence = 1;
 }
 
 message UpdateContainerRequest {

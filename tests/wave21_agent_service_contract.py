@@ -72,6 +72,15 @@ for fragment in [
     "get_guest_oom_victim_evidence",
     "OOM_VICTIM_SCOPE_MAIN",
     "OOM_VICTIM_SCOPE_MEMBER",
+    "OOMVictimEvidence::new()",
+    "proof.version = 1",
+    "proof.container_id = req.container_id.clone()",
+    "proof.realization_token = req.realization_token.clone()",
+    "proof.main_pid = evidence.main.tgid",
+    "proof.main_starttime_ticks = evidence.main.starttime_ticks",
+    "proof.realization_started_boot_ns = evidence.realization_started_boot_ns",
+    "proof.outcome_observed_boot_ns = evidence.outcome_observed_boot_ns",
+    "guest.kernel.oom.mark_victim.raw_tracepoint",
 ]:
     assert fragment in RPC, f"missing Wave21 AgentService production wiring: {fragment}"
 
