@@ -1,0 +1,54 @@
+name: Wave21 Apply Time Namespace Authority Once
+
+on:
+  push:
+    branches: [gpt/wave21-guest-kernel-oom-victim-provenance]
+    paths:
+      - .github/workflows/wave21-apply-timens-authority-once.yml
+      - .github/scripts/wave21_apply_timens_authority.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gpt/wave21-guest-kernel-oom-victim-provenance
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Apply and verify exact time namespace authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/wave21_apply_timens_authority.py
+          python3 .github/scripts/wave21_apply_timens_authority.py
+          rustfmt --edition 2021 agent/src/guest_oom_victim.rs
+
+          cd agent
+          rustc --edition=2021 --test tests/guest_oom_victim_timebridge_v21.rs -o /tmp/guest_oom_victim_timebridge_v21
+          /tmp/guest_oom_victim_timebridge_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_v21.rs -o /tmp/guest_oom_victim_v21
+          /tmp/guest_oom_victim_v21 --nocapture
+          cd ..
+
+          make -C agent MUSL=no SECCOMP=no src/version.rs
+          cargo check --locked --manifest-path agent/Cargo.toml
+          rm -f agent/src/version.rs
+          git diff --check
+
+      - name: Commit verified time namespace authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add agent/src/guest_oom_victim.rs
+          git diff --cached --check
+          git commit -m "feat(wave21): require exact time namespace authority" \
+            -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
+          git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
