@@ -44,8 +44,9 @@ func TestV21TaskTerminationFusesMultipleGuestVictimsFromSameScrape(t *testing.T)
 	if !known {
 		t.Fatal("exact Wave21 evidence returned unknown")
 	}
-	if len(evidence.GuestKernelOOMVictims) != 2 {
-		t.Fatalf("guest victim count = %d, want 2", len(evidence.GuestKernelOOMVictims))
+	proofs := evidence.GuestKernelOOMVictimProofs()
+	if len(proofs) != 2 {
+		t.Fatalf("guest victim count = %d, want 2", len(proofs))
 	}
 	if marked, known := evidence.GuestKernelOOMVictimMarked(); !marked || !known {
 		t.Fatalf("GuestKernelOOMVictimMarked = %v,%v, want true,true", marked, known)

@@ -34,12 +34,25 @@ type RealizationOOMProof struct {
 	OutcomeSource    TaskOutcomeProofSource
 }
 
+type guestKernelOOMVictimSet struct {
+	proofs []GuestKernelOOMVictimProof
+}
+
 type TaskTerminationEvidence struct {
 	Outcome               TaskOutcomeProof
 	RealizationOOM        *RealizationOOMProof
 	HostProcessIdentity   *HostSandboxProcessIdentityProof
 	HostKernelOOMVictim   *HostKernelOOMVictimProof
-	GuestKernelOOMVictims []GuestKernelOOMVictimProof
+	guestKernelOOMVictims *guestKernelOOMVictimSet
+}
+
+// GuestKernelOOMVictimProofs returns a defensive copy of positive Wave21
+// proofs from this exact metrics scrape. Absence remains unknown.
+func (e TaskTerminationEvidence) GuestKernelOOMVictimProofs() []GuestKernelOOMVictimProof {
+	if e.guestKernelOOMVictims == nil || len(e.guestKernelOOMVictims.proofs) == 0 {
+		return nil
+	}
+	return append([]GuestKernelOOMVictimProof(nil), e.guestKernelOOMVictims.proofs...)
 }
 
 // KernelOOMObservedDuringRealization reports whether a kernel cgroup OOM kill
@@ -284,7 +297,11 @@ func parseTaskTerminationMetrics(r io.Reader, sandboxID string) (TaskTermination
 			return TaskTerminationEvidence{}, false, err
 		}
 	}
-	evidence.GuestKernelOOMVictims = append([]GuestKernelOOMVictimProof(nil), guestVictims...)
+	if len(guestVictims) > 0 {
+		evidence.guestKernelOOMVictims = &guestKernelOOMVictimSet{
+			proofs: append([]GuestKernelOOMVictimProof(nil), guestVictims...),
+		}
+	}
 	return evidence, true, nil
 }
 
@@ -397,4 +414,14 @@ func parseCanonicalUTCTimestamp(raw string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("non-canonical UTC RFC3339Nano timestamp")
 	}
 	return value, nil
+}
+
+func correlateRealizationOOM(outcome TaskOutcomeProof, oom RealizationOOMProof) error {
+	if oom.SandboxID != outcome.SandboxID ||
+		oom.Generation != outcome.Generation ||
+		oom.OutcomeSource != outcome.Source ||
+		!oom.ExitedAt.Equal(outcome.ExitedAt) {
+		return fmt.Errorf("%w: realization OOM proof does not match exact task outcome", ErrTaskOutcomeUnavailable)
+	}
+	return nil
 }
