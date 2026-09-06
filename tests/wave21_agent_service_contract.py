@@ -4,6 +4,7 @@ from pathlib import Path
 MAIN = Path("agent/src/main.rs").read_text()
 SANDBOX = Path("agent/src/sandbox.rs").read_text()
 RPC = Path("agent/src/rpc.rs").read_text()
+AUTHORITY = Path("agent/src/guest_oom_victim.rs").read_text()
 
 assert "mod guest_oom_victim;" in MAIN, "guest victim authority module must be production-linked"
 
@@ -28,8 +29,10 @@ for fragment in [
 ]:
     assert fragment in RPC, f"missing Wave21 AgentService production wiring: {fragment}"
 
-# Compatibility signals remain separate from victim authority.
-assert "GetOOMEvent" not in Path("agent/src/guest_oom_victim.rs").read_text()
+# Compatibility/cgroup signals remain separate from exact victim authority.
+assert "GetOOMEvent" not in AUTHORITY
+assert "memory.events" not in AUTHORITY
+assert "oom_kill" not in AUTHORITY
 assert "exit_status == 137" not in RPC
 assert "exit_status: 137" not in RPC
 
