@@ -30,14 +30,19 @@ fn v21_raw_store_is_bounded_and_reports_capacity_loss() {
     let mut store = GuestVictimStore::default();
     for index in 0..MAX_RAW_VICTIM_EVENTS {
         assert_eq!(
-            store.record_raw(event(index as u32, index as u64 + 1)).unwrap(),
+            store
+                .record_raw_with_disposition(event(index as u32, index as u64 + 1))
+                .unwrap(),
             RawRecordDisposition::Recorded
         );
     }
 
     assert_eq!(
         store
-            .record_raw(event(MAX_RAW_VICTIM_EVENTS as u32, MAX_RAW_VICTIM_EVENTS as u64 + 1))
+            .record_raw_with_disposition(event(
+                MAX_RAW_VICTIM_EVENTS as u32,
+                MAX_RAW_VICTIM_EVENTS as u64 + 1,
+            ))
             .unwrap(),
         RawRecordDisposition::RecordedWithLoss
     );
@@ -48,14 +53,48 @@ fn v21_raw_store_is_bounded_and_reports_capacity_loss() {
 fn v21_raw_store_age_eviction_reports_loss() {
     let mut store = GuestVictimStore::default();
     assert_eq!(
-        store.record_raw(event(1, 1)).unwrap(),
+        store.record_raw_with_disposition(event(1, 1)).unwrap(),
         RawRecordDisposition::Recorded
     );
     assert_eq!(
-        store.record_raw(event(2, MAX_RAW_AGE_NS + 2)).unwrap(),
+        store
+            .record_raw_with_disposition(event(2, MAX_RAW_AGE_NS + 2))
+            .unwrap(),
         RawRecordDisposition::RecordedWithLoss
     );
     assert_eq!(store.raw_len(), 1);
+}
+
+#[test]
+fn v21_raw_capacity_loss_poisoning_is_internal_to_the_store() {
+    let mut store = GuestVictimStore::default();
+    let tok = token(700);
+    store
+        .begin(
+            tok,
+            1,
+            "01234567-89ab-cdef-0123-456789abcdef",
+            GuestProcessIdentity {
+                tgid: 41,
+                starttime_ticks: 9001,
+            },
+            Some(77),
+            0,
+        )
+        .unwrap();
+
+    for index in 0..=MAX_RAW_VICTIM_EVENTS {
+        store
+            .record_raw(event(index as u32, index as u64 + 2))
+            .unwrap();
+    }
+
+    let evidence = store
+        .finalize(tok, MAX_RAW_VICTIM_EVENTS as u64 + 3, 0)
+        .unwrap()
+        .unwrap();
+    assert!(evidence.poisoned);
+    assert!(evidence.victims.is_empty());
 }
 
 #[test]
