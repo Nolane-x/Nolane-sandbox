@@ -1,7 +1,9 @@
-name: Wave21 Apply Agent Wiring Once V2
+name: Wave21 Close Collector Wiring Once
 on:
   push:
     branches: [gpt/wave21-guest-kernel-oom-victim-provenance]
+    paths:
+      - .github/workflows/wave21-apply-agent-wiring-once-v2.yml
 permissions:
   contents: write
 jobs:
@@ -13,32 +15,74 @@ jobs:
         with:
           ref: gpt/wave21-guest-kernel-oom-victim-provenance
           fetch-depth: 0
-      - name: Reuse exact verified patch script
+      - name: Wire exact collector lifecycle
         shell: bash
         run: |
-          git show 30eef67af6c74994383457be134d56fc1993ac34:.github/workflows/wave21-apply-agent-wiring-once.yml > /tmp/original-wave21-agent.yml
           python3 - <<'PY'
           from pathlib import Path
-          text = Path('/tmp/original-wave21-agent.yml').read_text()
-          marker = "          python3 - <<'PY'\n"
-          start = text.index(marker) + len(marker)
-          end = text.index("\n          PY\n", start)
-          lines = text[start:end].splitlines()
-          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines) + "\n"
-          Path('/tmp/apply-wave21-agent.py').write_text(script)
+
+          main = Path('agent/src/main.rs')
+          text = main.read_text()
+          old = "mod guest_oom_victim;\nmod linux_abi;"
+          new = "mod guest_oom_victim;\nmod oom_victim;\nmod oom_victim_bpf;\nmod oom_victim_proc;\nmod linux_abi;"
+          if new not in text:
+              if old not in text:
+                  raise SystemExit('main module insertion anchor missing')
+              text = text.replace(old, new, 1)
+
+          anchor = "    let sandbox = Arc::new(Mutex::new(s));\n\n    let signal_handler_task = tokio::spawn(setup_signal_handler("
+          replacement = "    let sandbox = Arc::new(Mutex::new(s));\n\n    if let Some(task) = oom_victim::start_best_effort(\n        logger,\n        sandbox.clone(),\n        shutdown.clone(),\n    ) {\n        tasks.push(task);\n    }\n\n    let signal_handler_task = tokio::spawn(setup_signal_handler("
+          if replacement not in text:
+              if anchor not in text:
+                  raise SystemExit('main collector-start anchor missing')
+              text = text.replace(anchor, replacement, 1)
+          main.write_text(text)
+
+          sandbox = Path('agent/src/sandbox.rs')
+          text = sandbox.read_text()
+          anchor = "    pub fn record_guest_oom_victim_raw(&mut self, event: RawVictimEvent) -> Result<()> {\n        self.guest_oom_victim\n            .record_raw(event)\n            .map_err(|e| anyhow!(e))\n    }\n\n    pub fn finalize_guest_oom_victim_realization("
+          replacement = "    pub fn record_guest_oom_victim_raw(&mut self, event: RawVictimEvent) -> Result<()> {\n        self.guest_oom_victim\n            .record_raw(event)\n            .map_err(|e| anyhow!(e))\n    }\n\n    pub fn note_guest_oom_victim_loss(&mut self) {\n        self.guest_oom_victim.note_loss();\n        self.guest_oom_victim_loss_epoch =\n            self.guest_oom_victim_loss_epoch.saturating_add(1);\n    }\n\n    pub fn finalize_guest_oom_victim_realization("
+          if replacement not in text:
+              if anchor not in text:
+                  raise SystemExit('sandbox loss insertion anchor missing')
+              text = text.replace(anchor, replacement, 1)
+          sandbox.write_text(text)
           PY
-          python3 /tmp/apply-wave21-agent.py
-          rustfmt --edition 2021 agent/src/main.rs agent/src/guest_oom_victim.rs agent/src/sandbox.rs agent/src/rpc.rs
+
+          rustfmt --edition 2021 \
+            agent/src/main.rs \
+            agent/src/sandbox.rs \
+            agent/src/guest_oom_victim.rs \
+            agent/src/oom_victim.rs \
+            agent/src/oom_victim_bpf.rs \
+            agent/src/oom_victim_proc.rs \
+            agent/tests/guest_oom_victim_bounds_v21.rs
+
+          rustc --edition=2021 --test agent/tests/guest_oom_victim_v21.rs -o /tmp/guest_oom_victim_v21
+          /tmp/guest_oom_victim_v21
+          rustc --edition=2021 --test agent/tests/guest_oom_victim_lookup_v21.rs -o /tmp/guest_oom_victim_lookup_v21
+          /tmp/guest_oom_victim_lookup_v21
+          rustc --edition=2021 --test agent/tests/guest_oom_victim_metadata_v21.rs -o /tmp/guest_oom_victim_metadata_v21
+          /tmp/guest_oom_victim_metadata_v21
+          rustc --edition=2021 --test agent/tests/guest_oom_victim_bounds_v21.rs -o /tmp/guest_oom_victim_bounds_v21
+          /tmp/guest_oom_victim_bounds_v21
+          python3 tests/wave21_agent_service_contract.py
           git diff --check
-      - name: Commit wiring
+
+          git rm .github/workflows/wave21-apply-agent-wiring-once-v2.yml
+      - name: Commit collector wiring
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add agent/src/main.rs agent/src/guest_oom_victim.rs agent/src/sandbox.rs agent/src/rpc.rs
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          git commit -m "feat(v21): wire finalized guest victim authority into agent" -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
+          git add \
+            agent/src/main.rs \
+            agent/src/sandbox.rs \
+            agent/src/guest_oom_victim.rs \
+            agent/src/oom_victim.rs \
+            agent/src/oom_victim_bpf.rs \
+            agent/src/oom_victim_proc.rs \
+            agent/tests/guest_oom_victim_bounds_v21.rs \
+            .github/workflows/wave21-apply-agent-wiring-once-v2.yml
+          git commit -m "feat(wave21): close guest collector lifecycle wiring" -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
           git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
