@@ -78,7 +78,8 @@ use crate::device::{
     wait_for_pci_net,
 };
 use crate::guest_oom_victim::{
-    current_boottime_ns, read_guest_boot_id, read_process_identity, RealizationToken, VictimClass,
+    current_boottime_ns, read_guest_boot_id, read_process_cgroup_v2_id, read_process_identity,
+    RealizationToken, VictimClass,
 };
 use crate::linux_abi::*;
 use crate::metrics::get_metrics;
@@ -369,13 +370,23 @@ impl AgentService {
         if let Some((token, started_boot_ns)) = started {
             match (read_guest_boot_id(), read_process_identity(init_pid)) {
                 (Ok(boot_id), Ok(main)) => {
+                    let expected_cgroup_v2_id = match read_process_cgroup_v2_id(init_pid) {
+                        Ok(id) => id,
+                        Err(e) => {
+                            warn!(
+                                sl!(),
+                                "Wave21 exact cgroup-v2 identity unavailable for {}: {}", cid, e
+                            );
+                            None
+                        }
+                    };
                     if let Err(e) = s.begin_guest_oom_victim_realization(
                         &cid,
                         token,
                         started_boot_ns,
                         &boot_id,
                         main,
-                        None,
+                        expected_cgroup_v2_id,
                     ) {
                         warn!(sl!(), "Wave21 realization unavailable for {}: {}", cid, e);
                     }

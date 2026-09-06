@@ -36,6 +36,7 @@ for fragment in [
     "MAX_FINALIZED_AGE_NS",
     "start_store_loss_epoch",
     "record_raw_with_disposition",
+    "read_process_cgroup_v2_id",
     "RecordedWithLoss",
 ]:
     assert fragment in AUTHORITY, f"missing Wave21 bounded evidence invariant: {fragment}"

@@ -33,8 +33,7 @@ fn v21_cgroup2_mount_parser_is_exact_and_unambiguous() {
 
     let ambiguous = format!(
         "{}{}",
-        mountinfo,
-        "37 24 0:33 / /other-cgroup rw - cgroup2 cgroup rw\n"
+        mountinfo, "37 24 0:33 / /other-cgroup rw - cgroup2 cgroup rw\n"
     );
     assert!(parse_cgroup2_mount(&ambiguous).is_err());
     assert!(parse_cgroup2_mount("31 24 0:27 / /proc rw - proc proc rw\n").is_err());
@@ -43,7 +42,10 @@ fn v21_cgroup2_mount_parser_is_exact_and_unambiguous() {
 #[test]
 fn v21_cgroup_handle_requires_exact_nonzero_native_u64() {
     let expected = 0x0102_0304_0506_0708u64;
-    assert_eq!(decode_cgroup_v2_handle(&expected.to_ne_bytes()).unwrap(), expected);
+    assert_eq!(
+        decode_cgroup_v2_handle(&expected.to_ne_bytes()).unwrap(),
+        expected
+    );
     assert!(decode_cgroup_v2_handle(&[1u8; 7]).is_err());
     assert!(decode_cgroup_v2_handle(&[0u8; 8]).is_err());
 }

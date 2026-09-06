@@ -259,15 +259,10 @@ fn parse_btf(raw: &[u8]) -> Result<BtfDb, String> {
                 cursor += bytes;
                 BtfPayload::None
             }
-            BTF_KIND_PTR
-            | BTF_KIND_FWD
-            | BTF_KIND_TYPEDEF
-            | BTF_KIND_VOLATILE
-            | BTF_KIND_CONST
-            | BTF_KIND_RESTRICT
-            | BTF_KIND_FUNC
-            | BTF_KIND_FLOAT
-            | BTF_KIND_TYPE_TAG => BtfPayload::None,
+            BTF_KIND_PTR | BTF_KIND_FWD | BTF_KIND_TYPEDEF | BTF_KIND_VOLATILE | BTF_KIND_CONST
+            | BTF_KIND_RESTRICT | BTF_KIND_FUNC | BTF_KIND_FLOAT | BTF_KIND_TYPE_TAG => {
+                BtfPayload::None
+            }
             _ => return Err(format!("unsupported kernel BTF kind {}", kind)),
         };
 
@@ -298,7 +293,10 @@ impl BtfDb {
     fn expect_kind(&self, id: u32, kind: u32, label: &str) -> Result<&BtfType, String> {
         let ty = self.get(id)?;
         if ty.kind != kind {
-            return Err(format!("kernel BTF {} has incompatible kind {}", label, ty.kind));
+            return Err(format!(
+                "kernel BTF {} has incompatible kind {}",
+                label, ty.kind
+            ));
         }
         Ok(ty)
     }
@@ -307,7 +305,8 @@ impl BtfDb {
         for _ in 0..64 {
             let ty = self.get(id)?;
             match ty.kind {
-                BTF_KIND_TYPEDEF | BTF_KIND_VOLATILE | BTF_KIND_CONST | BTF_KIND_RESTRICT | BTF_KIND_TYPE_TAG => {
+                BTF_KIND_TYPEDEF | BTF_KIND_VOLATILE | BTF_KIND_CONST | BTF_KIND_RESTRICT
+                | BTF_KIND_TYPE_TAG => {
                     id = ty.size_or_type;
                 }
                 _ => return Ok(id),
@@ -332,10 +331,14 @@ impl BtfDb {
 
     fn member_offset(&self, member: &BtfMember) -> Result<i16, String> {
         if member.bitfield_size != 0 || member.bit_offset % 8 != 0 {
-            return Err(format!("kernel BTF member {} is not a byte-aligned scalar", member.name));
+            return Err(format!(
+                "kernel BTF member {} is not a byte-aligned scalar",
+                member.name
+            ));
         }
         let bytes = member.bit_offset / 8;
-        i16::try_from(bytes).map_err(|_| format!("kernel BTF member {} offset is too large", member.name))
+        i16::try_from(bytes)
+            .map_err(|_| format!("kernel BTF member {} offset is too large", member.name))
     }
 
     fn required_integer_member(
@@ -351,15 +354,26 @@ impl BtfDb {
         let id = self.underlying_id(member.type_id)?;
         let ty = self.expect_kind(id, BTF_KIND_INT, name)?;
         if ty.size_or_type != size {
-            return Err(format!("kernel BTF member {} has size {}, expected {}", name, ty.size_or_type, size));
+            return Err(format!(
+                "kernel BTF member {} has size {}, expected {}",
+                name, ty.size_or_type, size
+            ));
         }
-        let actual_encoding = match ty.payload {
-            BtfPayload::Int { encoding } => encoding,
-            _ => return Err(format!("kernel BTF member {} has malformed integer metadata", name)),
+        let actual_encoding = match &ty.payload {
+            BtfPayload::Int { encoding } => *encoding,
+            _ => {
+                return Err(format!(
+                    "kernel BTF member {} has malformed integer metadata",
+                    name
+                ))
+            }
         };
         if let Some(expected) = encoding {
             if actual_encoding != expected {
-                return Err(format!("kernel BTF member {} has incompatible integer encoding", name));
+                return Err(format!(
+                    "kernel BTF member {} has incompatible integer encoding",
+                    name
+                ));
             }
         }
         self.member_offset(member)
@@ -387,7 +401,7 @@ impl BtfDb {
                     if id_type.size_or_type != 8 {
                         return None;
                     }
-                    if !matches!(id_type.payload, BtfPayload::Int { encoding: 0 }) {
+                    if !matches!(&id_type.payload, BtfPayload::Int { encoding: 0 }) {
                         return None;
                     }
                 }
@@ -397,7 +411,7 @@ impl BtfDb {
                     let inner_type = self.get(self.underlying_id(inner.type_id).ok()?).ok()?;
                     if inner_type.kind != BTF_KIND_INT
                         || inner_type.size_or_type != 8
-                        || !matches!(inner_type.payload, BtfPayload::Int { encoding: 0 })
+                        || !matches!(&inner_type.payload, BtfPayload::Int { encoding: 0 })
                     {
                         return None;
                     }
@@ -598,7 +612,11 @@ fn checked_add(a: usize, b: usize, label: &str) -> Result<usize, String> {
 }
 
 fn require_bytes(cursor: usize, bytes: usize, end: usize, label: &str) -> Result<(), String> {
-    if cursor.checked_add(bytes).filter(|value| *value <= end).is_none() {
+    if cursor
+        .checked_add(bytes)
+        .filter(|value| *value <= end)
+        .is_none()
+    {
         return Err(format!("{} is truncated", label));
     }
     Ok(())
