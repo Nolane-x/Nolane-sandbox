@@ -167,7 +167,7 @@ func transportableGuestKernelOOMVictimProof(
 	}
 	switch scope {
 	case "main":
-		return victimTGID == mainPID && victimStarttimeTicks == mainStarttimeTicks && cgroupV2ID == 0
+		return victimTGID == mainPID && victimStarttimeTicks == mainStarttimeTicks
 	case "member":
 		return cgroupV2ID != 0
 	default:
