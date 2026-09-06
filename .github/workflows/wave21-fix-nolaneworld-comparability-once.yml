@@ -96,11 +96,11 @@ jobs:
 
           test = Path('NolaneWorld/substrate/cube/task_termination_guest_victim_v21_test.go')
           text = test.read_text()
-          text = text.replace(
-              'if len(evidence.GuestKernelOOMVictims) != 2 {\n\t\tt.Fatalf("guest victim count = %d, want 2", len(evidence.GuestKernelOOMVictims))\n\t}',
-              'proofs := evidence.GuestKernelOOMVictimProofs()\n\tif len(proofs) != 2 {\n\t\tt.Fatalf("guest victim count = %d, want 2", len(proofs))\n\t}',
-              1,
-          )
+          old_test = 'if len(evidence.GuestKernelOOMVictims) != 2 {\n\t\tt.Fatalf("guest victim count = %d, want 2", len(evidence.GuestKernelOOMVictims))\n\t}'
+          new_test = 'proofs := evidence.GuestKernelOOMVictimProofs()\n\tif len(proofs) != 2 {\n\t\tt.Fatalf("guest victim count = %d, want 2", len(proofs))\n\t}'
+          if old_test not in text:
+              raise SystemExit('Wave21 guest-victim test direct-field anchor missing')
+          text = text.replace(old_test, new_test, 1)
           test.write_text(text)
           PY
 
@@ -121,5 +121,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "fix(wave21): preserve termination evidence comparability" -m "Retain same-scrape guest victim proofs behind a defensive accessor and restore the Wave18 realization correlation tail." -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
+          git commit -s -m "fix(wave21): preserve termination evidence comparability" -m "Retain same-scrape guest victim proofs behind a defensive accessor and restore the Wave18 realization correlation tail." -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
           git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
