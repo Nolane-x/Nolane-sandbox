@@ -127,6 +127,8 @@ type controllerLocal struct {
 	kernelVictimBootTimeNS       func() (uint64, error)
 	kernelVictimCgroupV2Resolver func(string) (uint64, bool)
 
+	guestOOMVictimTokenGenerator func() ([32]byte, error)
+
 	taskServiceResolver     func(context.Context, string) (taskRuntimeService, error)
 	sandboxEndpointResolver func(context.Context, string) (string, uint32, error)
 }
@@ -200,6 +202,15 @@ func (c *controllerLocal) Create(ctx context.Context, info sandbox.Sandbox, opts
 
 func (c *controllerLocal) Start(ctx context.Context, sandboxID string) (sandbox.ControllerInstance, error) {
 	generation := c.beginTaskOutcomeRealization(sandboxID)
+	generator := c.guestOOMVictimTokenGenerator
+	if generator == nil {
+		generator = secureGuestOOMVictimToken
+	}
+	if token, err := generator(); err == nil {
+		if store := c.ensureTaskOutcomeProofStore(); store != nil {
+			_ = store.BeginGuestOOMVictimRealization(sandboxID, generation, token)
+		}
+	}
 	c.beginKernelVictimWindow(sandboxID, generation)
 	c.captureRealizationOOMBaseline(ctx, sandboxID, generation)
 	c.revalidateHostProcessIdentity(sandboxID, generation)
