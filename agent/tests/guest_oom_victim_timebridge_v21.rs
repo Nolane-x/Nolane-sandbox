@@ -6,7 +6,7 @@ mod guest_oom_victim;
 
 use guest_oom_victim::{
     authoritative_timens_boottime_offset, parse_time_namespace_inode,
-    parse_timens_boottime_offset_ns, read_process_timens_boottime_offset,
+    parse_timens_boottime_offset_ns, read_current_timens_boottime_offset,
     start_boottime_ns_to_starttime_ticks,
 };
 
@@ -89,14 +89,11 @@ fn v21_zero_offset_is_only_valid_when_time_namespace_exposure_is_absent() {
 }
 
 #[test]
-fn v21_live_timens_capture_is_exact_for_current_process_and_rejects_invalid_pid() {
-    let pid = i32::try_from(std::process::id()).unwrap();
-    let offset = read_process_timens_boottime_offset(pid).unwrap();
-    // The value may be zero or non-zero depending on the runner namespace, but
-    // it must come from a stable namespace-handle + timens_offsets sample.
-    assert!(offset >= -i128::from(u64::MAX));
-    assert!(read_process_timens_boottime_offset(0).is_err());
-    assert!(read_process_timens_boottime_offset(-1).is_err());
+fn v21_live_timens_capture_uses_the_current_reader_namespace() {
+    // Linux /proc/PID/stat applies timens_add_boottime_ns() using current's
+    // time namespace. The Agent must therefore sample its own namespace
+    // before converting kernel task->start_boottime into starttime ticks.
+    let _offset = read_current_timens_boottime_offset().unwrap();
 }
 
 #[test]
