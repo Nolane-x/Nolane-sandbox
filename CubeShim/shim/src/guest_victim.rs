@@ -56,7 +56,10 @@ fn decode_hex(value: u8) -> Result<u8, &'static str> {
 pub fn parse_bind_annotations(
     annotations: &HashMap<String, String>,
 ) -> Result<Option<RealizationToken>, &'static str> {
-    match annotations.get(UPDATE_ACTION_ANNOTATION).map(String::as_str) {
+    match annotations
+        .get(UPDATE_ACTION_ANNOTATION)
+        .map(String::as_str)
+    {
         None => Ok(None),
         Some(action) if action != BIND_ACTION => Ok(None),
         Some(_) => {
