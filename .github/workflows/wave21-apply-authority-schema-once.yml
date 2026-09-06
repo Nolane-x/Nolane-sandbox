@@ -1,0 +1,175 @@
+name: Wave21 Apply Full Guest Authority Schema Once
+
+on:
+  push:
+    branches: [gpt/wave21-guest-kernel-oom-victim-provenance]
+    paths:
+      - .github/workflows/wave21-apply-authority-schema-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gpt/wave21-guest-kernel-oom-victim-provenance
+          fetch-depth: 0
+
+      - uses: actions/setup-rust@v1
+        with:
+          rust-version: stable
+
+      - name: Apply full authority wire schema and producer mapping
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          old_proto = '''message OOMVictimProof {
+          \tuint32 victim_tid = 1;
+          \tuint32 victim_tgid = 2;
+          \tuint64 victim_starttime_ticks = 3;
+          \tuint64 event_boot_time_ns = 4;
+          \tuint64 cgroup_v2_id = 5;
+          \tOOMVictimScope scope = 6;
+          }
+
+          message GetOOMVictimEvidenceResponse {
+          \tstring guest_boot_id = 1;
+          \trepeated OOMVictimProof proofs = 2;
+          }'''
+          new_proto = '''message OOMVictimEvidence {
+          \tuint32 version = 1;
+          \tstring container_id = 2;
+          \tbytes realization_token = 3;
+          \tstring guest_boot_id = 4;
+          \tuint32 victim_tid = 5;
+          \tuint32 victim_tgid = 6;
+          \tuint64 victim_starttime_ticks = 7;
+          \tuint64 event_boot_time_ns = 8;
+          \tuint64 cgroup_v2_id = 9;
+          \tuint32 main_pid = 10;
+          \tuint64 main_starttime_ticks = 11;
+          \tOOMVictimScope scope = 12;
+          \tuint64 realization_started_boot_ns = 13;
+          \tuint64 outcome_observed_boot_ns = 14;
+          \tstring source = 15;
+          }
+
+          message GetOOMVictimEvidenceResponse {
+          \trepeated OOMVictimEvidence evidence = 1;
+          }'''
+
+          for name in [
+              'agent/libs/protocols/protos/agent.proto',
+              'CubeShim/protoc/protos/agent.proto',
+          ]:
+              path = Path(name)
+              text = path.read_text()
+              if 'message OOMVictimEvidence {' not in text:
+                  if old_proto not in text:
+                      raise SystemExit(f'{name}: partial Wave21 proto block not found')
+                  text = text.replace(old_proto, new_proto, 1)
+                  path.write_text(text)
+
+          rpc = Path('agent/src/rpc.rs')
+          text = rpc.read_text()
+          text = text.replace(
+              '    GetOOMVictimEvidenceResponse, GuestDetailsResponse, Interfaces, Metrics, OOMEvent,\n    OOMVictimProof, OOMVictimScope, ReadStreamResponse, Routes, SetIPTablesRequest,',
+              '    GetOOMVictimEvidenceResponse, GuestDetailsResponse, Interfaces, Metrics, OOMEvent,\n    OOMVictimEvidence, OOMVictimScope, ReadStreamResponse, Routes, SetIPTablesRequest,',
+              1,
+          )
+
+          old_handler = '''        let mut resp = GetOOMVictimEvidenceResponse::new();
+                  resp.guest_boot_id = evidence.guest_boot_id;
+                  for victim in evidence.victims {
+                      let mut proof = OOMVictimProof::new();
+                      proof.victim_tid = victim.tid;
+                      proof.victim_tgid = victim.tgid;
+                      proof.victim_starttime_ticks = victim.starttime_ticks;
+                      proof.event_boot_time_ns = victim.event_boot_ns;
+                      proof.cgroup_v2_id = victim.cgroup_v2_id.unwrap_or(0);
+                      proof.scope = match victim.class {
+                          VictimClass::Main => OOMVictimScope::OOM_VICTIM_SCOPE_MAIN,
+                          VictimClass::Member => OOMVictimScope::OOM_VICTIM_SCOPE_MEMBER,
+                      }
+                      .into();
+                      resp.proofs.push(proof);
+                  }
+                  Ok(resp)'''
+          new_handler = '''        let mut resp = GetOOMVictimEvidenceResponse::new();
+                  for victim in evidence.victims {
+                      let mut proof = OOMVictimEvidence::new();
+                      proof.version = 1;
+                      proof.container_id = req.container_id.clone();
+                      proof.realization_token = req.realization_token.clone();
+                      proof.guest_boot_id = evidence.guest_boot_id.clone();
+                      proof.victim_tid = victim.tid;
+                      proof.victim_tgid = victim.tgid;
+                      proof.victim_starttime_ticks = victim.starttime_ticks;
+                      proof.event_boot_time_ns = victim.event_boot_ns;
+                      proof.cgroup_v2_id = victim.cgroup_v2_id.unwrap_or(0);
+                      proof.main_pid = evidence.main.tgid;
+                      proof.main_starttime_ticks = evidence.main.starttime_ticks;
+                      proof.scope = match victim.class {
+                          VictimClass::Main => OOMVictimScope::OOM_VICTIM_SCOPE_MAIN,
+                          VictimClass::Member => OOMVictimScope::OOM_VICTIM_SCOPE_MEMBER,
+                      }
+                      .into();
+                      proof.realization_started_boot_ns = evidence.realization_started_boot_ns;
+                      proof.outcome_observed_boot_ns = evidence.outcome_observed_boot_ns;
+                      proof.source = "guest.kernel.oom.mark_victim.raw_tracepoint".to_string();
+                      resp.evidence.push(proof);
+                  }
+                  Ok(resp)'''
+          if 'let mut proof = OOMVictimEvidence::new();' not in text:
+              if old_handler not in text:
+                  raise SystemExit('agent Wave21 evidence handler anchor missing')
+              text = text.replace(old_handler, new_handler, 1)
+          rpc.write_text(text)
+
+          contract = Path('tests/wave21_agent_service_contract.py')
+          text = contract.read_text()
+          anchor = '    "OOM_VICTIM_SCOPE_MEMBER",\n'
+          additions = (
+              '    "OOMVictimEvidence::new()",\n'
+              '    "proof.version = 1",\n'
+              '    "proof.container_id = req.container_id.clone()",\n'
+              '    "proof.realization_token = req.realization_token.clone()",\n'
+              '    "proof.main_pid = evidence.main.tgid",\n'
+              '    "proof.main_starttime_ticks = evidence.main.starttime_ticks",\n'
+              '    "proof.realization_started_boot_ns = evidence.realization_started_boot_ns",\n'
+              '    "proof.outcome_observed_boot_ns = evidence.outcome_observed_boot_ns",\n'
+              '    "guest.kernel.oom.mark_victim.raw_tracepoint",\n'
+          )
+          if '    "OOMVictimEvidence::new()",\n' not in text:
+              if anchor not in text:
+                  raise SystemExit('agent service contract authority anchor missing')
+              text = text.replace(anchor, anchor + additions, 1)
+              contract.write_text(text)
+          PY
+
+          cargo build --locked --manifest-path agent/libs/protocols/Cargo.toml
+          cargo build --locked --manifest-path CubeShim/protoc/Cargo.toml
+          rustfmt --edition 2021 agent/src/rpc.rs
+          python3 tests/wave21_protocol_contract.py
+          python3 tests/wave21_agent_service_contract.py
+          cargo check --locked --manifest-path agent/Cargo.toml
+          cargo check --locked --manifest-path CubeShim/shim/Cargo.toml
+          git diff --check
+
+          git rm .github/workflows/wave21-apply-authority-schema-once.yml
+
+      - name: Commit verified full authority schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(wave21): carry full guest victim authority" -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
+          git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
