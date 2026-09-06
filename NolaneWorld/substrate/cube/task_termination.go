@@ -35,10 +35,11 @@ type RealizationOOMProof struct {
 }
 
 type TaskTerminationEvidence struct {
-	Outcome             TaskOutcomeProof
-	RealizationOOM      *RealizationOOMProof
-	HostProcessIdentity *HostSandboxProcessIdentityProof
-	HostKernelOOMVictim *HostKernelOOMVictimProof
+	Outcome               TaskOutcomeProof
+	RealizationOOM        *RealizationOOMProof
+	HostProcessIdentity   *HostSandboxProcessIdentityProof
+	HostKernelOOMVictim   *HostKernelOOMVictimProof
+	GuestKernelOOMVictims []GuestKernelOOMVictimProof
 }
 
 // KernelOOMObservedDuringRealization reports whether a kernel cgroup OOM kill
@@ -95,6 +96,7 @@ func parseTaskTerminationMetrics(r io.Reader, sandboxID string) (TaskTermination
 	var oom RealizationOOMProof
 	var identity HostSandboxProcessIdentityProof
 	var victim HostKernelOOMVictimProof
+	var guestVictims []GuestKernelOOMVictimProof
 	outcomeFound := false
 	oomFound := false
 	identityFound := false
@@ -201,6 +203,35 @@ func parseTaskTerminationMetrics(r io.Reader, sandboxID string) (TaskTermination
 			}
 			victim = proof
 			victimFound = true
+
+		case isGuestKernelOOMVictimMetricToken(fields[0]):
+			name, labels, ok := splitMetricToken(fields[0])
+			if !ok || name != guestKernelOOMVictimMetric || len(fields) != 2 {
+				return TaskTerminationEvidence{}, false, fmt.Errorf("%w: malformed guest kernel OOM victim metric", ErrTaskOutcomeUnavailable)
+			}
+			metricSandboxID, hasSandboxID := labels["sandbox_id"]
+			if !hasSandboxID || strings.TrimSpace(metricSandboxID) == "" {
+				return TaskTerminationEvidence{}, false, fmt.Errorf("%w: guest kernel OOM victim metric has no sandbox identity", ErrTaskOutcomeUnavailable)
+			}
+			if metricSandboxID != sandboxID {
+				continue
+			}
+			proof, err := exactGuestKernelOOMVictimFromSample(labels, fields[1])
+			if err != nil {
+				return TaskTerminationEvidence{}, false, err
+			}
+			if len(guestVictims) >= 64 {
+				return TaskTerminationEvidence{}, false, fmt.Errorf("%w: guest kernel OOM victim proof set exceeds 64 victims", ErrTaskOutcomeUnavailable)
+			}
+			if len(guestVictims) > 0 && !sameGuestKernelOOMVictimAuthority(guestVictims[0], proof) {
+				return TaskTerminationEvidence{}, false, fmt.Errorf("%w: guest kernel OOM victim proof set mixes realization authority", ErrTaskOutcomeUnavailable)
+			}
+			for _, existing := range guestVictims {
+				if sameGuestKernelOOMVictimProof(existing, proof) {
+					return TaskTerminationEvidence{}, false, fmt.Errorf("%w: duplicate guest kernel OOM victim proof", ErrTaskOutcomeUnavailable)
+				}
+			}
+			guestVictims = append(guestVictims, proof)
 		}
 	}
 	if err := s.Err(); err != nil {
@@ -216,6 +247,9 @@ func parseTaskTerminationMetrics(r io.Reader, sandboxID string) (TaskTermination
 		}
 		if victimFound {
 			return TaskTerminationEvidence{}, false, fmt.Errorf("%w: host kernel OOM victim proof has no exact task outcome", ErrTaskOutcomeUnavailable)
+		}
+		if len(guestVictims) > 0 {
+			return TaskTerminationEvidence{}, false, fmt.Errorf("%w: guest kernel OOM victim proof has no exact task outcome", ErrTaskOutcomeUnavailable)
 		}
 		return TaskTerminationEvidence{}, false, nil
 	}
@@ -245,6 +279,12 @@ func parseTaskTerminationMetrics(r io.Reader, sandboxID string) (TaskTermination
 		proof := victim
 		evidence.HostKernelOOMVictim = &proof
 	}
+	for _, guestVictim := range guestVictims {
+		if err := correlateGuestKernelOOMVictim(outcome, guestVictim); err != nil {
+			return TaskTerminationEvidence{}, false, err
+		}
+	}
+	evidence.GuestKernelOOMVictims = append([]GuestKernelOOMVictimProof(nil), guestVictims...)
 	return evidence, true, nil
 }
 
@@ -357,14 +397,4 @@ func parseCanonicalUTCTimestamp(raw string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("non-canonical UTC RFC3339Nano timestamp")
 	}
 	return value, nil
-}
-
-func correlateRealizationOOM(outcome TaskOutcomeProof, oom RealizationOOMProof) error {
-	if oom.SandboxID != outcome.SandboxID ||
-		oom.Generation != outcome.Generation ||
-		oom.OutcomeSource != outcome.Source ||
-		!oom.ExitedAt.Equal(outcome.ExitedAt) {
-		return fmt.Errorf("%w: realization OOM proof does not match exact task outcome", ErrTaskOutcomeUnavailable)
-	}
-	return nil
 }
