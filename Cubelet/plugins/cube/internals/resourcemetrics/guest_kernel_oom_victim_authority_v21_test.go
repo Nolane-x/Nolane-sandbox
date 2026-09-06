@@ -10,17 +10,21 @@ import (
 )
 
 func TestV21PrometheusPreservesNormativeAuthorityLabels(t *testing.T) {
-	visitor := fakeV21GuestVictimVisitor{visit: func(v func(string, uint64, string, uint32, uint32, uint64, uint64, uint64, string, uint64, uint64, string)) {
+	token := strings.Repeat("71", 32)
+	visitor := fakeV21GuestVictimVisitor{visit: func(v func(string, uint64, string, string, uint32, uint32, uint64, uint32, uint64, string, uint64, uint64, uint64, uint64, string)) {
 		v(
 			"sandbox-authority",
 			7,
+			token,
 			"11111111-2222-3333-4444-555555555555",
 			42,
 			41,
 			9001,
+			41,
+			9001,
+			"main",
 			150,
-			77,
-			"MAIN",
+			0,
 			100,
 			200,
 			"guest.kernel.oom.mark_victim.raw_tracepoint",
@@ -33,10 +37,14 @@ func TestV21PrometheusPreservesNormativeAuthorityLabels(t *testing.T) {
 	body := rr.Body.String()
 
 	for _, want := range []string{
-		`realization_token="`,
-		`main_pid="`,
-		`main_starttime_ticks="`,
+		`realization_token="` + token + `"`,
+		`main_pid="41"`,
+		`main_starttime_ticks="9001"`,
 		`scope="main"`,
+		`victim_tid="42"`,
+		`victim_tgid="41"`,
+		`victim_starttime_ticks="9001"`,
+		`event_boot_time_ns="150"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("Wave21 metric dropped normative authority label %q: %s", want, body)

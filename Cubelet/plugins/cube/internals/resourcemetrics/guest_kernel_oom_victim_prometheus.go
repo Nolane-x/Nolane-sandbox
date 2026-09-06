@@ -1,6 +1,7 @@
 package resourcemetrics
 
 import (
+	"encoding/hex"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,13 +19,16 @@ var guestKernelOOMVictimInfo = prometheus.NewDesc(
 	[]string{
 		"sandbox_id",
 		"generation",
+		"realization_token",
 		"guest_boot_id",
-		"tid",
-		"tgid",
-		"starttime_ticks",
-		"event_boot_ns",
+		"victim_tid",
+		"victim_tgid",
+		"victim_starttime_ticks",
+		"main_pid",
+		"main_starttime_ticks",
+		"scope",
+		"event_boot_time_ns",
 		"cgroup_v2_id",
-		"victim_class",
 		"realization_started_boot_ns",
 		"outcome_observed_boot_ns",
 		"source",
@@ -33,7 +37,7 @@ var guestKernelOOMVictimInfo = prometheus.NewDesc(
 )
 
 type guestKernelOOMVictimProofVisitor interface {
-	VisitGuestKernelOOMVictimProofs(func(string, uint64, string, uint32, uint32, uint64, uint64, uint64, string, uint64, uint64, string))
+	VisitGuestKernelOOMVictimAuthorityProofs(func(string, uint64, string, string, uint32, uint32, uint64, uint32, uint64, string, uint64, uint64, uint64, uint64, string))
 }
 
 type guestKernelOOMVictimPrometheusCollector struct {
@@ -48,16 +52,19 @@ func (c *guestKernelOOMVictimPrometheusCollector) Collect(ch chan<- prometheus.M
 	if c == nil || c.proofs == nil {
 		return
 	}
-	c.proofs.VisitGuestKernelOOMVictimProofs(func(
+	c.proofs.VisitGuestKernelOOMVictimAuthorityProofs(func(
 		sandboxID string,
 		generation uint64,
+		realizationToken string,
 		guestBootID string,
-		tid uint32,
-		tgid uint32,
-		starttimeTicks uint64,
-		eventBootNS uint64,
+		victimTID uint32,
+		victimTGID uint32,
+		victimStarttimeTicks uint64,
+		mainPID uint32,
+		mainStarttimeTicks uint64,
+		scope string,
+		eventBootTimeNS uint64,
 		cgroupV2ID uint64,
-		victimClass string,
 		realizationStartedBootNS uint64,
 		outcomeObservedBootNS uint64,
 		source string,
@@ -65,13 +72,16 @@ func (c *guestKernelOOMVictimPrometheusCollector) Collect(ch chan<- prometheus.M
 		if !transportableGuestKernelOOMVictimProof(
 			sandboxID,
 			generation,
+			realizationToken,
 			guestBootID,
-			tid,
-			tgid,
-			starttimeTicks,
-			eventBootNS,
+			victimTID,
+			victimTGID,
+			victimStarttimeTicks,
+			mainPID,
+			mainStarttimeTicks,
+			scope,
+			eventBootTimeNS,
 			cgroupV2ID,
-			victimClass,
 			realizationStartedBootNS,
 			outcomeObservedBootNS,
 			source,
@@ -89,13 +99,16 @@ func (c *guestKernelOOMVictimPrometheusCollector) Collect(ch chan<- prometheus.M
 			1,
 			sandboxID,
 			strconv.FormatUint(generation, 10),
+			realizationToken,
 			guestBootID,
-			strconv.FormatUint(uint64(tid), 10),
-			strconv.FormatUint(uint64(tgid), 10),
-			strconv.FormatUint(starttimeTicks, 10),
-			strconv.FormatUint(eventBootNS, 10),
+			strconv.FormatUint(uint64(victimTID), 10),
+			strconv.FormatUint(uint64(victimTGID), 10),
+			strconv.FormatUint(victimStarttimeTicks, 10),
+			strconv.FormatUint(uint64(mainPID), 10),
+			strconv.FormatUint(mainStarttimeTicks, 10),
+			scope,
+			strconv.FormatUint(eventBootTimeNS, 10),
 			cgroupIDLabel,
-			victimClass,
 			strconv.FormatUint(realizationStartedBootNS, 10),
 			strconv.FormatUint(outcomeObservedBootNS, 10),
 			source,
@@ -103,40 +116,59 @@ func (c *guestKernelOOMVictimPrometheusCollector) Collect(ch chan<- prometheus.M
 	})
 }
 
+func canonicalGuestKernelOOMVictimToken(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	raw, err := hex.DecodeString(value)
+	if err != nil || len(raw) != 32 || hex.EncodeToString(raw) != value {
+		return false
+	}
+	for _, b := range raw {
+		if b != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func transportableGuestKernelOOMVictimProof(
 	sandboxID string,
 	generation uint64,
+	realizationToken string,
 	guestBootID string,
-	tid uint32,
-	tgid uint32,
-	starttimeTicks uint64,
-	eventBootNS uint64,
+	victimTID uint32,
+	victimTGID uint32,
+	victimStarttimeTicks uint64,
+	mainPID uint32,
+	mainStarttimeTicks uint64,
+	scope string,
+	eventBootTimeNS uint64,
 	cgroupV2ID uint64,
-	victimClass string,
 	realizationStartedBootNS uint64,
 	outcomeObservedBootNS uint64,
 	source string,
 ) bool {
-	if sandboxID == "" || strings.TrimSpace(sandboxID) != sandboxID || generation == 0 {
+	if sandboxID == "" || strings.TrimSpace(sandboxID) != sandboxID || generation == 0 || !canonicalGuestKernelOOMVictimToken(realizationToken) {
 		return false
 	}
 	parsedBootID, err := uuid.Parse(guestBootID)
 	if err != nil || parsedBootID.String() != guestBootID {
 		return false
 	}
-	if tid == 0 || tgid == 0 || starttimeTicks == 0 || eventBootNS == 0 || realizationStartedBootNS == 0 || outcomeObservedBootNS == 0 {
+	if victimTID == 0 || victimTGID == 0 || victimStarttimeTicks == 0 || mainPID == 0 || mainStarttimeTicks == 0 || eventBootTimeNS == 0 || realizationStartedBootNS == 0 || outcomeObservedBootNS == 0 {
 		return false
 	}
-	if eventBootNS < realizationStartedBootNS || eventBootNS > outcomeObservedBootNS {
+	if outcomeObservedBootNS < realizationStartedBootNS || eventBootTimeNS < realizationStartedBootNS || eventBootTimeNS > outcomeObservedBootNS {
 		return false
 	}
 	if source != guestKernelOOMVictimSource {
 		return false
 	}
-	switch victimClass {
-	case "MAIN":
-		return true
-	case "MEMBER":
+	switch scope {
+	case "main":
+		return victimTGID == mainPID && victimStarttimeTicks == mainStarttimeTicks && cgroupV2ID == 0
+	case "member":
 		return cgroupV2ID != 0
 	default:
 		return false
