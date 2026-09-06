@@ -1,6 +1,8 @@
 name: Wave21 Apply Guest Cgroup Authority Once
-# One-shot worker: apply the reviewed Wave21 cgroup authority patcher,
-# verify the real guest build and contracts, then remove all transport files.
+# One-shot worker: apply the reviewed Wave21 cgroup authority patcher and
+# verify the real guest build/contracts. Transport cleanup is performed by
+# the repository controller after the production commit lands, so the
+# Actions token never needs workflows permission.
 
 on:
   push:
@@ -49,10 +51,6 @@ jobs:
           rm -f agent/src/version.rs
 
           git diff --check
-
-          git rm \
-            .github/workflows/wave21-apply-cgroup-authority-once.yml \
-            .github/scripts/wave21_apply_cgroup_authority.py
 
       - name: Commit verified cgroup authority
         shell: bash
