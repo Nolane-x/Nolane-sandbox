@@ -74,6 +74,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # git rm above already staged deletion of this one-shot workflow.
           git add \
             agent/src/main.rs \
             agent/src/sandbox.rs \
@@ -81,7 +82,6 @@ jobs:
             agent/src/oom_victim.rs \
             agent/src/oom_victim_bpf.rs \
             agent/src/oom_victim_proc.rs \
-            agent/tests/guest_oom_victim_bounds_v21.rs \
-            .github/workflows/wave21-apply-agent-wiring-once-v2.yml
+            agent/tests/guest_oom_victim_bounds_v21.rs
           git commit -m "feat(wave21): close guest collector lifecycle wiring" -m "Autonomously-by: ChatGPT:GPT-5.6-Sol"
           git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
