@@ -91,7 +91,7 @@ func TestV21GuestVictimRejectsNonCanonicalToken(t *testing.T) {
 		t.Fatal("all-zero realization token must fail closed")
 	}
 	labels = validV21GuestVictimLabels()
-	labels["realization_token"] = strings.ToUpper(labels["realization_token"])
+	labels["realization_token"] = strings.ToUpper(strings.Repeat("ab", 32))
 	if _, err := exactGuestKernelOOMVictimFromSample(labels, "1"); err == nil {
 		t.Fatal("non-lowercase realization token must fail closed")
 	}
