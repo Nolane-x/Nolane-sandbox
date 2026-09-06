@@ -5,9 +5,9 @@
 mod guest_oom_victim;
 
 use guest_oom_victim::{
-    authoritative_timens_boottime_offset, parse_time_namespace_inode,
-    parse_timens_boottime_offset_ns, read_current_timens_boottime_offset,
-    start_boottime_ns_to_starttime_ticks,
+    authoritative_timens_boottime_offset, boottime_ns_to_visible_boot_ns,
+    parse_time_namespace_inode, parse_timens_boottime_offset_ns,
+    read_current_timens_boottime_offset, start_boottime_ns_to_starttime_ticks,
 };
 
 #[test]
@@ -94,6 +94,23 @@ fn v21_live_timens_capture_uses_the_current_reader_namespace() {
     // time namespace. The Agent must therefore sample its own namespace
     // before converting kernel task->start_boottime into starttime ticks.
     let _offset = read_current_timens_boottime_offset().unwrap();
+}
+
+#[test]
+fn v21_kernel_event_boottime_is_moved_into_the_reader_clock_domain() {
+    // bpf_ktime_get_boot_ns() is raw kernel boottime, while Agent realization
+    // windows use CLOCK_BOOTTIME, which Linux adjusts by the current timens
+    // boottime offset. Both sides must therefore share this exact bridge.
+    assert_eq!(
+        boottime_ns_to_visible_boot_ns(25_000_000, 5_000_000).unwrap(),
+        30_000_000
+    );
+    assert_eq!(
+        boottime_ns_to_visible_boot_ns(25_000_000, -5_000_000).unwrap(),
+        20_000_000
+    );
+    assert!(boottime_ns_to_visible_boot_ns(1, -2).is_err());
+    assert!(boottime_ns_to_visible_boot_ns(u64::MAX, 1).is_err());
 }
 
 #[test]
