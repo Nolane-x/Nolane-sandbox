@@ -6,7 +6,8 @@ SB = Path("CubeShim/shim/src/sandbox/sb.rs").read_text()
 CONTAINER = Path("CubeShim/shim/src/container/mod.rs").read_text()
 
 required_task_fragments = [
-    "guest_victim::{EvidenceCache, RealizationToken, TokenBindings",
+    "use crate::guest_victim::parse_bind_annotations;",
+    "EvidenceCache, RealizationToken, TokenBindings",
     "victim_bindings: Arc<Mutex<TokenBindings>>",
     "victim_active: Arc<Mutex<HashMap<String, RealizationToken>>>",
     "victim_evidence: Arc<Mutex<EvidenceCache>>",
