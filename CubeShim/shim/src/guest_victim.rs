@@ -1,6 +1,12 @@
 // Copyright (c) 2024 Tencent Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+
+pub const UPDATE_ACTION_ANNOTATION: &str = "cube.shimapi.update.action";
+pub const REALIZATION_TOKEN_ANNOTATION: &str = "cube.shimapi.update.oom_victim_realization_token";
+pub const BIND_ACTION: &str = "BindOOMVictimRealization";
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RealizationToken([u8; 32]);
 
@@ -39,6 +45,24 @@ fn decode_hex(value: u8) -> Result<u8, &'static str> {
         b'0'..=b'9' => Ok(value - b'0'),
         b'a'..=b'f' => Ok(value - b'a' + 10),
         _ => Err("invalid hexadecimal digit"),
+    }
+}
+
+// parse_bind_annotations recognizes only the reviewed Wave 21 Update action.
+// Unrelated Update requests remain on the existing extension path. Once the
+// exact bind action is selected, a missing or malformed token fails closed.
+pub fn parse_bind_annotations(
+    annotations: &HashMap<String, String>,
+) -> Result<Option<RealizationToken>, &'static str> {
+    match annotations.get(UPDATE_ACTION_ANNOTATION).map(String::as_str) {
+        None => Ok(None),
+        Some(action) if action != BIND_ACTION => Ok(None),
+        Some(_) => {
+            let raw = annotations
+                .get(REALIZATION_TOKEN_ANNOTATION)
+                .ok_or("Wave21 realization-token annotation is required")?;
+            RealizationToken::from_hex(raw).map(Some)
+        }
     }
 }
 
