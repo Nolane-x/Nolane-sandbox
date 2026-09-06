@@ -119,3 +119,32 @@ func (c *controllerLocal) GuestOOMVictimToken(sandboxID string, generation uint6
 	}
 	return store.GuestOOMVictimToken(sandboxID, generation)
 }
+
+// CurrentGuestOOMVictimToken returns the token only for the store's exact
+// current, unfenced Wave 17 generation. It is a read-only bridge for the actual
+// runtime Start seam; it never creates or recovers generation authority.
+func (c *controllerLocal) CurrentGuestOOMVictimToken(sandboxID string) ([32]byte, uint64, bool) {
+	if c == nil || sandboxID == "" {
+		return [32]byte{}, 0, false
+	}
+	store := c.ensureTaskOutcomeProofStore()
+	if store == nil {
+		return [32]byte{}, 0, false
+	}
+
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	generation := store.generations[sandboxID]
+	if generation == 0 || (store.fenced != nil && store.fenced[sandboxID]) {
+		return [32]byte{}, 0, false
+	}
+
+	registry := registryForGuestOOMVictimTokens(store)
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	state, ok := registry.bySandbox[sandboxID]
+	if !ok || state.Generation != generation || !validGuestOOMVictimToken(state.Token) {
+		return [32]byte{}, 0, false
+	}
+	return state.Token, generation, true
+}
