@@ -1,0 +1,46 @@
+name: Wave 24 Cubelet Realization Epoch Contract
+
+on:
+  pull_request:
+    paths:
+      - 'Cubelet/plugins/cube/internals/sandbox/**'
+      - 'Cubelet/plugins/cube/internals/resourcemetrics/**'
+      - 'NolaneWorld/substrate/cube/**'
+      - 'tests/wave24_cubelet_realization_epoch_contract.py'
+      - 'docs/superpowers/specs/**cubelet-realization-epoch-authority-v24**'
+      - 'docs/superpowers/plans/**cubelet-realization-epoch-authority-v24**'
+      - '.github/workflows/wave24-cubelet-realization-epoch-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wave24-realization-epoch-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cubelet-epoch:
+    name: Cubelet realization epoch behavior
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.24.8'
+          cache-dependency-path: |
+            Cubelet/go.mod
+            NolaneWorld/go.mod
+      - name: Wave24 focused producer tests
+        working-directory: Cubelet
+        run: go test ./plugins/cube/internals/sandbox -run 'V24' -count=1
+      - name: Wave24 focused exporter tests
+        working-directory: Cubelet
+        run: go test ./plugins/cube/internals/resourcemetrics -run 'V24' -count=1
+      - name: Wave24 focused NolaneWorld tests
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V24' -count=1
+      - name: Wave24 static trust-shape contract
+        run: python3 tests/wave24_cubelet_realization_epoch_contract.py

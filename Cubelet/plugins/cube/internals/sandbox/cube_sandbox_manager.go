@@ -120,6 +120,8 @@ type controllerLocal struct {
 	taskOutcomeProofMu sync.Mutex
 	taskOutcomeProofs  *taskOutcomeProofStore
 
+	realizationEpochTokenGenerator realizationEpochTokenGenerator
+
 	realizationOOMSnapshotMu     sync.RWMutex
 	realizationOOMSnapshotReader func(context.Context, string) (string, bool, uint64, time.Time, error)
 
@@ -174,6 +176,14 @@ func (c *controllerLocal) beginTaskOutcomeRealization(sandboxID string) uint64 {
 	return store.BeginRealization(sandboxID)
 }
 
+func (c *controllerLocal) beginTaskOutcomeRealizationEpoch(sandboxID string) (RealizationEpoch, error) {
+	store := c.ensureTaskOutcomeProofStore()
+	if store == nil {
+		return RealizationEpoch{}, fmt.Errorf("realization epoch store is unavailable")
+	}
+	return store.beginRealizationEpochWithTokenGenerator(sandboxID, c.realizationEpochTokenGenerator)
+}
+
 func (c *controllerLocal) recordTaskOutcomeCandidate(candidate taskOutcomeCandidate) (TaskOutcomeProof, error) {
 	store := c.ensureTaskOutcomeProofStore()
 	if store == nil {
@@ -203,7 +213,11 @@ func (c *controllerLocal) Create(ctx context.Context, info sandbox.Sandbox, opts
 
 func (c *controllerLocal) Start(ctx context.Context, sandboxID string) (sandbox.ControllerInstance, error) {
 	c.clearGuestOOMVictimStartBinding(sandboxID)
-	generation := c.beginTaskOutcomeRealization(sandboxID)
+	epoch, err := c.beginTaskOutcomeRealizationEpoch(sandboxID)
+	if err != nil {
+		return sandbox.ControllerInstance{}, fmt.Errorf("begin realization epoch for sandbox %s: %w", sandboxID, err)
+	}
+	generation := epoch.Generation
 	generator := c.guestOOMVictimTokenGenerator
 	if generator == nil {
 		generator = secureGuestOOMVictimToken
