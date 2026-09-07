@@ -1,6 +1,7 @@
 # Wave 21 Guest Kernel OOM Victim Provenance — Closure Record
 
 Date: 2026-09-06
+Updated: 2026-09-07
 
 ## Trust closure
 
@@ -17,21 +18,16 @@ The implementation keeps these boundaries fail-closed:
 
 ## Collector capability boundary
 
-The production Agent owns a best-effort collector lifecycle and exact ingestion/loss seams. The current repository toolchain does not contain a reviewed object-free Rust raw-tracepoint loader equivalent to the Wave 20 Go/BTF/eBPF implementation. The implementation therefore follows the Wave 21 dependency rule: raw `oom:mark_victim` collection remains capability-disabled when the exact loader cannot be established, and Agent startup continues without guest-positive evidence.
+The production Agent owns a best-effort exact collector lifecycle. Wave 21 now includes the reviewed object-free Rust raw-tracepoint path needed for live positive collection: it parses the running kernel BTF for the required task identity layout, assembles the raw-tracepoint BPF program at runtime, creates a private ring buffer plus loss-epoch map, attaches only after the fallible map/program/mmap preparation succeeds, and consumes the versioned victim record through the exact ingestion seam.
 
-No tracefs-text, dmesg/kmsg, cgroup-counter, signal, or exit-code fallback is introduced. Enabling live positive collection later requires an exact raw-tracepoint/BTF loader that preserves the same event schema and loss accounting.
+The collector remains capability-gated and fail-closed. If the running guest cannot establish the required BTF shape, raw-tracepoint capability, BPF maps/program, attachment, ring mapping, clock bridge, or exact decoder semantics, Agent startup continues but Wave 21 positive evidence stays unavailable. Any detected runtime loss, malformed framing, decoder failure, discarded ring record, or loss-epoch advance marks collector coverage lost and poisons overlapping realizations rather than permitting a partial positive proof.
 
-## Verification evidence before final-head rerun
+No tracefs-text, dmesg/kmsg, cgroup-counter, signal, exit-code, TaskOOM, or `GetOOMEvent` fallback is introduced.
 
-The closure sequence has already demonstrated:
+## Implementation closure evidence
 
-- standalone guest realization, lookup, metadata, and bounded-store contracts pass;
-- the Wave 21 Agent production-wiring contract passes;
-- CubeShim protobuf ownership is resolved at the protocol crate boundary rather than by mixing protobuf major-version traits;
-- CubeShim amd64/arm64 production builds and Docker smoke tests passed on the immediately preceding verified head;
-- Unit Test, Format, DCO, Docs, NolaneWorld, Live Substrate Gauntlet, and Wave 17–20 trust contracts passed on the immediately preceding verified head;
-- the remaining Agent build warning was traced to the not-yet-linked collector lifecycle and the lifecycle is now production-linked.
+Before the final-head CI rerun, the implementation sequence had already demonstrated the dedicated Wave 21 realization, lookup, metadata, bounded-store, BPF wire, loader, runtime, cgroup, time-bridge, protocol, Agent production-wiring, CubeShim transport, Cubelet authority, and NolaneWorld contracts on preceding heads. The final cleanup also removed superseded internal seams rather than weakening the active store loss-epoch authority.
 
-This record intentionally does not declare the branch merge-ready by itself. Merge readiness is established only by fresh CI on the commit containing this record and the collector lifecycle closure.
+Those preceding results are development evidence only. This record does not self-certify merge readiness. The branch is considered verified only when fresh CI on the final candidate HEAD confirms Build, Format, Unit Test, DCO, Docs, NolaneWorld, Live Substrate Gauntlet, the Wave 17–20 trust contracts, and the dedicated Wave 21 guest-kernel OOM victim contract without a source-level failure.
 
 Autonomously-by: ChatGPT:GPT-5.6-Sol
