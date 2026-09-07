@@ -3,6 +3,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 realm_source = (ROOT / "NolaneWorld/realm/realization_authority.go").read_text(encoding="utf-8")
 cube_source = (ROOT / "NolaneWorld/substrate/cube/realm_resource_authority.go").read_text(encoding="utf-8")
+memory_store_source = (ROOT / "NolaneWorld/realm/store.go").read_text(encoding="utf-8")
+durable_store_source = (ROOT / "NolaneWorld/realm/durable.go").read_text(encoding="utf-8")
 
 required_realm = (
     "type RealizationAuthority struct",
@@ -33,5 +35,19 @@ for needle in required_cube:
 
 assert "func NewRealmResourceAuthority" not in cube_source, "public cross-boundary authority constructor is forbidden"
 assert "json:\"" not in cube_source, "Cube authority must remain in-process and non-serializable"
+
+handle_transition_guard = (
+    'old.Handle != "" && rec.Handle != old.Handle && '
+    "rec.RealizationRevision == old.RealizationRevision"
+)
+assert handle_transition_guard in memory_store_source, (
+    "MemoryStore must reject established-handle rebinding without realization advance"
+)
+assert handle_transition_guard in durable_store_source, (
+    "DurableStore and journal replay must reject established-handle rebinding without realization advance"
+)
+assert "s.validateWorldLocked(r)" in durable_store_source, (
+    "durable recovery must replay through the same World transition validator"
+)
 
 print("Wave23 Realm/Cube realization authority static contract: PASS")
