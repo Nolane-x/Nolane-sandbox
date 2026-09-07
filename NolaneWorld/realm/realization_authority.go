@@ -31,10 +31,10 @@ type realizationAuthoritySeal struct{}
 var currentRealizationAuthoritySeal = &realizationAuthoritySeal{}
 
 // realizationAuthorityStore is deliberately narrower than the public Store
-// interface. Only package-owned store implementations can satisfy its
-// unexported marker, so a caller-provided Store may still drive ordinary Realm
-// CRUD but can never become a mint/validation trust root for realization
-// authority.
+// interface. Only exact package-owned store implementations are accepted as
+// mint/validation trust roots. The marker remains an internal contract, while
+// trustedRealizationAuthorityStore additionally rejects external wrappers that
+// would otherwise inherit this unexported method through embedding.
 type realizationAuthorityStore interface {
 	Store
 	packageOwnedRealizationAuthorityStore()
@@ -47,8 +47,20 @@ func (c *Controller) trustedRealizationAuthorityStore() (realizationAuthoritySto
 	if c == nil || c.store == nil {
 		return nil, false
 	}
-	store, ok := c.store.(realizationAuthorityStore)
-	return store, ok
+	switch store := c.store.(type) {
+	case *MemoryStore:
+		if store == nil {
+			return nil, false
+		}
+		return store, true
+	case *DurableStore:
+		if store == nil {
+			return nil, false
+		}
+		return store, true
+	default:
+		return nil, false
+	}
 }
 
 // RealizationAuthority is an opaque in-process capability minted only after a
