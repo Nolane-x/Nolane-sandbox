@@ -78,3 +78,57 @@ func TestV23EstablishedHandleCannotRebindWithoutRealizationAdvance(t *testing.T)
 		})
 	}
 }
+
+func TestV23LeasedAndPausedWorldsCanMintAuthority(t *testing.T) {
+	for _, phase := range []WorldPhase{WorldLeased, WorldPaused} {
+		t.Run(string(phase), func(t *testing.T) {
+			ctx := context.Background()
+			store := NewMemoryStore()
+			ctl, err := NewController(store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			realmRec, err := ctl.Create(ctx, validSpec())
+			if err != nil {
+				t.Fatal(err)
+			}
+			worldID := putV23World(t, store, realmRec.Spec.ID, phase, 3, substrate.Handle("cube-sandbox-live"))
+			authority, err := ctl.CurrentRealizationAuthority(ctx, realmRec.Spec.ID, worldID)
+			if err != nil {
+				t.Fatalf("phase=%s mint err=%v", phase, err)
+			}
+			if _, err := ctl.ValidateRealizationAuthority(ctx, authority); err != nil {
+				t.Fatalf("phase=%s validate err=%v", phase, err)
+			}
+		})
+	}
+}
+
+func TestV23TerminalTransitionStalesMintedAuthority(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	ctl, err := NewController(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realmRec, err := ctl.Create(ctx, validSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	worldID := putV23World(t, store, realmRec.Spec.ID, WorldObservedReady, 5, substrate.Handle("cube-sandbox-terminal"))
+	authority, err := ctl.CurrentRealizationAuthority(ctx, realmRec.Spec.ID, worldID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worldRec, ok := store.World(realmRec.Spec.ID, worldID)
+	if !ok {
+		t.Fatal("world disappeared")
+	}
+	worldRec.Phase = WorldTerminal
+	if err := store.PutWorld(worldRec); err != nil {
+		t.Fatalf("terminal transition rejected: %v", err)
+	}
+	if _, err := ctl.ValidateRealizationAuthority(ctx, authority); !errors.Is(err, ErrStaleRealizationAuthority) {
+		t.Fatalf("terminal authority err=%v, want stale", err)
+	}
+}
