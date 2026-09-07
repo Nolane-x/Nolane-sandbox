@@ -22,6 +22,9 @@ func TestV21BridgeClaimIsOneShotAndTerminal(t *testing.T) {
 	if err := PublishStartBinding(binding); err != nil {
 		t.Fatalf("PublishStartBinding: %v", err)
 	}
+	if IsBound(binding) {
+		t.Fatal("pending binding reported bound before live claim")
+	}
 	if got, ok := CurrentStartBinding(sandboxID); !ok || got != binding {
 		t.Fatalf("CurrentStartBinding = (%+v,%v), want exact binding", got, ok)
 	}
@@ -29,11 +32,22 @@ func TestV21BridgeClaimIsOneShotAndTerminal(t *testing.T) {
 	if !ok || claimed != binding {
 		t.Fatalf("ClaimStartBinding = (%+v,%v), want exact binding", claimed, ok)
 	}
+	if IsBound(binding) {
+		t.Fatal("claimed binding reported bound before successful delivery")
+	}
 	if _, ok := ClaimStartBinding(sandboxID); ok {
 		t.Fatal("binding was claimable more than once")
 	}
 	if !MarkBound(binding) {
 		t.Fatal("exact claimed binding was not accepted as bound")
+	}
+	if !IsBound(binding) {
+		t.Fatal("exact terminal bound state was not observable")
+	}
+	wrong := binding
+	wrong.Token[0] ^= 0xff
+	if IsBound(wrong) {
+		t.Fatal("wrong token observed exact bound authority")
 	}
 	if _, ok := CurrentStartBinding(sandboxID); ok {
 		t.Fatal("bound binding remained available")
@@ -77,6 +91,9 @@ func TestV21BridgeStaleTerminalReportCannotMutateNewGeneration(t *testing.T) {
 	}
 	if MarkUnavailable(old) {
 		t.Fatal("stale terminal report mutated fresh bridge generation")
+	}
+	if IsBound(old) {
+		t.Fatal("stale binding remained terminally bound after new generation")
 	}
 	if got, ok := CurrentStartBinding(sandboxID); !ok || got != fresh {
 		t.Fatalf("fresh bridge authority = (%+v,%v), want %+v", got, ok, fresh)
