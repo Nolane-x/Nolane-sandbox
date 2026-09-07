@@ -12,6 +12,57 @@ import (
 	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/world"
 )
 
+type callerOwnedAuthorityStore struct {
+	realm.Store
+	realmRecord realm.RealmRecord
+	worldRecord realm.WorldRecord
+}
+
+func (s *callerOwnedAuthorityStore) Realm(id realm.ID) (realm.RealmRecord, bool) {
+	if s == nil || s.realmRecord.Spec.ID != id {
+		return realm.RealmRecord{}, false
+	}
+	return s.realmRecord, true
+}
+
+func (s *callerOwnedAuthorityStore) World(id realm.ID, worldID world.ID) (realm.WorldRecord, bool) {
+	if s == nil || s.worldRecord.RealmID != id || s.worldRecord.WorldID != worldID {
+		return realm.WorldRecord{}, false
+	}
+	return s.worldRecord, true
+}
+
+func TestV23CallerOwnedStoreCannotMintPackageAuthority(t *testing.T) {
+	spec := realm.Spec{
+		ID:             realm.ID("realm://wave23-caller-store"),
+		MaxWorlds:      2,
+		DefaultLease:   time.Minute,
+		NetworkProfile: realm.R0InternalOnly,
+		ResourceBudget: realm.ResourceBudget{CPUUnits: 2, MemoryMiB: 1024, DiskMiB: 2048},
+	}
+	worldID := world.ID("wave23-caller-store-world")
+	store := &callerOwnedAuthorityStore{
+		Store:       realm.NewMemoryStore(),
+		realmRecord: realm.RealmRecord{Spec: spec, Revision: 1},
+		worldRecord: realm.WorldRecord{
+			RealmID:             spec.ID,
+			WorldID:             worldID,
+			RealizationRevision: 1,
+			Phase:               realm.WorldObservedReady,
+			LeaseGeneration:     1,
+			LeaseExpiresUnix:    time.Now().Add(time.Hour).Unix(),
+			Handle:              substrate.Handle("cube-sandbox-forged-store"),
+		},
+	}
+	ctl, err := realm.NewController(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authority, err := ctl.CurrentRealizationAuthority(context.Background(), spec.ID, worldID); !errors.Is(err, realm.ErrRealizationAuthorityUnavailable) {
+		t.Fatalf("caller-owned Store minted authority=%+v err=%v, want unavailable", authority, err)
+	}
+}
+
 func TestV23SerializedOrDescriptiveBindingCannotRestoreAuthority(t *testing.T) {
 	ctx := context.Background()
 	store := realm.NewMemoryStore()
