@@ -2,7 +2,7 @@
 
 ## Goal
 
-Close the provenance gap between a host-owned Realm/World realization and the concrete Cube sandbox used by resource evidence, without allowing caller metadata, serialized documents, stale World records, or a coincidentally equal numeric generation to create authority.
+Close the provenance gap between a host-owned Realm/World realization and the concrete Cube sandbox used by resource evidence, without allowing caller metadata, serialized documents, stale World records, caller-owned stores, or a coincidentally equal numeric generation to create authority.
 
 ## Existing truth boundaries
 
@@ -21,22 +21,25 @@ The authority describes exactly:
 - Realm World realization revision;
 - substrate handle.
 
-Authority is minted only by a live `realm.Controller` from its own store after re-reading both current Realm and World records. Minting fails closed unless:
+Authority is minted only by a live `realm.Controller` from a package-owned authority-bearing store after re-reading both current Realm and World records. The public `Store` interface remains usable for ordinary Realm CRUD/extensibility, but caller-defined `Store` implementations are not mint or validation trust roots. Authority-bearing stores are selected through an unexported package marker implemented only by the package-owned `MemoryStore` and `DurableStore`.
 
-1. Realm exists and is not closed;
-2. World exists under that exact Realm and World ID;
-3. World phase is an authority-bearing live phase: `observed-ready`, `leased`, or `paused`;
-4. World realization revision is non-zero;
-5. World substrate handle is non-empty;
-6. the canonical policy digest for the current Realm revision can be computed.
+Minting fails closed unless:
+
+1. the Controller's store is a package-owned authority-bearing store;
+2. Realm exists and is not closed;
+3. World exists under that exact Realm and World ID;
+4. World phase is an authority-bearing live phase: `observed-ready`, `leased`, or `paused`;
+5. World realization revision is non-zero;
+6. World substrate handle is non-empty;
+7. the canonical policy digest for the current Realm revision can be computed.
 
 `requested`, `creating`, and `terminal` Worlds cannot mint realization authority.
 
 ## Freshness
 
-`Controller.ValidateRealizationAuthority` MUST re-read current store state. An authority becomes stale if any authoritative dimension changes, including Realm revision/spec/policy digest, World realization revision, World phase becoming non-authoritative/terminal, or substrate handle.
+`Controller.ValidateRealizationAuthority` MUST re-read current package-owned store state. An authority becomes stale if any authoritative dimension changes, including Realm revision/spec/policy digest, World realization revision, World phase becoming non-authoritative/terminal, or substrate handle.
 
-Validation MUST compare the sealed package-owned authority, not a caller-reconstructed descriptive value.
+Validation MUST compare the sealed package-owned authority, not a caller-reconstructed descriptive value. A Controller backed by a caller-owned `Store` cannot validate authority even if its descriptive records happen to match a previously sealed binding.
 
 Once a World has an established non-empty substrate handle, that handle MUST NOT change while `RealizationRevision` remains unchanged. Initial empty-to-non-empty handle assignment is allowed, but any later handle rebind requires a strictly newer realization revision. Both in-memory and durable stores MUST enforce the same transition rule, and durable journal recovery MUST replay through that validator. This prevents an old authority from becoming valid again through an `A -> B -> A` handle alias at one realization revision.
 
@@ -57,6 +60,7 @@ Therefore Wave 23 does not enable a generic public `LIVE_PASS` CLI by itself.
 ## Fail-honest rules
 
 - no authority from serialized JSON;
+- no authority from caller-owned `Store` implementations;
 - no public constructor from IDs/revisions/digests/handles;
 - no `ResourceBinding` sandbox mismatch acceptance;
 - no stale authority after Realm update or World re-realization;
@@ -73,6 +77,7 @@ Behavioral tests must prove:
 - pre-ready phases cannot mint;
 - exact current ready/leased/paused realization can mint;
 - zero authority is invalid;
+- caller-owned `Store` implementations cannot mint package authority;
 - Realm revision update stales old authority;
 - World realization revision change stales old authority;
 - established handle cannot rebind without realization revision advance;
@@ -83,4 +88,4 @@ Behavioral tests must prove:
 - descriptive binding/JSON cannot restore opacity;
 - policy digest equals `realm.PolicyDigest(current.Spec, current.Revision)`.
 
-A dedicated Wave23 CI contract must run focused Realm/Cube tests and static checks for the absence of a public field-based authority constructor, the same-revision handle-rebind fence in both stores, and durable replay through the same transition validator.
+A dedicated Wave23 CI contract must run focused Realm/Cube tests and static checks for the absence of a public field-based authority constructor, package-owned store trust-root enforcement, the same-revision handle-rebind fence in both stores, and durable replay through the same transition validator.
