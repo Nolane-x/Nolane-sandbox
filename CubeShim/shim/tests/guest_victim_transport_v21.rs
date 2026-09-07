@@ -4,11 +4,64 @@
 #[path = "../src/guest_victim.rs"]
 mod guest_victim;
 
-use guest_victim::{EvidenceCache, RealizationToken, TokenBindings, EVIDENCE_METADATA_KEY};
+use guest_victim::{
+    EvidenceCache, RealizationToken, TokenBindings, EVIDENCE_METADATA_KEY, EVIDENCE_SOURCE,
+};
 use std::collections::HashMap;
 
 fn token(byte: u8) -> RealizationToken {
     RealizationToken::from_hex(&format!("{:02x}", byte).repeat(32)).unwrap()
+}
+
+fn put_varint(out: &mut Vec<u8>, mut value: u64) {
+    loop {
+        let mut byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if value == 0 {
+            return;
+        }
+    }
+}
+
+fn field_varint(out: &mut Vec<u8>, field: u64, value: u64) {
+    put_varint(out, field << 3);
+    put_varint(out, value);
+}
+
+fn field_bytes(out: &mut Vec<u8>, field: u64, value: &[u8]) {
+    put_varint(out, (field << 3) | 2);
+    put_varint(out, value.len() as u64);
+    out.extend_from_slice(value);
+}
+
+fn evidence_payload(container_id: &str, token: RealizationToken, event_boot_ns: u64) -> Vec<u8> {
+    let mut record = Vec::new();
+    field_varint(&mut record, 1, 1);
+    field_bytes(&mut record, 2, container_id.as_bytes());
+    field_bytes(&mut record, 3, token.as_bytes());
+    field_bytes(
+        &mut record,
+        4,
+        b"11111111-2222-3333-4444-555555555555",
+    );
+    field_varint(&mut record, 5, 42);
+    field_varint(&mut record, 6, 42);
+    field_varint(&mut record, 7, 9001);
+    field_varint(&mut record, 8, event_boot_ns);
+    field_varint(&mut record, 10, 42);
+    field_varint(&mut record, 11, 9001);
+    field_varint(&mut record, 12, 1);
+    field_varint(&mut record, 13, 100);
+    field_varint(&mut record, 14, 200);
+    field_bytes(&mut record, 15, EVIDENCE_SOURCE.as_bytes());
+
+    let mut payload = Vec::new();
+    field_bytes(&mut payload, 1, &record);
+    payload
 }
 
 #[test]
@@ -44,9 +97,11 @@ fn v21_conflicting_bind_poisons_only_that_container_slot() {
 fn v21_evidence_selector_requires_exact_metadata_token_and_cache_key() {
     let a = token(0x61);
     let b = token(0x62);
+    let a_payload = evidence_payload("sandbox-a", a, 150);
+    let b_payload = evidence_payload("sandbox-a", b, 151);
     let mut cache = EvidenceCache::default();
     cache
-        .insert_finalized("sandbox-a", a, vec![1, 2, 3])
+        .insert_finalized("sandbox-a", a, a_payload.clone())
         .unwrap();
 
     let mut metadata = HashMap::new();
@@ -57,7 +112,7 @@ fn v21_evidence_selector_requires_exact_metadata_token_and_cache_key() {
     let selected = cache
         .select("sandbox-a", &metadata)
         .expect("canonical exact selector");
-    assert_eq!(selected, Some(vec![1, 2, 3]));
+    assert_eq!(selected, Some(a_payload));
 
     metadata.insert(
         EVIDENCE_METADATA_KEY.to_string(),
@@ -74,17 +129,28 @@ fn v21_evidence_selector_requires_exact_metadata_token_and_cache_key() {
 
     // A cached token for another realization must never be returned merely
     // because the container id matches.
-    cache.insert_finalized("sandbox-a", b, vec![9]).unwrap();
+    cache.insert_finalized("sandbox-a", b, b_payload).unwrap();
     assert_eq!(cache.select("sandbox-a", &metadata).unwrap(), None);
 }
 
 #[test]
-fn v21_finalized_cache_is_positive_only_and_immutable() {
+fn v21_finalized_cache_validates_positive_payload_and_is_immutable() {
     let mut cache = EvidenceCache::default();
     let a = token(0x71);
+    let payload = evidence_payload("sandbox-a", a, 150);
+    let conflict = evidence_payload("sandbox-a", a, 160);
 
     assert!(cache.insert_finalized("sandbox-a", a, Vec::new()).is_err());
-    cache.insert_finalized("sandbox-a", a, vec![7, 8]).unwrap();
-    cache.insert_finalized("sandbox-a", a, vec![7, 8]).unwrap();
-    assert!(cache.insert_finalized("sandbox-a", a, vec![9]).is_err());
+    assert!(cache
+        .insert_finalized("sandbox-a", a, vec![0xff, 0xff])
+        .is_err());
+    assert!(cache
+        .insert_finalized("sandbox-b", a, payload.clone())
+        .is_err());
+
+    cache
+        .insert_finalized("sandbox-a", a, payload.clone())
+        .unwrap();
+    cache.insert_finalized("sandbox-a", a, payload).unwrap();
+    assert!(cache.insert_finalized("sandbox-a", a, conflict).is_err());
 }
