@@ -29,7 +29,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.23.x'
+          go-version: '1.24.8'
           cache-dependency-path: Cubelet/go.mod
       - name: Wave24 focused producer tests
         working-directory: Cubelet
