@@ -151,6 +151,9 @@ func (s *MemoryStore) PutWorld(rec WorldRecord) error {
 		if old.WorldID != rec.WorldID || old.RealmID != rec.RealmID || rec.RealizationRevision < old.RealizationRevision || rec.LeaseGeneration < old.LeaseGeneration {
 			return ErrInvalidWorld
 		}
+		if old.Handle != "" && rec.Handle != old.Handle && rec.RealizationRevision == old.RealizationRevision {
+			return ErrInvalidWorld
+		}
 		if old.Phase == WorldTerminal && rec.Phase != WorldTerminal {
 			return ErrInvalidWorld
 		}

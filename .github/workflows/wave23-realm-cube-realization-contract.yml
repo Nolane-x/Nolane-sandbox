@@ -1,0 +1,54 @@
+name: Wave 23 Realm Cube Realization Contract
+
+on:
+  pull_request:
+    paths:
+      - 'NolaneWorld/realm/**'
+      - 'NolaneWorld/substrate/cube/realm_resource_authority.go'
+      - 'NolaneWorld/substrate/cube/realm_resource_authority_v23_test.go'
+      - 'tests/wave23_realm_cube_realization_contract.py'
+      - 'docs/superpowers/specs/2026-09-07-wave23-realm-cube-realization-binding-authority.md'
+      - 'docs/superpowers/plans/2026-09-07-wave23-realm-cube-realization-binding-authority.md'
+      - '.github/workflows/wave23-realm-cube-realization-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wave23-realm-cube-realization-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trust-shape:
+    name: Static trust shape
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Verify authority boundary
+        run: python3 tests/wave23_realm_cube_realization_contract.py
+
+  realm-cube:
+    name: Realm and Cube authority behavior
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: NolaneWorld/go.mod
+      - name: Wave 23 focused tests
+        working-directory: NolaneWorld
+        run: go test ./realm ./substrate/cube -run 'V23|Wave23' -count=1
+      - name: Wave 23 focused race tests
+        working-directory: NolaneWorld
+        run: go test -race ./realm ./substrate/cube -run 'V23|Wave23' -count=1
+      - name: Full affected suites
+        working-directory: NolaneWorld
+        run: go test ./realm ./substrate/cube -count=1
+      - name: Vet affected packages
+        working-directory: NolaneWorld
+        run: go vet ./realm ./substrate/cube
