@@ -448,7 +448,9 @@ fn decode_evidence_record(
                     3 => {
                         let raw = consume_bytes(&mut input)?;
                         if raw.len() != 32 {
-                            return Err("Wave21 evidence realization token must be exactly 32 bytes");
+                            return Err(
+                                "Wave21 evidence realization token must be exactly 32 bytes",
+                            );
                         }
                         let mut bytes = [0u8; 32];
                         bytes.copy_from_slice(raw);
