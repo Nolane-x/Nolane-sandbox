@@ -6,7 +6,7 @@ import (
 )
 
 func v24EpochMetric(sandboxID, generation, token, value string) string {
-	return `cubesandbox_realization_epoch_info{sandbox_id="` + sandboxID + `",generation="` + generation + `",token="` + token + `"} ` + value + "\n"
+	return `cubesandbox_realization_epoch_info{sandbox_id="`[1:] + sandboxID + `",generation="`[1:] + generation + `",token="`[1:] + token + `"} ` + value + "\n"
 }
 
 func TestV24ExactRealizationEpochMetricMintsSealedProof(t *testing.T) {
