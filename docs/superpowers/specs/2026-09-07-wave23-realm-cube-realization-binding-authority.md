@@ -2,7 +2,7 @@
 
 ## Goal
 
-Close the provenance gap between a host-owned Realm/World realization and the concrete Cube sandbox used by resource evidence, without allowing caller metadata, serialized documents, stale World records, caller-owned stores, or a coincidentally equal numeric generation to create authority.
+Close the provenance gap between a host-owned Realm/World realization and the concrete Cube sandbox used by resource evidence, without allowing caller metadata, serialized documents, stale World records, caller-owned stores, cross-store aliases, or a coincidentally equal numeric generation to create authority.
 
 ## Existing truth boundaries
 
@@ -23,6 +23,8 @@ The authority describes exactly:
 
 Authority is minted only by a live `realm.Controller` from a package-owned authority-bearing store after re-reading both current Realm and World records. The public `Store` interface remains usable for ordinary Realm CRUD/extensibility, but caller-defined `Store` implementations are not mint or validation trust roots. Authority-bearing stores are selected through an unexported package marker implemented only by the package-owned `MemoryStore` and `DurableStore`.
 
+The opaque authority also retains the exact package-owned Store instance that minted it. Validation succeeds only when performed through a Controller backed by that exact same Store instance. A second `MemoryStore` or `DurableStore` containing byte-identical Realm/World/policy/handle state is a different authority context and cannot validate the first Store's authority. This prevents descriptive equality from becoming provenance equivalence.
+
 Minting fails closed unless:
 
 1. the Controller's store is a package-owned authority-bearing store;
@@ -39,7 +41,7 @@ Minting fails closed unless:
 
 `Controller.ValidateRealizationAuthority` MUST re-read current package-owned store state. An authority becomes stale if any authoritative dimension changes, including Realm revision/spec/policy digest, World realization revision, World phase becoming non-authoritative/terminal, or substrate handle.
 
-Validation MUST compare the sealed package-owned authority, not a caller-reconstructed descriptive value. A Controller backed by a caller-owned `Store` cannot validate authority even if its descriptive records happen to match a previously sealed binding.
+Validation MUST compare the sealed package-owned authority, not a caller-reconstructed descriptive value. A Controller backed by a caller-owned `Store` cannot validate authority even if its descriptive records happen to match a previously sealed binding. A Controller backed by a distinct package-owned Store instance also cannot validate an authority from another instance even when every descriptive record matches exactly; that is invalid provenance rather than a stale record.
 
 Once a World has an established non-empty substrate handle, that handle MUST NOT change while `RealizationRevision` remains unchanged. Initial empty-to-non-empty handle assignment is allowed, but any later handle rebind requires a strictly newer realization revision. Both in-memory and durable stores MUST enforce the same transition rule, and durable journal recovery MUST replay through that validator. This prevents an old authority from becoming valid again through an `A -> B -> A` handle alias at one realization revision.
 
@@ -49,7 +51,7 @@ The Cube package may consume a valid `realm.RealizationAuthority` through a dedi
 
 Successful verification produces an opaque `cube.RealmResourceAuthority` whose zero value is invalid. This object is only a proof that one current Realm World realization and one concrete Cube resource binding identify the same sandbox. It does not itself claim CPU, memory, disk, OOM, or runtime correctness.
 
-The Cube verifier MUST revalidate the Realm authority through the owning `realm.Controller` before accepting it, so stale authorities cannot survive re-realization.
+The Cube verifier MUST revalidate the Realm authority through the owning `realm.Controller` before accepting it, so stale or cross-context authorities cannot survive re-realization or Store substitution.
 
 ## Resource-proof projection
 
@@ -61,6 +63,7 @@ Therefore Wave 23 does not enable a generic public `LIVE_PASS` CLI by itself.
 
 - no authority from serialized JSON;
 - no authority from caller-owned `Store` implementations;
+- no authority transfer across distinct package-owned Store instances;
 - no public constructor from IDs/revisions/digests/handles;
 - no `ResourceBinding` sandbox mismatch acceptance;
 - no stale authority after Realm update or World re-realization;
@@ -78,6 +81,7 @@ Behavioral tests must prove:
 - exact current ready/leased/paused realization can mint;
 - zero authority is invalid;
 - caller-owned `Store` implementations cannot mint package authority;
+- authority minted by one package-owned Store instance cannot validate against a separate byte-identical Store instance;
 - Realm revision update stales old authority;
 - World realization revision change stales old authority;
 - established handle cannot rebind without realization revision advance;
@@ -88,4 +92,4 @@ Behavioral tests must prove:
 - descriptive binding/JSON cannot restore opacity;
 - policy digest equals `realm.PolicyDigest(current.Spec, current.Revision)`.
 
-A dedicated Wave23 CI contract must run focused Realm/Cube tests and static checks for the absence of a public field-based authority constructor, package-owned store trust-root enforcement, the same-revision handle-rebind fence in both stores, and durable replay through the same transition validator.
+A dedicated Wave23 CI contract must run focused Realm/Cube tests and static checks for the absence of a public field-based authority constructor, package-owned store trust-root enforcement, exact Store-instance provenance, the same-revision handle-rebind fence in both stores, and durable replay through the same transition validator.
