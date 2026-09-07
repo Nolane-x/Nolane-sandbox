@@ -43,11 +43,7 @@ fn evidence_payload(container_id: &str, token: RealizationToken, event_boot_ns: 
     field_varint(&mut record, 1, 1);
     field_bytes(&mut record, 2, container_id.as_bytes());
     field_bytes(&mut record, 3, token.as_bytes());
-    field_bytes(
-        &mut record,
-        4,
-        b"11111111-2222-3333-4444-555555555555",
-    );
+    field_bytes(&mut record, 4, b"11111111-2222-3333-4444-555555555555");
     field_varint(&mut record, 5, 42);
     field_varint(&mut record, 6, 42);
     field_varint(&mut record, 7, 9001);
