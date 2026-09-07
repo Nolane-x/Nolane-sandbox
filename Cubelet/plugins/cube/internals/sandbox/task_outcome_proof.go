@@ -45,6 +45,8 @@ type taskOutcomeProofStore struct {
 	proofs      map[string]TaskOutcomeProof
 	fenced      map[string]bool
 
+	realizationEpochs map[string]RealizationEpoch
+
 	oomBaselines map[string]realizationOOMBaseline
 	oomProofs    map[string]RealizationOOMProof
 	oomFinalized map[string]uint64
@@ -62,6 +64,7 @@ func newTaskOutcomeProofStore() *taskOutcomeProofStore {
 		generations:           make(map[string]uint64),
 		proofs:                make(map[string]TaskOutcomeProof),
 		fenced:                make(map[string]bool),
+		realizationEpochs:     make(map[string]RealizationEpoch),
 		oomBaselines:          make(map[string]realizationOOMBaseline),
 		oomProofs:             make(map[string]RealizationOOMProof),
 		oomFinalized:          make(map[string]uint64),
@@ -103,6 +106,7 @@ func (s *taskOutcomeProofStore) Clear(sandboxID string) {
 	}
 	delete(s.proofs, sandboxID)
 	delete(s.generations, sandboxID)
+	delete(s.realizationEpochs, sandboxID)
 	delete(s.oomBaselines, sandboxID)
 	delete(s.oomProofs, sandboxID)
 	delete(s.oomFinalized, sandboxID)
@@ -160,6 +164,7 @@ func (s *taskOutcomeProofStore) BeginRealization(sandboxID string) uint64 {
 		s.hostProcessLifetimes[sandboxID] = &hostProcessLifetime{}
 	}
 	s.generations[sandboxID]++
+	delete(s.realizationEpochs, sandboxID)
 	delete(s.proofs, sandboxID)
 	delete(s.oomBaselines, sandboxID)
 	delete(s.oomProofs, sandboxID)
