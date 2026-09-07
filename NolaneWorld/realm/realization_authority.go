@@ -54,14 +54,17 @@ func (c *Controller) trustedRealizationAuthorityStore() (realizationAuthoritySto
 // RealizationAuthority is an opaque in-process capability minted only after a
 // Controller reads its own current Realm and World records. Its zero value is
 // invalid; the descriptive binding is intentionally insufficient to recreate
-// the package-owned seal.
+// the package-owned seal. The package-owned Store instance is retained as part
+// of the capability provenance so an authority cannot cross otherwise
+// identical authority contexts.
 type RealizationAuthority struct {
 	binding RealizationBinding
+	store   realizationAuthorityStore
 	seal    *realizationAuthoritySeal
 }
 
 func (a RealizationAuthority) Binding() (RealizationBinding, bool) {
-	if a.seal != currentRealizationAuthoritySeal || !validRealizationBinding(a.binding) {
+	if a.seal != currentRealizationAuthoritySeal || a.store == nil || !validRealizationBinding(a.binding) {
 		return RealizationBinding{}, false
 	}
 	return a.binding, true
@@ -117,13 +120,17 @@ func (c *Controller) CurrentRealizationAuthority(ctx context.Context, realmID ID
 	if !validRealizationBinding(binding) {
 		return RealizationAuthority{}, ErrRealizationAuthorityUnavailable
 	}
-	return RealizationAuthority{binding: binding, seal: currentRealizationAuthoritySeal}, nil
+	return RealizationAuthority{
+		binding: binding,
+		store:   store,
+		seal:    currentRealizationAuthoritySeal,
+	}, nil
 }
 
 // ValidateRealizationAuthority re-reads current package-owned Store state
 // before returning the sealed descriptive binding. Any drift of Realm
-// revision/policy, World realization, live phase, or substrate handle
-// invalidates the old authority.
+// revision/policy, World realization, live phase, substrate handle, or exact
+// Store authority context invalidates the old authority.
 func (c *Controller) ValidateRealizationAuthority(ctx context.Context, authority RealizationAuthority) (RealizationBinding, error) {
 	if c == nil || c.store == nil {
 		return RealizationBinding{}, ErrInvalidController
@@ -138,6 +145,9 @@ func (c *Controller) ValidateRealizationAuthority(ctx context.Context, authority
 	store, trusted := c.trustedRealizationAuthorityStore()
 	if !trusted {
 		return RealizationBinding{}, ErrRealizationAuthorityUnavailable
+	}
+	if authority.store != store {
+		return RealizationBinding{}, ErrInvalidRealizationAuthority
 	}
 	realmRec, ok := store.Realm(binding.RealmID)
 	if !ok || realmRec.Closed || realmRec.Revision != binding.RealmRevision || realmRec.Spec.ID != binding.RealmID {
