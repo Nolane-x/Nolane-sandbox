@@ -82,6 +82,12 @@ func (s *taskOutcomeProofStore) BeginGuestOOMVictimRealization(sandboxID string,
 	registry := registryForGuestOOMVictimTokens(s)
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
+	if current, ok := registry.bySandbox[sandboxID]; ok && current.Generation == generation {
+		if current.Token == token {
+			return nil
+		}
+		return fmt.Errorf("guest OOM victim realization token conflicts with current generation %d for sandbox %s", generation, sandboxID)
+	}
 	registry.bySandbox[sandboxID] = guestOOMVictimTokenState{Generation: generation, Token: token}
 	return nil
 }
