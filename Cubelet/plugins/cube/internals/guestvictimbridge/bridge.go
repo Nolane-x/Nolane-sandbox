@@ -126,6 +126,18 @@ func MarkBound(binding StartBinding) bool {
 	return markTerminal(binding, bindingBound)
 }
 
+// IsBound reports only whether this exact generation/token completed the live
+// pre-Start bind. It is read-only and never promotes pending/unavailable state.
+func IsBound(binding StartBinding) bool {
+	if !validBinding(binding) {
+		return false
+	}
+	startBindings.Lock()
+	defer startBindings.Unlock()
+	entry, ok := startBindings.bySandbox[binding.SandboxID]
+	return ok && entry.phase == bindingBound && sameBinding(entry.binding, binding)
+}
+
 // MarkUnavailable terminally records a failed delivery only when the exact
 // claimed generation/token is still current. Wave 21 remains observational.
 func MarkUnavailable(binding StartBinding) bool {
