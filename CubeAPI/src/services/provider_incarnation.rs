@@ -1,6 +1,30 @@
 // Copyright (c) 2024 Tencent Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+
+use uuid::{Uuid, Variant};
+
+pub(crate) const PROVIDER_INCARNATION_ANNOTATION: &str = "nolane.provider.incarnation.v1";
+
+pub(crate) fn new_provider_incarnation_id() -> String {
+    Uuid::new_v4().hyphenated().to_string()
+}
+
+pub(crate) fn provider_incarnation_from_annotations(
+    annotations: &HashMap<String, String>,
+) -> Option<String> {
+    let raw = annotations.get(PROVIDER_INCARNATION_ANNOTATION)?;
+    let parsed = Uuid::parse_str(raw).ok()?;
+    if parsed.get_version_num() != 4
+        || parsed.get_variant() != Variant::RFC4122
+        || parsed.hyphenated().to_string() != *raw
+    {
+        return None;
+    }
+    Some(raw.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
