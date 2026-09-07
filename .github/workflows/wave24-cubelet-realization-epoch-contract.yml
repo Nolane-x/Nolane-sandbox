@@ -42,3 +42,5 @@ jobs:
       - name: Wave24 focused NolaneWorld tests
         working-directory: NolaneWorld
         run: go test ./substrate/cube -run 'V24' -count=1
+      - name: Wave24 static trust-shape contract
+        run: python3 tests/wave24_cubelet_realization_epoch_contract.py
