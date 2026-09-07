@@ -194,6 +194,7 @@ func (c *controllerLocal) recordAuthoritativeTaskOutcomeCandidate(candidate task
 }
 
 func (c *controllerLocal) Create(ctx context.Context, info sandbox.Sandbox, opts ...sandbox.CreateOpt) (retErr error) {
+	c.clearGuestOOMVictimStartBinding(info.ID)
 	if store := c.ensureTaskOutcomeProofStore(); store != nil {
 		store.Clear(info.ID)
 	}
@@ -201,6 +202,7 @@ func (c *controllerLocal) Create(ctx context.Context, info sandbox.Sandbox, opts
 }
 
 func (c *controllerLocal) Start(ctx context.Context, sandboxID string) (sandbox.ControllerInstance, error) {
+	c.clearGuestOOMVictimStartBinding(sandboxID)
 	generation := c.beginTaskOutcomeRealization(sandboxID)
 	generator := c.guestOOMVictimTokenGenerator
 	if generator == nil {
@@ -208,7 +210,9 @@ func (c *controllerLocal) Start(ctx context.Context, sandboxID string) (sandbox.
 	}
 	if token, err := generator(); err == nil {
 		if store := c.ensureTaskOutcomeProofStore(); store != nil {
-			_ = store.BeginGuestOOMVictimRealization(sandboxID, generation, token)
+			if err := store.BeginGuestOOMVictimRealization(sandboxID, generation, token); err == nil {
+				_ = c.publishGuestOOMVictimStartBinding(sandboxID, generation, token)
+			}
 		}
 	}
 	c.beginKernelVictimWindow(sandboxID, generation)

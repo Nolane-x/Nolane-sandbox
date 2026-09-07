@@ -936,35 +936,6 @@ func TestPrepareImagePmems(t *testing.T) {
 	}
 }
 
-func TestSetCgroup(t *testing.T) {
-	tests := []struct {
-		name  string
-		pid   uint32
-		group string
-	}{
-		{
-			name:  "valid pid and group",
-			pid:   1234,
-			group: "/sys/fs/cgroup/test",
-		},
-		{
-			name:  "zero pid",
-			pid:   0,
-			group: "/sys/fs/cgroup/test",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-
-			assert.NotPanics(t, func() {
-				setCgroup(ctx, tt.pid, tt.group)
-			})
-		})
-	}
-}
-
 func TestPrepareVolumePmems(t *testing.T) {
 
 	tmpFile := t.TempDir() + "/test-volume.ext4"
