@@ -17,6 +17,8 @@ type RealizationEpoch struct {
 	Token      [32]byte
 }
 
+type realizationEpochTokenGenerator func() ([32]byte, error)
+
 func secureRealizationEpochToken() ([32]byte, error) {
 	var token [32]byte
 	if _, err := rand.Read(token[:]); err != nil {
@@ -33,16 +35,29 @@ func secureRealizationEpochToken() ([32]byte, error) {
 // Token minting happens before lifecycle mutation so a mint failure cannot
 // create partial Wave24 authority.
 func (s *taskOutcomeProofStore) BeginRealizationEpoch(sandboxID string) (RealizationEpoch, error) {
+	return s.beginRealizationEpochWithTokenGenerator(sandboxID, secureRealizationEpochToken)
+}
+
+func (s *taskOutcomeProofStore) beginRealizationEpochWithTokenGenerator(
+	sandboxID string,
+	generator realizationEpochTokenGenerator,
+) (RealizationEpoch, error) {
 	if s == nil {
 		return RealizationEpoch{}, fmt.Errorf("realization epoch store is unavailable")
 	}
 	if sandboxID == "" {
 		return RealizationEpoch{}, fmt.Errorf("realization epoch sandbox ID is required")
 	}
+	if generator == nil {
+		generator = secureRealizationEpochToken
+	}
 
-	token, err := secureRealizationEpochToken()
+	token, err := generator()
 	if err != nil {
-		return RealizationEpoch{}, err
+		return RealizationEpoch{}, fmt.Errorf("mint realization epoch token: %w", err)
+	}
+	if token == ([32]byte{}) {
+		return RealizationEpoch{}, fmt.Errorf("mint realization epoch token: zero token is not authoritative")
 	}
 
 	s.mu.Lock()
