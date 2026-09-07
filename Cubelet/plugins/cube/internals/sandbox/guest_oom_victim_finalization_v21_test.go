@@ -26,6 +26,7 @@ type v21FinalizationRuntimeService struct {
 	statsCalls int
 	selectors  []string
 	payload    []byte
+	statsErr   error
 }
 
 func (f *v21FinalizationRuntimeService) Wait(context.Context, *task.WaitRequest) (*task.WaitResponse, error) {
@@ -54,6 +55,9 @@ func (f *v21FinalizationRuntimeService) Stats(ctx context.Context, req *task.Sta
 		return nil, errors.New("Wave21 Stats request omitted exact selector")
 	}
 	f.selectors = append(f.selectors, values[0])
+	if f.statsErr != nil {
+		return nil, f.statsErr
+	}
 	return &task.StatsResponse{Stats: &anypb.Any{
 		TypeUrl: v21EvidenceTypeURLForTest,
 		Value:   append([]byte(nil), f.payload...),
@@ -175,5 +179,53 @@ func TestV21WaitDoesNotQueryEvidenceWhenPreStartBindDidNotSucceed(t *testing.T) 
 	}
 	if proofs := controller.ensureTaskOutcomeProofStore().listGuestKernelOOMVictimProofs(); len(proofs) != 0 {
 		t.Fatalf("unbound Wave21 realization accepted %d proofs", len(proofs))
+	}
+}
+
+func TestV21StoppedStateFailedEvidenceAttemptCannotLateRepair(t *testing.T) {
+	const sandboxID = "sandbox-v21-stopped-terminal"
+	var token [32]byte
+	for i := range token {
+		token[i] = byte(0x61 + i)
+	}
+	service := &v21FinalizationRuntimeService{
+		exitedAt: time.Unix(1_725_100_023, 123).UTC(),
+		payload:  v21EvidencePayload(sandboxID, token),
+		statsErr: errors.New("finalized guest evidence unavailable"),
+	}
+	controller := taskOutcomeControllerWithService(service)
+	controller.guestOOMVictimTokenGenerator = func() ([32]byte, error) { return token, nil }
+	guestvictimbridge.Clear(sandboxID)
+	t.Cleanup(func() { guestvictimbridge.Clear(sandboxID) })
+
+	if _, err := controller.Start(context.Background(), sandboxID); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	binding, ok := guestvictimbridge.ClaimStartBinding(sandboxID)
+	if !ok || !guestvictimbridge.MarkBound(binding) {
+		t.Fatal("failed to establish exact bound Wave21 realization")
+	}
+
+	if _, err := controller.Status(context.Background(), sandboxID, false); err != nil {
+		t.Fatalf("first stopped Status: %v", err)
+	}
+	if service.statsCalls != 1 {
+		t.Fatalf("failed stopped-State evidence attempts = %d, want 1", service.statsCalls)
+	}
+	if proofs := controller.ensureTaskOutcomeProofStore().listGuestKernelOOMVictimProofs(); len(proofs) != 0 {
+		t.Fatalf("failed stopped-State evidence attempt accepted %d proofs", len(proofs))
+	}
+
+	// Simulate late cache availability. The same generation is already terminal
+	// unknown and must not issue another selector query or repair authority.
+	service.statsErr = nil
+	if _, err := controller.Status(context.Background(), sandboxID, false); err != nil {
+		t.Fatalf("second stopped Status: %v", err)
+	}
+	if service.statsCalls != 1 {
+		t.Fatalf("late stopped-State evidence re-query count = %d, want 1", service.statsCalls)
+	}
+	if proofs := controller.ensureTaskOutcomeProofStore().listGuestKernelOOMVictimProofs(); len(proofs) != 0 {
+		t.Fatalf("late stopped-State cache repaired %d proofs", len(proofs))
 	}
 }
