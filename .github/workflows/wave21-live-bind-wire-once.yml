@@ -1,0 +1,153 @@
+name: Wave21 Live Bind Wire Once
+
+on:
+  push:
+    branches:
+      - gpt/wave21-guest-kernel-oom-victim-provenance
+
+permissions:
+  contents: write
+
+jobs:
+  wire-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gpt/wave21-guest-kernel-oom-victim-provenance
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: Cubelet/go.mod
+          cache-dependency-path: Cubelet/go.sum
+      - name: Wire exact controller and CubeBox runtime seams
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manager = Path('Cubelet/plugins/cube/internals/sandbox/cube_sandbox_manager.go')
+          text = manager.read_text()
+          old_create = '''func (c *controllerLocal) Create(ctx context.Context, info sandbox.Sandbox, opts ...sandbox.CreateOpt) (retErr error) {
+          	if store := c.ensureTaskOutcomeProofStore(); store != nil {
+          		store.Clear(info.ID)
+          	}
+          	return nil
+          }
+          '''
+          new_create = '''func (c *controllerLocal) Create(ctx context.Context, info sandbox.Sandbox, opts ...sandbox.CreateOpt) (retErr error) {
+          	c.clearGuestOOMVictimStartBinding(info.ID)
+          	if store := c.ensureTaskOutcomeProofStore(); store != nil {
+          		store.Clear(info.ID)
+          	}
+          	return nil
+          }
+          '''
+          if text.count(old_create) != 1:
+              raise SystemExit('Create anchor count != 1')
+          text = text.replace(old_create, new_create)
+
+          old_start = '''func (c *controllerLocal) Start(ctx context.Context, sandboxID string) (sandbox.ControllerInstance, error) {
+          	generation := c.beginTaskOutcomeRealization(sandboxID)
+          	generator := c.guestOOMVictimTokenGenerator
+          	if generator == nil {
+          		generator = secureGuestOOMVictimToken
+          	}
+          	if token, err := generator(); err == nil {
+          		if store := c.ensureTaskOutcomeProofStore(); store != nil {
+          			_ = store.BeginGuestOOMVictimRealization(sandboxID, generation, token)
+          		}
+          	}
+          	c.beginKernelVictimWindow(sandboxID, generation)
+          	c.captureRealizationOOMBaseline(ctx, sandboxID, generation)
+          	c.revalidateHostProcessIdentity(sandboxID, generation)
+          	return sandbox.ControllerInstance{}, nil
+          }
+          '''
+          new_start = '''func (c *controllerLocal) Start(ctx context.Context, sandboxID string) (sandbox.ControllerInstance, error) {
+          	c.clearGuestOOMVictimStartBinding(sandboxID)
+          	generation := c.beginTaskOutcomeRealization(sandboxID)
+          	generator := c.guestOOMVictimTokenGenerator
+          	if generator == nil {
+          		generator = secureGuestOOMVictimToken
+          	}
+          	if token, err := generator(); err == nil {
+          		if store := c.ensureTaskOutcomeProofStore(); store != nil {
+          			if err := store.BeginGuestOOMVictimRealization(sandboxID, generation, token); err == nil {
+          				_ = c.publishGuestOOMVictimStartBinding(sandboxID, generation, token)
+          			}
+          		}
+          	}
+          	c.beginKernelVictimWindow(sandboxID, generation)
+          	c.captureRealizationOOMBaseline(ctx, sandboxID, generation)
+          	c.revalidateHostProcessIdentity(sandboxID, generation)
+          	return sandbox.ControllerInstance{}, nil
+          }
+          '''
+          if text.count(old_start) != 1:
+              raise SystemExit('Start anchor count != 1')
+          manager.write_text(text.replace(old_start, new_start))
+
+          cubebox = Path('Cubelet/services/cubebox/cube_container_create.go')
+          text = cubebox.read_text()
+          old_live = '''	ci.ExitCh = exitCh
+
+          	if err := task.Start(ctx); err != nil {
+          		return ret.Err(errorcode.ErrorCode_StartTaskFailed, err.Error())
+          	}
+          '''
+          new_live = '''	ci.ExitCh = exitCh
+
+          	var startErr error
+          	if ci.IsPod {
+          		startErr = bindGuestOOMVictimBeforeStart(ctx, task, cubebox.ID)
+          	} else {
+          		startErr = task.Start(ctx)
+          	}
+          	if startErr != nil {
+          		return ret.Err(errorcode.ErrorCode_StartTaskFailed, startErr.Error())
+          	}
+          '''
+          if text.count(old_live) != 1:
+              raise SystemExit('CubeBox Start anchor count != 1')
+          cubebox.write_text(text.replace(old_live, new_live))
+          PY
+      - name: Canonical Go formatting
+        run: |
+          gofmt -w \
+            Cubelet/plugins/cube/internals/guestvictimbridge/bridge.go \
+            Cubelet/plugins/cube/internals/guestvictimbridge/bridge_v21_test.go \
+            Cubelet/plugins/cube/internals/sandbox/guest_oom_victim_bridge.go \
+            Cubelet/plugins/cube/internals/sandbox/guest_oom_victim_bridge_v21_test.go \
+            Cubelet/plugins/cube/internals/sandbox/cube_sandbox_manager.go \
+            Cubelet/services/cubebox/guest_oom_victim_start.go \
+            Cubelet/services/cubebox/guest_oom_victim_start_v21_test.go \
+            Cubelet/services/cubebox/cube_container_create.go
+          git diff --check
+      - name: Verify focused Wave21 live binding
+        working-directory: Cubelet
+        run: |
+          go test ./plugins/cube/internals/guestvictimbridge -run '^TestV21' -count=1
+          go test ./plugins/cube/internals/sandbox -run '^TestV21' -count=1
+          go test ./plugins/cube/internals/guestvictim -run '^(TestBindBeforeStart|TestV21)' -count=1
+          go test ./services/cubebox -run '^TestV21CubeBox' -count=1
+          go test ./plugins/cube/internals/resourcemetrics -run '^TestV21' -count=1
+      - name: Commit verified live wiring
+        run: |
+          if git diff --quiet; then
+            echo 'No wiring diff to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            Cubelet/plugins/cube/internals/guestvictimbridge/bridge.go \
+            Cubelet/plugins/cube/internals/guestvictimbridge/bridge_v21_test.go \
+            Cubelet/plugins/cube/internals/sandbox/guest_oom_victim_bridge.go \
+            Cubelet/plugins/cube/internals/sandbox/guest_oom_victim_bridge_v21_test.go \
+            Cubelet/plugins/cube/internals/sandbox/cube_sandbox_manager.go \
+            Cubelet/services/cubebox/guest_oom_victim_start.go \
+            Cubelet/services/cubebox/guest_oom_victim_start_v21_test.go \
+            Cubelet/services/cubebox/cube_container_create.go
+          git commit -m 'feat(wave21): wire live CubeBox victim binding' -m 'Autonomously-by: ChatGPT:GPT-5.6-Sol'
+          git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
