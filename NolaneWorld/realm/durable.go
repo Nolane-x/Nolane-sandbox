@@ -354,6 +354,9 @@ func (s *DurableStore) validateWorldLocked(rec WorldRecord) error {
 		if rec.RealizationRevision < old.RealizationRevision || rec.LeaseGeneration < old.LeaseGeneration {
 			return ErrInvalidWorld
 		}
+		if old.Handle != "" && rec.Handle != old.Handle && rec.RealizationRevision == old.RealizationRevision {
+			return ErrInvalidWorld
+		}
 		if old.Phase == WorldTerminal && rec.Phase != WorldTerminal {
 			return ErrInvalidWorld
 		}
