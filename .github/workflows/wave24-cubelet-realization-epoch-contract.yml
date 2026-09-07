@@ -30,7 +30,15 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: '1.24.8'
-          cache-dependency-path: Cubelet/go.mod
+          cache-dependency-path: |
+            Cubelet/go.mod
+            NolaneWorld/go.mod
       - name: Wave24 focused producer tests
         working-directory: Cubelet
         run: go test ./plugins/cube/internals/sandbox -run 'V24' -count=1
+      - name: Wave24 focused exporter tests
+        working-directory: Cubelet
+        run: go test ./plugins/cube/internals/resourcemetrics -run 'V24' -count=1
+      - name: Wave24 focused NolaneWorld tests
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V24' -count=1
