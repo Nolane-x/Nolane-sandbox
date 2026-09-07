@@ -5,6 +5,7 @@
 pub mod common;
 pub mod container;
 pub mod cube;
+pub mod guest_victim;
 pub mod hypervisor;
 pub mod log;
 pub mod sandbox;

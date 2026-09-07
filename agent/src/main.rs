@@ -43,12 +43,18 @@ mod config;
 mod console;
 mod device;
 mod fixes;
+mod guest_oom_victim;
 mod linux_abi;
 mod metrics;
 mod mount;
 mod namespace;
 mod netlink;
 mod network;
+mod oom_victim;
+mod oom_victim_bpf;
+mod oom_victim_loader;
+mod oom_victim_proc;
+mod oom_victim_runtime;
 mod pci;
 pub mod random;
 mod sandbox;
@@ -372,6 +378,10 @@ async fn start_sandbox(
     }
 
     let sandbox = Arc::new(Mutex::new(s));
+
+    if let Some(task) = oom_victim::start_best_effort(logger, sandbox.clone(), shutdown.clone()) {
+        tasks.push(task);
+    }
 
     let signal_handler_task = tokio::spawn(setup_signal_handler(
         logger.clone(),

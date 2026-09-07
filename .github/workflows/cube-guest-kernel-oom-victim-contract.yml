@@ -1,0 +1,111 @@
+name: Cube Guest Kernel OOM Victim Contract
+
+on:
+  pull_request:
+  push:
+    branches:
+      - gpt/wave21-guest-kernel-oom-victim-provenance
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  BUILDER_IMAGE: ghcr.io/tencentcloud/cubesandbox-builder:ubuntu2004
+
+jobs:
+  protocol-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify guest/shim Wave21 protocol parity and production seams
+        run: |
+          python3 tests/wave21_protocol_contract.py
+          python3 tests/wave21_agent_service_contract.py
+          python3 tests/wave21_shim_service_contract.py
+          python3 tests/wave21_cubelet_live_bind_contract.py
+
+  cubelet-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: Cubelet/go.mod
+          cache-dependency-path: Cubelet/go.sum
+      - name: Verify Wave21 generation, binding authority, and Prometheus contracts
+        working-directory: Cubelet
+        run: |
+          go test ./plugins/cube/internals/sandbox -run '^TestV21' -count=1
+          go test ./plugins/cube/internals/guestvictim -run '^(TestBindBeforeStart|TestV21)' -count=1
+          go test ./plugins/cube/internals/guestvictimbridge -run '^TestV21' -count=1
+          go test ./plugins/cube/internals/resourcemetrics -run '^TestV21' -count=1
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull canonical builder
+        run: docker pull "${BUILDER_IMAGE}"
+      - name: Verify CubeBox live pre-Start binding in canonical builder
+        run: |
+          make builder-run \
+            BUILDER_IMAGE="${BUILDER_IMAGE}" \
+            BUILDER_CMD="cd /workspace && IN_CUBE_SANDBOX_BUILDER=1 make cubecow-sdk && cd /workspace/CubeNet/cubevs && make gen && cd /workspace/Cubelet && go test ./services/cubebox -run '^TestV21CubeBox' -count=1"
+
+  guest-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify guest realization evidence contract
+        working-directory: agent
+        run: |
+          rustc --edition=2021 --test tests/guest_oom_victim_v21.rs -o /tmp/guest_oom_victim_v21
+          /tmp/guest_oom_victim_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_liveness_v21.rs -o /tmp/guest_oom_victim_liveness_v21
+          /tmp/guest_oom_victim_liveness_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_lookup_v21.rs -o /tmp/guest_oom_victim_lookup_v21
+          /tmp/guest_oom_victim_lookup_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_metadata_v21.rs -o /tmp/guest_oom_victim_metadata_v21
+          /tmp/guest_oom_victim_metadata_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_bounds_v21.rs -o /tmp/guest_oom_victim_bounds_v21
+          /tmp/guest_oom_victim_bounds_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_cgroup_v21.rs -o /tmp/guest_oom_victim_cgroup_v21
+          /tmp/guest_oom_victim_cgroup_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_loader_v21.rs -o /tmp/guest_oom_victim_loader_v21
+          /tmp/guest_oom_victim_loader_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_bpf_wire_v21.rs -o /tmp/guest_oom_victim_bpf_wire_v21
+          /tmp/guest_oom_victim_bpf_wire_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_timebridge_v21.rs -o /tmp/guest_oom_victim_timebridge_v21
+          /tmp/guest_oom_victim_timebridge_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_oom_victim_runtime_v21.rs -o /tmp/guest_oom_victim_runtime_v21
+          /tmp/guest_oom_victim_runtime_v21 --nocapture
+
+  shim-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify CubeShim realization-token and evidence-validation contracts
+        working-directory: CubeShim/shim
+        run: |
+          rustc --edition=2021 --test tests/guest_victim_v21.rs -o /tmp/guest_victim_v21
+          /tmp/guest_victim_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_victim_binding_v21.rs -o /tmp/guest_victim_binding_v21
+          /tmp/guest_victim_binding_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_victim_transport_v21.rs -o /tmp/guest_victim_transport_v21
+          /tmp/guest_victim_transport_v21 --nocapture
+          rustc --edition=2021 --test tests/guest_victim_evidence_validation_v21.rs -o /tmp/guest_victim_evidence_validation_v21
+          /tmp/guest_victim_evidence_validation_v21 --nocapture
+
+  nolaneworld-wave21:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: NolaneWorld/go.mod
+          cache-dependency-path: NolaneWorld/go.sum
+      - name: Verify Wave21 strict consumer contract
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run '^TestV21' -count=1

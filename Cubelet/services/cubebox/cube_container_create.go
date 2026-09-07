@@ -1379,8 +1379,14 @@ func (l *local) runContainer(
 	}
 	ci.ExitCh = exitCh
 
-	if err := task.Start(ctx); err != nil {
-		return ret.Err(errorcode.ErrorCode_StartTaskFailed, err.Error())
+	var startErr error
+	if ci.IsPod {
+		startErr = bindGuestOOMVictimBeforeStart(ctx, task, cubebox.ID)
+	} else {
+		startErr = task.Start(ctx)
+	}
+	if startErr != nil {
+		return ret.Err(errorcode.ErrorCode_StartTaskFailed, startErr.Error())
 	}
 
 	ci.Status.Update(func(status cubeboxstore.Status) (cubeboxstore.Status, error) {
