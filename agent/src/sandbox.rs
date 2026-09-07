@@ -339,11 +339,6 @@ impl Sandbox {
             .map_err(|e| anyhow!(e))
     }
 
-    pub fn note_guest_oom_victim_loss(&mut self) {
-        self.guest_oom_victim.note_loss();
-        self.guest_oom_victim_collector.note_loss();
-    }
-
     pub fn mark_guest_oom_victim_collector_live(&mut self) {
         self.guest_oom_victim_collector.mark_live();
     }

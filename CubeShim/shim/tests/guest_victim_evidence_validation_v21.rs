@@ -4,9 +4,7 @@
 #[path = "../src/guest_victim.rs"]
 mod guest_victim;
 
-use guest_victim::{
-    validate_evidence_set, EvidenceRecord, EvidenceScope, RealizationToken,
-};
+use guest_victim::{validate_evidence_set, EvidenceRecord, EvidenceScope, RealizationToken};
 
 const SOURCE: &str = "guest.kernel.oom.mark_victim.raw_tracepoint";
 

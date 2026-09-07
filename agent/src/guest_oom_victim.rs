@@ -94,10 +94,6 @@ impl GuestVictimCollectorCoverage {
         self.loss_epoch = self.loss_epoch.saturating_add(1);
     }
 
-    pub fn note_loss(&mut self) {
-        self.loss_epoch = self.loss_epoch.saturating_add(1);
-    }
-
     pub fn begin_epoch(&mut self) -> u64 {
         let start_epoch = self.loss_epoch;
         if !self.live {

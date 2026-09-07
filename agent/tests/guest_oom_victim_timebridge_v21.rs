@@ -13,7 +13,10 @@ use guest_oom_victim::{
 #[test]
 fn v21_timens_parser_requires_one_exact_boottime_record() {
     let raw = "monotonic 0 0\nboottime -2 500000000\n";
-    assert_eq!(parse_timens_boottime_offset_ns(raw).unwrap(), -1_500_000_000);
+    assert_eq!(
+        parse_timens_boottime_offset_ns(raw).unwrap(),
+        -1_500_000_000
+    );
 
     assert_eq!(
         parse_timens_boottime_offset_ns("monotonic 1 2\nboottime 7 9\n").unwrap(),
@@ -59,12 +62,10 @@ fn v21_time_namespace_offset_requires_same_complete_authority() {
         Some(offsets),
     )
     .is_err());
-    assert!(authoritative_timens_boottime_offset(
-        Some("time:[4026531834]"),
-        None,
-        Some(offsets),
-    )
-    .is_err());
+    assert!(
+        authoritative_timens_boottime_offset(Some("time:[4026531834]"), None, Some(offsets),)
+            .is_err()
+    );
     assert!(authoritative_timens_boottime_offset(None, None, Some(offsets)).is_err());
 }
 
@@ -80,12 +81,7 @@ fn v21_zero_offset_is_only_valid_when_time_namespace_exposure_is_absent() {
         None,
     )
     .is_err());
-    assert!(authoritative_timens_boottime_offset(
-        Some("time:[4026531834]"),
-        None,
-        None,
-    )
-    .is_err());
+    assert!(authoritative_timens_boottime_offset(Some("time:[4026531834]"), None, None,).is_err());
 }
 
 #[test]

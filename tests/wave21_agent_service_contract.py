@@ -25,7 +25,6 @@ for fragment in [
     "guest_oom_victim_collector: GuestVictimCollectorCoverage",
     "begin_guest_oom_victim_realization",
     "record_guest_oom_victim_raw",
-    "note_guest_oom_victim_loss",
     "mark_guest_oom_victim_collector_live",
     "mark_guest_oom_victim_collector_lost",
     "finalize_guest_oom_victim_realization",

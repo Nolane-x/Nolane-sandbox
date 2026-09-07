@@ -58,11 +58,15 @@ fn v21_rejects_framing_reserved_flags_and_impossible_kernel_identity() {
     assert!(decode_raw_victim_record(&valid[..valid.len() - 1]).is_err());
     assert!(decode_raw_victim_record(&[0u8; 41]).is_err());
     assert!(decode_raw_victim_record(&raw_record(2, 0, 17, 11, 40, 50, 99)).is_err());
-    assert!(decode_raw_victim_record(&raw_record(EVENT_VERSION_V1, 1, 17, 11, 40, 50, 99)).is_err());
+    assert!(
+        decode_raw_victim_record(&raw_record(EVENT_VERSION_V1, 1, 17, 11, 40, 50, 99)).is_err()
+    );
     assert!(decode_raw_victim_record(&raw_record(EVENT_VERSION_V1, 0, 0, 11, 40, 50, 99)).is_err());
     assert!(decode_raw_victim_record(&raw_record(EVENT_VERSION_V1, 0, 17, 0, 40, 50, 99)).is_err());
     assert!(decode_raw_victim_record(&raw_record(EVENT_VERSION_V1, 0, 17, 11, 0, 50, 99)).is_err());
-    assert!(decode_raw_victim_record(&raw_record(EVENT_VERSION_V1, 0, 17, 11, 60, 50, 99)).is_err());
+    assert!(
+        decode_raw_victim_record(&raw_record(EVENT_VERSION_V1, 0, 17, 11, 60, 50, 99)).is_err()
+    );
 }
 
 #[test]

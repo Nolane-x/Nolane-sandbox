@@ -62,9 +62,14 @@ impl AsRawFd for BpfFd {
 impl BpfFd {
     fn from_syscall_result(result: c_long, operation: &str) -> Result<Self, String> {
         if result < 0 {
-            return Err(format!("{} failed: {}", operation, io::Error::last_os_error()));
+            return Err(format!(
+                "{} failed: {}",
+                operation,
+                io::Error::last_os_error()
+            ));
         }
-        let fd = i32::try_from(result).map_err(|_| format!("{} returned an invalid fd", operation))?;
+        let fd =
+            i32::try_from(result).map_err(|_| format!("{} returned an invalid fd", operation))?;
         // SAFETY: a successful BPF syscall returns a newly owned file descriptor.
         Ok(Self(unsafe { OwnedFd::from_raw_fd(fd) }))
     }
@@ -83,7 +88,9 @@ pub struct MapCreateAttr {
 impl MapCreateAttr {
     pub fn ringbuf(capacity: u32) -> Result<Self, String> {
         if capacity < 4096 || !capacity.is_power_of_two() {
-            return Err("Wave21 ringbuf capacity must be a page-sized-or-larger power of two".to_string());
+            return Err(
+                "Wave21 ringbuf capacity must be a page-sized-or-larger power of two".to_string(),
+            );
         }
         Ok(Self {
             map_type: BPF_MAP_TYPE_RINGBUF,
@@ -249,7 +256,11 @@ pub fn lookup_loss_epoch(map: &BpfFd) -> Result<u64, String> {
         value: value.as_mut_ptr() as usize as u64,
         flags: 0,
     };
-    sys_bpf_unit(BPF_MAP_LOOKUP_ELEM, &attr, "BPF_MAP_LOOKUP_ELEM(loss_epoch)")?;
+    sys_bpf_unit(
+        BPF_MAP_LOOKUP_ELEM,
+        &attr,
+        "BPF_MAP_LOOKUP_ELEM(loss_epoch)",
+    )?;
     // SAFETY: a successful BPF_MAP_LOOKUP_ELEM initialized the complete u64 value.
     Ok(unsafe { value.assume_init() })
 }
@@ -321,10 +332,6 @@ impl RingMapping {
             data,
             geometry,
         })
-    }
-
-    pub fn geometry(&self) -> RingGeometry {
-        self.geometry
     }
 
     pub fn peek_header(&self) -> Result<Option<u32>, String> {
@@ -425,7 +432,10 @@ fn sys_bpf_fd<T>(command: u32, attr: &T, operation: &str) -> Result<BpfFd, Strin
 fn sys_bpf_unit<T>(command: u32, attr: &T, operation: &str) -> Result<(), String> {
     let result = sys_bpf(command, attr)?;
     if result != 0 {
-        return Err(format!("{} returned unexpected result {}", operation, result));
+        return Err(format!(
+            "{} returned unexpected result {}",
+            operation, result
+        ));
     }
     Ok(())
 }

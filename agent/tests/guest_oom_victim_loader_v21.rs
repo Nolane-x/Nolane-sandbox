@@ -132,7 +132,9 @@ fn resolves_required_and_optional_identity_offsets_from_kernel_btf() {
     assert_eq!(layout.pid_offset, 12);
     assert_eq!(layout.tgid_offset, 28);
     assert_eq!(layout.start_boottime_offset, 104);
-    let cgroup = layout.cgroup_v2.expect("synthetic BTF has exact cgroup-v2 chain");
+    let cgroup = layout
+        .cgroup_v2
+        .expect("synthetic BTF has exact cgroup-v2 chain");
     assert_eq!(cgroup.task_cgroups_offset, 88);
     assert_eq!(cgroup.default_cgroup_offset, 16);
     assert_eq!(cgroup.kernfs_node_offset, 8);
@@ -168,8 +170,12 @@ fn builds_raw_tracepoint_program_with_event_time_identity_and_loss_accounting() 
     assert!(helper_calls.contains(&BPF_FUNC_MAP_LOOKUP_ELEM));
 
     // LDDW map-pointer loads must reference both the event ring and the loss map.
-    assert!(program.iter().any(|insn| insn.code == 0x18 && insn.imm == 7));
-    assert!(program.iter().any(|insn| insn.code == 0x18 && insn.imm == 8));
+    assert!(program
+        .iter()
+        .any(|insn| insn.code == 0x18 && insn.imm == 7));
+    assert!(program
+        .iter()
+        .any(|insn| insn.code == 0x18 && insn.imm == 8));
 
     // Atomic XADD on the loss-map value is the fail-closed signal for a ring-buffer drop.
     assert!(program.iter().any(|insn| insn.code == 0xdb));
