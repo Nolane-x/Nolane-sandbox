@@ -335,6 +335,176 @@ impl TokenBindings {
     }
 }
 
+fn consume_varint(input: &mut &[u8]) -> Result<u64, &'static str> {
+    let mut value = 0u64;
+    for shift in (0..70).step_by(7) {
+        let (&byte, rest) = input
+            .split_first()
+            .ok_or("Wave21 protobuf varint is truncated")?;
+        *input = rest;
+        if shift == 63 && byte > 1 {
+            return Err("Wave21 protobuf varint overflows u64");
+        }
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Ok(value);
+        }
+    }
+    Err("Wave21 protobuf varint is overlong")
+}
+
+fn consume_tag(input: &mut &[u8]) -> Result<(u32, u8), &'static str> {
+    let raw = consume_varint(input)?;
+    let field = raw >> 3;
+    if field == 0 || field > u64::from(u32::MAX) {
+        return Err("Wave21 protobuf field number is invalid");
+    }
+    Ok((field as u32, (raw & 0x07) as u8))
+}
+
+fn consume_bytes<'a>(input: &mut &'a [u8]) -> Result<&'a [u8], &'static str> {
+    let len = consume_varint(input)?;
+    let len = usize::try_from(len).map_err(|_| "Wave21 protobuf length overflows usize")?;
+    if input.len() < len {
+        return Err("Wave21 protobuf bytes field is truncated");
+    }
+    let (value, rest) = input.split_at(len);
+    *input = rest;
+    Ok(value)
+}
+
+fn consume_string(input: &mut &[u8]) -> Result<String, &'static str> {
+    let bytes = consume_bytes(input)?;
+    std::str::from_utf8(bytes)
+        .map(str::to_string)
+        .map_err(|_| "Wave21 protobuf string is not UTF-8")
+}
+
+fn u32_value(value: u64) -> Result<u32, &'static str> {
+    u32::try_from(value).map_err(|_| "Wave21 protobuf uint32 field overflows")
+}
+
+fn decode_evidence_record(
+    expected_container_id: &str,
+    expected_token: RealizationToken,
+    mut input: &[u8],
+) -> Result<EvidenceRecord, &'static str> {
+    let mut seen = [false; 16];
+    let mut version = 0u32;
+    let mut container_id = String::new();
+    let mut realization_token = None;
+    let mut guest_boot_id = String::new();
+    let mut victim_tid = 0u32;
+    let mut victim_tgid = 0u32;
+    let mut victim_starttime_ticks = 0u64;
+    let mut event_boot_time_ns = 0u64;
+    let mut cgroup_v2_id = None;
+    let mut main_pid = 0u32;
+    let mut main_starttime_ticks = 0u64;
+    let mut scope = None;
+    let mut realization_started_boot_ns = 0u64;
+    let mut outcome_observed_boot_ns = 0u64;
+    let mut source = String::new();
+
+    while !input.is_empty() {
+        let (field, wire) = consume_tag(&mut input)?;
+        if field > 15 || seen[field as usize] {
+            return Err("Wave21 evidence record contains unknown or duplicate field");
+        }
+        seen[field as usize] = true;
+        match field {
+            1 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 => {
+                if wire != 0 {
+                    return Err("Wave21 evidence record has wrong protobuf wire type");
+                }
+                let value = consume_varint(&mut input)?;
+                match field {
+                    1 => version = u32_value(value)?,
+                    5 => victim_tid = u32_value(value)?,
+                    6 => victim_tgid = u32_value(value)?,
+                    7 => victim_starttime_ticks = value,
+                    8 => event_boot_time_ns = value,
+                    9 => cgroup_v2_id = Some(value),
+                    10 => main_pid = u32_value(value)?,
+                    11 => main_starttime_ticks = value,
+                    12 => {
+                        scope = Some(match value {
+                            1 => EvidenceScope::Main,
+                            2 => EvidenceScope::Member,
+                            _ => return Err("Wave21 evidence scope is not authoritative"),
+                        })
+                    }
+                    13 => realization_started_boot_ns = value,
+                    14 => outcome_observed_boot_ns = value,
+                    _ => unreachable!(),
+                }
+            }
+            2 | 3 | 4 | 15 => {
+                if wire != 2 {
+                    return Err("Wave21 evidence record has wrong protobuf wire type");
+                }
+                match field {
+                    2 => container_id = consume_string(&mut input)?,
+                    3 => {
+                        let raw = consume_bytes(&mut input)?;
+                        if raw.len() != 32 {
+                            return Err("Wave21 evidence realization token must be exactly 32 bytes");
+                        }
+                        let mut bytes = [0u8; 32];
+                        bytes.copy_from_slice(raw);
+                        realization_token = Some(RealizationToken::from_bytes(bytes)?);
+                    }
+                    4 => guest_boot_id = consume_string(&mut input)?,
+                    15 => source = consume_string(&mut input)?,
+                    _ => unreachable!(),
+                }
+            }
+            _ => return Err("Wave21 evidence record contains unknown field"),
+        }
+    }
+
+    let record = EvidenceRecord {
+        version,
+        container_id,
+        realization_token: realization_token
+            .ok_or("Wave21 evidence realization token is missing")?,
+        guest_boot_id,
+        victim_tid,
+        victim_tgid,
+        victim_starttime_ticks,
+        event_boot_time_ns,
+        cgroup_v2_id,
+        main_pid,
+        main_starttime_ticks,
+        scope: scope.ok_or("Wave21 evidence scope is missing")?,
+        realization_started_boot_ns,
+        outcome_observed_boot_ns,
+        source,
+    };
+    validate_evidence_record(expected_container_id, expected_token, &record)?;
+    Ok(record)
+}
+
+pub fn decode_and_validate_evidence_payload(
+    container_id: &str,
+    token: RealizationToken,
+    mut payload: &[u8],
+) -> Result<Vec<EvidenceRecord>, &'static str> {
+    let mut records = Vec::new();
+    while !payload.is_empty() {
+        let (field, wire) = consume_tag(&mut payload)?;
+        if field != 1 || wire != 2 {
+            return Err("Wave21 evidence set contains unknown protobuf field");
+        }
+        let encoded = consume_bytes(&mut payload)?;
+        records.push(decode_evidence_record(container_id, token, encoded)?);
+        if records.len() > MAX_EVIDENCE_RECORDS {
+            return Err("Wave21 finalized evidence payload exceeds 64 records");
+        }
+    }
+    validate_evidence_set(container_id, token, &records)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct EvidenceCache {
     entries: HashMap<(String, RealizationToken), Vec<u8>>,
@@ -353,6 +523,7 @@ impl EvidenceCache {
         if payload.is_empty() {
             return Err("finalized evidence payload must be positive");
         }
+        decode_and_validate_evidence_payload(container_id, token, &payload)?;
 
         let key = (container_id.to_string(), token);
         match self.entries.get(&key) {
