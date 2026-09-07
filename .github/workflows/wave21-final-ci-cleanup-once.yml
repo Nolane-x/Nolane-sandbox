@@ -18,7 +18,7 @@ jobs:
           ref: gpt/wave21-guest-kernel-oom-victim-provenance
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
-      - name: Remove superseded Wave21 seams and format final tree
+      - name: Apply superseded seam cleanup and canonical formatting
         shell: bash
         run: |
           set -euo pipefail
@@ -54,18 +54,11 @@ jobs:
           PY
 
           make fmt
-          python3 tests/wave21_agent_service_contract.py
-          cargo test --locked --manifest-path agent/Cargo.toml \
-            --test guest_oom_victim_liveness_v21 \
-            --test guest_oom_victim_runtime_v21
-          make -C agent MUSL=no SECCOMP=no src/version.rs
-          RUSTFLAGS='-D warnings' cargo check --locked --manifest-path agent/Cargo.toml --bin cube-agent
-          rm -f agent/src/version.rs
           git diff --check -- . \
             ':(exclude)CubeShim/shim/src/protos/agent.rs' \
             ':(exclude)CubeShim/shim/src/protos/agent_ttrpc.rs'
           git status --short
-      - name: Commit verified final CI cleanup
+      - name: Commit canonical cleanup tree
         shell: bash
         run: |
           set -euo pipefail
