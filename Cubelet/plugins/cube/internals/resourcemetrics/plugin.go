@@ -125,6 +125,10 @@ func init() {
 			if !ok {
 				return nil, fmt.Errorf("cube sandbox controller does not expose guest kernel OOM victim proofs")
 			}
+			realizationEpochs, ok := controllerPlugin.(realizationEpochVisitor)
+			if !ok {
+				return nil, fmt.Errorf("cube sandbox controller does not expose current realization epoch authority")
+			}
 
 			cgroupPlugin, err := ic.GetByID(constants.InternalPlugin, constants.CgroupID.ID())
 			if err != nil {
@@ -183,13 +187,14 @@ func init() {
 					go hostSampler.Run(ic.Context)
 				}
 			}
-			return newProductionTaskEvidenceService(
+			return newProductionTaskEvidenceServiceWithRealizationEpochs(
 				cache,
 				taskOutcomes,
 				oomProofs,
 				hostProcessProofs,
 				hostKernelVictimProofs,
 				guestKernelVictimProofs,
+				realizationEpochs,
 			), nil
 		},
 	})
