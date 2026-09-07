@@ -82,6 +82,7 @@ func (s *taskOutcomeProofStore) Clear(sandboxID string) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	clearGuestKernelOOMVictimLifecycleState(s, sandboxID)
 	if s.fenced == nil {
 		s.fenced = make(map[string]bool)
 	}
@@ -121,6 +122,7 @@ func (s *taskOutcomeProofStore) BeginRealization(sandboxID string) uint64 {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	clearGuestKernelOOMVictimLifecycleState(s, sandboxID)
 	if s.generations == nil {
 		s.generations = make(map[string]uint64)
 	}
