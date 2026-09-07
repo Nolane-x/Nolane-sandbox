@@ -40,6 +40,32 @@ func TestV21GuestOOMVictimTokenIsGenerationScoped(t *testing.T) {
 	}
 }
 
+func TestV21GuestOOMVictimTokenIsImmutableWithinGeneration(t *testing.T) {
+	store := newTaskOutcomeProofStore()
+	const sandboxID = "sandbox-v21-immutable"
+	generation := store.BeginRealization(sandboxID)
+	first := v21Token(0x31)
+	conflict := v21Token(0x32)
+
+	if err := store.BeginGuestOOMVictimRealization(sandboxID, generation, first); err != nil {
+		t.Fatalf("begin Wave21 realization: %v", err)
+	}
+	if err := store.BeginGuestOOMVictimRealization(sandboxID, generation, first); err != nil {
+		t.Fatalf("exact duplicate token must be idempotent: %v", err)
+	}
+	if err := store.BeginGuestOOMVictimRealization(sandboxID, generation, conflict); err == nil {
+		t.Fatal("conflicting token replaced immutable current-generation authority")
+	}
+
+	got, ok := store.GuestOOMVictimToken(sandboxID, generation)
+	if !ok {
+		t.Fatal("expected original current-generation token after conflicting write")
+	}
+	if got != first {
+		t.Fatalf("conflicting write changed token: got %x want %x", got, first)
+	}
+}
+
 func TestV21CreateFenceDestroysTokenAuthority(t *testing.T) {
 	store := newTaskOutcomeProofStore()
 	const sandboxID = "sandbox-v21-fence"
