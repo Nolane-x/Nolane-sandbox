@@ -32,14 +32,36 @@ func (s *callerOwnedAuthorityStore) World(id realm.ID, worldID world.ID) (realm.
 	return s.worldRecord, true
 }
 
-func TestV23CallerOwnedStoreCannotMintPackageAuthority(t *testing.T) {
-	spec := realm.Spec{
-		ID:             realm.ID("realm://wave23-caller-store"),
+func externalV23Spec(id realm.ID) realm.Spec {
+	return realm.Spec{
+		ID:             id,
 		MaxWorlds:      2,
 		DefaultLease:   time.Minute,
 		NetworkProfile: realm.R0InternalOnly,
 		ResourceBudget: realm.ResourceBudget{CPUUnits: 2, MemoryMiB: 1024, DiskMiB: 2048},
 	}
+}
+
+func seedExternalV23Store(t *testing.T, store *realm.MemoryStore, spec realm.Spec, worldID world.ID, handle substrate.Handle) {
+	t.Helper()
+	if _, err := store.CreateRealm(spec); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutWorld(realm.WorldRecord{
+		RealmID:             spec.ID,
+		WorldID:             worldID,
+		RealizationRevision: 1,
+		Phase:               realm.WorldObservedReady,
+		LeaseGeneration:     1,
+		LeaseExpiresUnix:    time.Now().Add(time.Hour).Unix(),
+		Handle:              handle,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestV23CallerOwnedStoreCannotMintPackageAuthority(t *testing.T) {
+	spec := externalV23Spec(realm.ID("realm://wave23-caller-store"))
 	worldID := world.ID("wave23-caller-store-world")
 	store := &callerOwnedAuthorityStore{
 		Store:       realm.NewMemoryStore(),
@@ -63,6 +85,32 @@ func TestV23CallerOwnedStoreCannotMintPackageAuthority(t *testing.T) {
 	}
 }
 
+func TestV23AuthorityCannotCrossIdenticalStoreInstances(t *testing.T) {
+	ctx := context.Background()
+	spec := externalV23Spec(realm.ID("realm://wave23-store-instance"))
+	worldID := world.ID("wave23-store-instance-world")
+	handle := substrate.Handle("cube-sandbox-store-instance")
+	storeA := realm.NewMemoryStore()
+	storeB := realm.NewMemoryStore()
+	seedExternalV23Store(t, storeA, spec, worldID, handle)
+	seedExternalV23Store(t, storeB, spec, worldID, handle)
+	controllerA, err := realm.NewController(storeA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controllerB, err := realm.NewController(storeB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := controllerA.CurrentRealizationAuthority(ctx, spec.ID, worldID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding, err := controllerB.ValidateRealizationAuthority(ctx, authority); !errors.Is(err, realm.ErrInvalidRealizationAuthority) {
+		t.Fatalf("authority crossed identical Store instances binding=%+v err=%v, want invalid", binding, err)
+	}
+}
+
 func TestV23SerializedOrDescriptiveBindingCannotRestoreAuthority(t *testing.T) {
 	ctx := context.Background()
 	store := realm.NewMemoryStore()
@@ -70,13 +118,7 @@ func TestV23SerializedOrDescriptiveBindingCannotRestoreAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec := realm.Spec{
-		ID:             realm.ID("realm://wave23-external-opacity"),
-		MaxWorlds:      2,
-		DefaultLease:   time.Minute,
-		NetworkProfile: realm.R0InternalOnly,
-		ResourceBudget: realm.ResourceBudget{CPUUnits: 2, MemoryMiB: 1024, DiskMiB: 2048},
-	}
+	spec := externalV23Spec(realm.ID("realm://wave23-external-opacity"))
 	realmRec, err := ctl.Create(ctx, spec)
 	if err != nil {
 		t.Fatal(err)
