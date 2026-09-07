@@ -256,6 +256,7 @@ func (c *controllerLocal) Wait(ctx context.Context, sandboxID string) (sandbox.E
 	c.closeKernelVictimWindow(proof)
 	c.finalizeRealizationOOM(ctx, proof)
 	c.finalizeHostKernelOOMVictim(proof)
+	c.finalizeGuestKernelOOMVictim(ctx, svc, proof)
 
 	return sandbox.ExitStatus{
 		ExitedAt:   proof.ExitedAt,
@@ -294,6 +295,7 @@ func (c *controllerLocal) Status(ctx context.Context, sandboxID string, verbose 
 			c.closeKernelVictimWindow(proof)
 			c.finalizeRealizationOOM(ctx, proof)
 			c.finalizeHostKernelOOMVictim(proof)
+			c.finalizeGuestKernelOOMVictim(ctx, svc, proof)
 		}
 	}
 
