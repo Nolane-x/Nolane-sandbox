@@ -2,9 +2,13 @@
 """Wave 21 live Cubelet/CubeBox realization-binding contract.
 
 This contract deliberately inspects the two production authority seams rather
-than helper-only tests.  Wave 21 is not live unless the controller publishes
+than helper-only tests. Wave 21 is not live unless the controller publishes
 exact-token start authority only after realization admission and CubeBox
 consumes that authority on the pod task before workload Start.
+
+Wave 24 strengthens the realization-begin seam by minting a Cubelet epoch and
+then projecting its generation. This contract therefore checks the semantic
+ordering rather than pinning Wave 21 to the pre-Wave24 helper spelling.
 """
 
 from pathlib import Path
@@ -55,11 +59,41 @@ def verify_controller_seam() -> None:
         "c.clearGuestOOMVictimStartBinding(sandboxID)",
         "Start stale-binding fence",
     )
-    begin_realization = require_once(
-        start,
-        "generation := c.beginTaskOutcomeRealization(sandboxID)",
-        "Start realization generation",
-    )
+
+    legacy_begin = "generation := c.beginTaskOutcomeRealization(sandboxID)"
+    wave24_begin = "epoch, err := c.beginTaskOutcomeRealizationEpoch(sandboxID)"
+    if legacy_begin in start:
+        begin_realization = require_once(
+            start,
+            legacy_begin,
+            "Start realization generation",
+        )
+        generation_ready = begin_realization
+    elif wave24_begin in start:
+        begin_realization = require_once(
+            start,
+            wave24_begin,
+            "Start realization epoch",
+        )
+        fail_closed = require_once(
+            start,
+            "if err != nil {",
+            "Start realization epoch fail-closed check",
+        )
+        generation_ready = require_once(
+            start,
+            "generation := epoch.Generation",
+            "Start realization generation projection",
+        )
+        if not (begin_realization < fail_closed < generation_ready):
+            raise AssertionError(
+                "Wave24 Start must mint epoch -> fail closed -> project generation"
+            )
+    else:
+        raise AssertionError(
+            "Start realization authority seam is missing both Wave21 and Wave24 forms"
+        )
+
     admit = require_once(
         start,
         "if err := store.BeginGuestOOMVictimRealization(sandboxID, generation, token); err == nil {",
@@ -70,9 +104,9 @@ def verify_controller_seam() -> None:
         "_ = c.publishGuestOOMVictimStartBinding(sandboxID, generation, token)",
         "exact-token start-binding publish",
     )
-    if not (clear_start < begin_realization < admit < publish):
+    if not (clear_start < begin_realization <= generation_ready < admit < publish):
         raise AssertionError(
-            "Start authority order must be clear -> generation -> realization admission -> publish"
+            "Start authority order must be clear -> realization authority -> generation -> admission -> publish"
         )
 
 
