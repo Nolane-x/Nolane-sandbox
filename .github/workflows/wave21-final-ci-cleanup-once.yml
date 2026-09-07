@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   cleanup:
@@ -17,8 +18,15 @@ jobs:
         with:
           ref: gpt/wave21-guest-kernel-oom-victim-provenance
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Apply superseded seam cleanup and canonical formatting
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Apply superseded seam cleanup
         shell: bash
         run: |
           set -euo pipefail
@@ -53,11 +61,21 @@ jobs:
               path.write_text(text.replace(old, new, 1))
           PY
 
-          make fmt
+      - name: Run canonical repository formatter
+        shell: bash
+        env:
+          BUILDER_IMAGE: ghcr.io/tencentcloud/cubesandbox-builder:ubuntu2004
+        run: |
+          set -euo pipefail
+          docker pull "${BUILDER_IMAGE}"
+          make builder-run \
+            BUILDER_IMAGE="${BUILDER_IMAGE}" \
+            BUILDER_CMD='cd /workspace && IN_CUBE_SANDBOX_BUILDER=1 make fmt'
           git diff --check -- . \
             ':(exclude)CubeShim/shim/src/protos/agent.rs' \
             ':(exclude)CubeShim/shim/src/protos/agent_ttrpc.rs'
           git status --short
+
       - name: Commit canonical cleanup tree
         shell: bash
         run: |
@@ -68,5 +86,8 @@ jobs:
           git diff --cached --check -- . \
             ':(exclude)CubeShim/shim/src/protos/agent.rs' \
             ':(exclude)CubeShim/shim/src/protos/agent_ttrpc.rs'
-          git commit -m 'fix(wave21): close final format and release warnings' -m 'Autonomously-by: ChatGPT:GPT-5.6-Sol'
+          git commit \
+            -m 'fix(wave21): close final format and release warnings' \
+            -m 'Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>' \
+            -m 'Autonomously-by: ChatGPT:GPT-5.6-Sol'
           git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
