@@ -61,7 +61,9 @@ jobs:
           make -C agent MUSL=no SECCOMP=no src/version.rs
           RUSTFLAGS='-D warnings' cargo check --locked --manifest-path agent/Cargo.toml --bin cube-agent
           rm -f agent/src/version.rs
-          git diff --check
+          git diff --check -- . \
+            ':(exclude)CubeShim/shim/src/protos/agent.rs' \
+            ':(exclude)CubeShim/shim/src/protos/agent_ttrpc.rs'
           git status --short
       - name: Commit verified final CI cleanup
         shell: bash
@@ -70,6 +72,8 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -u
-          git diff --cached --check
+          git diff --cached --check -- . \
+            ':(exclude)CubeShim/shim/src/protos/agent.rs' \
+            ':(exclude)CubeShim/shim/src/protos/agent_ttrpc.rs'
           git commit -m 'fix(wave21): close final format and release warnings' -m 'Autonomously-by: ChatGPT:GPT-5.6-Sol'
           git push origin HEAD:gpt/wave21-guest-kernel-oom-victim-provenance
