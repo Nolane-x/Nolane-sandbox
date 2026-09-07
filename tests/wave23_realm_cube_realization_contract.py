@@ -9,6 +9,7 @@ durable_store_source = (ROOT / "NolaneWorld/realm/durable.go").read_text(encodin
 required_realm = (
     "type RealizationAuthority struct",
     "binding RealizationBinding",
+    "store   realizationAuthorityStore",
     "seal    *realizationAuthoritySeal",
     "type realizationAuthorityStore interface",
     "packageOwnedRealizationAuthorityStore()",
@@ -18,6 +19,8 @@ required_realm = (
     "func (c *Controller) CurrentRealizationAuthority",
     "func (c *Controller) ValidateRealizationAuthority",
     "store, trusted := c.trustedRealizationAuthorityStore()",
+    "store:   store",
+    "authority.store != store",
     "PolicyDigest(realmRec.Spec, realmRec.Revision)",
     "store.Realm(realmID)",
     "store.World(realmID, worldID)",
