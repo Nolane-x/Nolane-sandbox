@@ -38,6 +38,8 @@ Authority is minted only by a live `realm.Controller` from its own store after r
 
 Validation MUST compare the sealed package-owned authority, not a caller-reconstructed descriptive value.
 
+Once a World has an established non-empty substrate handle, that handle MUST NOT change while `RealizationRevision` remains unchanged. Initial empty-to-non-empty handle assignment is allowed, but any later handle rebind requires a strictly newer realization revision. Both in-memory and durable stores MUST enforce the same transition rule, and durable journal recovery MUST replay through that validator. This prevents an old authority from becoming valid again through an `A -> B -> A` handle alias at one realization revision.
+
 ## Cube binding
 
 The Cube package may consume a valid `realm.RealizationAuthority` through a dedicated verifier. It MUST additionally require the authority's exact substrate handle to equal the concrete package-owned `cube.ResourceBinding.SandboxID()`.
@@ -58,6 +60,7 @@ Therefore Wave 23 does not enable a generic public `LIVE_PASS` CLI by itself.
 - no public constructor from IDs/revisions/digests/handles;
 - no `ResourceBinding` sandbox mismatch acceptance;
 - no stale authority after Realm update or World re-realization;
+- no established substrate-handle rebind inside one realization revision;
 - no numeric-generation aliasing between Realm realization revision and Cube task generation;
 - no exit-code/OOM inference;
 - no disk proof;
@@ -72,11 +75,12 @@ Behavioral tests must prove:
 - zero authority is invalid;
 - Realm revision update stales old authority;
 - World realization revision change stales old authority;
-- handle change stales old authority;
+- established handle cannot rebind without realization revision advance;
+- handle change with realization advance stales old authority;
 - terminal transition stales old authority;
 - exact Cube `ResourceBinding` matches;
 - wrong Cube sandbox is rejected;
 - descriptive binding/JSON cannot restore opacity;
 - policy digest equals `realm.PolicyDigest(current.Spec, current.Revision)`.
 
-A dedicated Wave23 CI contract must run focused Realm/Cube tests and static checks for the absence of a public field-based authority constructor.
+A dedicated Wave23 CI contract must run focused Realm/Cube tests and static checks for the absence of a public field-based authority constructor, the same-revision handle-rebind fence in both stores, and durable replay through the same transition validator.
