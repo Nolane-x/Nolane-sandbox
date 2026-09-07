@@ -11,11 +11,11 @@ import (
 	"time"
 
 	task "github.com/containerd/containerd/api/runtime/task/v2"
-	"github.com/containerd/containerd/api/types"
 	tasktypes "github.com/containerd/containerd/api/types/task"
 	"github.com/containerd/ttrpc"
 	"github.com/tencentcloud/CubeSandbox/Cubelet/plugins/cube/internals/guestvictimbridge"
 	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -54,7 +54,7 @@ func (f *v21FinalizationRuntimeService) Stats(ctx context.Context, req *task.Sta
 		return nil, errors.New("Wave21 Stats request omitted exact selector")
 	}
 	f.selectors = append(f.selectors, values[0])
-	return &task.StatsResponse{Stats: &types.Any{
+	return &task.StatsResponse{Stats: &anypb.Any{
 		TypeUrl: v21EvidenceTypeURLForTest,
 		Value:   append([]byte(nil), f.payload...),
 	}}, nil
