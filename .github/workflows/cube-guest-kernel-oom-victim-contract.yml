@@ -28,11 +28,13 @@ jobs:
         with:
           go-version-file: Cubelet/go.mod
           cache-dependency-path: Cubelet/go.sum
-      - name: Verify Wave21 generation, binding, and Prometheus contracts
+      - name: Verify Wave21 generation, live binding, and Prometheus contracts
         working-directory: Cubelet
         run: |
           go test ./plugins/cube/internals/sandbox -run '^TestV21' -count=1
           go test ./plugins/cube/internals/guestvictim -run '^(TestBindBeforeStart|TestV21)' -count=1
+          go test ./plugins/cube/internals/guestvictimbridge -run '^TestV21' -count=1
+          go test ./services/cubebox -run '^TestV21CubeBox' -count=1
           go test ./plugins/cube/internals/resourcemetrics -run '^TestV21' -count=1
 
   guest-wave21:
