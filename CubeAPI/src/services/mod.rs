@@ -6,6 +6,7 @@ pub mod sandboxes;
 pub mod snapshots;
 pub mod templates;
 pub mod volumes;
+mod provider_incarnation;
 
 use crate::{
     config::ServerConfig,
