@@ -18,6 +18,10 @@ type callerOwnedAuthorityStore struct {
 	worldRecord realm.WorldRecord
 }
 
+type embeddedPackageAuthorityStore struct {
+	*realm.MemoryStore
+}
+
 func (s *callerOwnedAuthorityStore) Realm(id realm.ID) (realm.RealmRecord, bool) {
 	if s == nil || s.realmRecord.Spec.ID != id {
 		return realm.RealmRecord{}, false
@@ -82,6 +86,22 @@ func TestV23CallerOwnedStoreCannotMintPackageAuthority(t *testing.T) {
 	}
 	if authority, err := ctl.CurrentRealizationAuthority(context.Background(), spec.ID, worldID); !errors.Is(err, realm.ErrRealizationAuthorityUnavailable) {
 		t.Fatalf("caller-owned Store minted authority=%+v err=%v, want unavailable", authority, err)
+	}
+}
+
+func TestV23EmbeddedPackageStoreCannotMintPackageAuthority(t *testing.T) {
+	ctx := context.Background()
+	spec := externalV23Spec(realm.ID("realm://wave23-embedded-store"))
+	worldID := world.ID("wave23-embedded-store-world")
+	backing := realm.NewMemoryStore()
+	seedExternalV23Store(t, backing, spec, worldID, substrate.Handle("cube-sandbox-embedded-store"))
+	store := &embeddedPackageAuthorityStore{MemoryStore: backing}
+	ctl, err := realm.NewController(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authority, err := ctl.CurrentRealizationAuthority(ctx, spec.ID, worldID); !errors.Is(err, realm.ErrRealizationAuthorityUnavailable) {
+		t.Fatalf("embedded package Store minted authority=%+v err=%v, want unavailable", authority, err)
 	}
 }
 
