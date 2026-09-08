@@ -34,17 +34,19 @@ type Config struct {
 	MaxResponseBytes int64
 	HTTPClient       *http.Client
 	DataHTTPClient   *http.Client
+	EndpointSPKIPins []string
 }
 
 type Client struct {
-	apiURL        string
-	apiKey        string
-	templateID    string
-	sandboxDomain string
-	proxyScheme   string
-	maxBytes      int64
-	http          *http.Client
-	dataHTTP      *http.Client
+	apiURL           string
+	apiKey           string
+	templateID       string
+	sandboxDomain    string
+	proxyScheme      string
+	maxBytes         int64
+	http             *http.Client
+	dataHTTP         *http.Client
+	endpointSPKIPins map[[32]byte]struct{}
 }
 
 func New(cfg Config) (*Client, error) {
@@ -61,6 +63,15 @@ func New(cfg Config) (*Client, error) {
 	if u.Scheme == "http" && !loopbackHost(u.Hostname()) {
 		return nil, ErrInsecureAPI
 	}
+
+	endpointSPKIPins, err := parseEndpointSPKIPins(cfg.EndpointSPKIPins)
+	if err != nil {
+		return nil, err
+	}
+	if len(endpointSPKIPins) > 0 && u.Scheme != "https" {
+		return nil, ErrInvalidEndpointSPKIConfig
+	}
+
 	maxBytes := cfg.MaxResponseBytes
 	if maxBytes == 0 {
 		maxBytes = 1 << 20
@@ -68,7 +79,17 @@ func New(cfg Config) (*Client, error) {
 	if maxBytes < 1 {
 		return nil, ErrInvalidConfig
 	}
-	hc := hardenedHTTPClient(cfg.HTTPClient, 30*time.Second)
+
+	var hc *http.Client
+	if len(endpointSPKIPins) > 0 {
+		hc, err = hardenedPinnedHTTPClient(cfg.HTTPClient, 30*time.Second, endpointSPKIPins)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		hc = hardenedHTTPClient(cfg.HTTPClient, 30*time.Second)
+	}
+
 	dc := hardenedHTTPClient(cfg.DataHTTPClient, 30*time.Second)
 	if cfg.DataHTTPClient == nil && cfg.HTTPClient != nil {
 		dc = hardenedHTTPClient(cfg.HTTPClient, 30*time.Second)
@@ -83,7 +104,7 @@ func New(cfg Config) (*Client, error) {
 	return &Client{
 		apiURL: strings.TrimRight(cfg.APIURL, "/"), apiKey: cfg.APIKey,
 		templateID: cfg.TemplateID, sandboxDomain: cfg.SandboxDomain, proxyScheme: proxyScheme,
-		maxBytes: maxBytes, http: hc, dataHTTP: dc,
+		maxBytes: maxBytes, http: hc, dataHTTP: dc, endpointSPKIPins: endpointSPKIPins,
 	}, nil
 }
 
