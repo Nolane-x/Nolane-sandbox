@@ -3,14 +3,16 @@
 
 use std::sync::Arc;
 
-use axum::{extract::State, routing::{get, post}, Json, Router};
+use axum::{
+    extract::State,
+    routing::{get, post},
+    Json, Router,
+};
 use serde_json::{Map, Value};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use super::{
-    provider_incarnation::PROVIDER_INCARNATION_ANNOTATION, sandboxes::SandboxService,
-};
+use super::{provider_incarnation::PROVIDER_INCARNATION_ANNOTATION, sandboxes::SandboxService};
 use crate::{cubemaster::CubeMasterClient, models::NewSandbox};
 
 #[derive(Clone, Default)]
@@ -18,10 +20,7 @@ struct Capture {
     create_body: Arc<Mutex<Option<Value>>>,
 }
 
-async fn create_handler(
-    State(capture): State<Capture>,
-    Json(body): Json<Value>,
-) -> Json<Value> {
+async fn create_handler(State(capture): State<Capture>, Json(body): Json<Value>) -> Json<Value> {
     *capture.create_body.lock().await = Some(body);
     Json(serde_json::json!({
         "requestID": "req-v25",
@@ -173,14 +172,16 @@ async fn v25_client_metadata_cannot_nominate_provider_incarnation_authority() {
         .clone()
         .expect("create body should be captured");
     assert_eq!(
-        body["labels"][PROVIDER_INCARNATION_ANNOTATION],
-        attacker_value,
+        body["labels"][PROVIDER_INCARNATION_ANNOTATION], attacker_value,
         "client metadata should remain ordinary labels"
     );
     let internal = body["annotations"][PROVIDER_INCARNATION_ANNOTATION]
         .as_str()
         .expect("trusted provider incarnation annotation missing");
-    assert_ne!(internal, attacker_value, "client metadata nominated authority");
+    assert_ne!(
+        internal, attacker_value,
+        "client metadata nominated authority"
+    );
     let parsed = Uuid::parse_str(internal).expect("internal incarnation should be UUID text");
     assert_eq!(parsed.get_version_num(), 4);
     assert_eq!(parsed.hyphenated().to_string(), internal);
