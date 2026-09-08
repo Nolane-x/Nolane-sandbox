@@ -13,7 +13,7 @@ on:
       - 'docs/superpowers/specs/2026-09-08-runtime-cgroup-readback-authority-v28-design.md'
       - 'docs/superpowers/plans/2026-09-08-runtime-cgroup-readback-authority-v28.md'
       - 'docs/superpowers/verification/2026-09-08-wave28-runtime-cgroup-readback-red.md'
-      - 'docs/superpowers/verification/2026-09-08-wave28-runtime-cgroup-readback-closure.md'
+      - 'docs/superpowers/verification/2026-09-08-wave28-runtime-cgroup-readback-authority-closure.md'
 
 permissions:
   contents: read
