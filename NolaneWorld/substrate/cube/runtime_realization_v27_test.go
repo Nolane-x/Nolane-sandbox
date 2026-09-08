@@ -56,8 +56,14 @@ func TestRuntimeRealizationV27ObserveExactSameScrape(t *testing.T) {
 		t.Fatal("same-scrape proof is invalid")
 	}
 	epoch, ok := proof.Epoch()
-	if !ok || epoch.SandboxID() != sandboxID || epoch.Generation() != 7 || epoch.TokenHex() != v27TokenA {
-		t.Fatalf("unexpected epoch: %#v, ok=%v", epoch, ok)
+	if !ok {
+		t.Fatal("missing epoch")
+	}
+	epochSandboxID, sandboxOK := epoch.SandboxID()
+	epochGeneration, generationOK := epoch.Generation()
+	epochToken, tokenOK := epoch.TokenHex()
+	if !sandboxOK || !generationOK || !tokenOK || epochSandboxID != sandboxID || epochGeneration != 7 || epochToken != v27TokenA {
+		t.Fatalf("unexpected epoch: %#v", epoch)
 	}
 	process, ok := proof.ProcessIdentity()
 	if !ok || process.SandboxID != sandboxID || process.Generation != 7 || process.HostPID != 321 || process.StartTimeTicks != 9001 {
