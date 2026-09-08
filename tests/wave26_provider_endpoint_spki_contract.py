@@ -5,6 +5,7 @@ client = (ROOT / "NolaneWorld/substrate/cube/client.go").read_text(encoding="utf
 transport = (ROOT / "NolaneWorld/substrate/cube/provider_endpoint_spki_transport.go").read_text(encoding="utf-8")
 proof = (ROOT / "NolaneWorld/substrate/cube/provider_endpoint_spki.go").read_text(encoding="utf-8")
 bridge = (ROOT / "NolaneWorld/substrate/cube/realm_resource_provider_endpoint_authority.go").read_text(encoding="utf-8")
+wave26_authority = "\n".join((transport, proof, bridge))
 
 # Configuration is an explicit canonical SHA-256 SPKI allow-set. No TOFU,
 # caller-normalized aliases, zero pins or duplicate entries are authority.
@@ -30,8 +31,9 @@ for needle in required_parser:
     assert needle in transport, f"missing Wave26 canonical pin parser rule: {needle}"
 
 # Pinning augments the standard TLS handshake; it must not replace WebPKI or
-# permit a custom TLS dial path that skips VerifyConnection.
+# permit a custom TLS dial path / arbitrary RoundTripper that skips it.
 required_transport = (
+    "switch candidate := hc.Transport.(type)",
     "case *http.Transport:",
     "transport = candidate.Clone()",
     "transport.DialTLS != nil || transport.DialTLSContext != nil",
@@ -48,11 +50,17 @@ required_transport = (
 for needle in required_transport:
     assert needle in transport, f"missing Wave26 TLS trust rule: {needle}"
 
+# The type switch must contain a fail-closed default branch. Keep this less
+# formatting-sensitive than an exact multi-line source assertion.
+transport_switch = transport.split("switch candidate := hc.Transport.(type)", 1)[1].split("// These hooks", 1)[0]
+assert "default:" in transport_switch and "ErrInvalidEndpointSPKIConfig" in transport_switch, (
+    "pinned non-*http.Transport RoundTripper must fail closed"
+)
+
 for forbidden in (
     "InsecureSkipVerify: true",
     "InsecureSkipVerify = true",
     "VerifyPeerCertificate = nil",
-    "RootCAs = x509.NewCertPool()",
     "TrustOnFirstUse",
     "trustOnFirstUse",
     "TOFU",
@@ -111,6 +119,37 @@ assert bridge.index("ValidateRealmResourceProviderIncarnationAuthority(") < brid
 assert "func NewRealmResourceProviderEndpointAuthority" not in bridge, "public Wave26 bridge constructor is forbidden"
 bridge_struct = bridge.split("type RealmResourceProviderEndpointAuthority struct {", 1)[1].split("\n}", 1)[0]
 assert 'json:"' not in bridge_struct, "Wave26 bridge authority must remain an opaque in-process capability"
+
+# No authority laundering from self-reported HTTP identity, URL/certificate
+# metadata, API credentials, timestamps, request/client IDs, or persistence.
+# Scope these bans to Wave26 authority production files, not test fixtures.
+for forbidden in (
+    "Header.Get(",
+    '"Server"',
+    '"X-Provider-ID"',
+    '"X-SPKI"',
+    "time.Now(",
+    "requestID",
+    "requestId",
+    "clientID",
+    "clientId",
+    "os.WriteFile(",
+    "os.Create(",
+    "ioutil.WriteFile(",
+    "certificate.SerialNumber",
+    "PeerCertificates[0].Raw)",
+):
+    assert forbidden not in wave26_authority, f"forbidden Wave26 endpoint-identity shortcut: {forbidden}"
+
+# Sandbox/resource identity may be checked for equality in the bridge, but it
+# must never be hashed into endpoint cryptographic authority.
+for forbidden in (
+    "sha256.Sum256([]byte(sandboxID",
+    "sha256.Sum256([]byte(resource",
+    "sha256.Sum256([]byte(c.apiURL",
+    "sha256.Sum256([]byte(c.apiKey",
+):
+    assert forbidden not in wave26_authority, f"forbidden Wave26 derived endpoint identity: {forbidden}"
 
 # Scope guard: endpoint cryptographic identity must not silently become a claim
 # of task outcome, OOM causality, resource enforcement, hardware attestation or
