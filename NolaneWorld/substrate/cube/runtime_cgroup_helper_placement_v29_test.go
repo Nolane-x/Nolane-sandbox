@@ -219,15 +219,18 @@ func TestV29ExactPlacementLifecycleMintsAuthority(t *testing.T) {
 }
 
 func TestV29DigestDeterministicForIdenticalAuthorityOwnedInput(t *testing.T) {
-	f1 := newV29Fixture(t)
-	a1, err := validateV29(t, f1)
+	f := newV29Fixture(t)
+	auth, err := validateV29(t, f)
 	if err != nil { t.Fatal(err) }
-	f2 := newV29Fixture(t)
-	a2, err := validateV29(t, f2)
+	snapshot, ok := auth.Snapshot()
+	if !ok { t.Fatal("missing Wave29 snapshot") }
+	d1, err := deriveV29AuthorityDigest(snapshot)
 	if err != nil { t.Fatal(err) }
-	d1, ok1 := a1.Digest(); d2, ok2 := a2.Digest()
-	if !ok1 || !ok2 || d1 != d2 {
-		t.Fatalf("nondeterministic digest: %q %q", d1, d2)
+	d2, err := deriveV29AuthorityDigest(snapshot)
+	if err != nil { t.Fatal(err) }
+	actual, ok := auth.Digest()
+	if !ok || d1 != d2 || d1 != actual {
+		t.Fatalf("nondeterministic digest: derived1=%q derived2=%q authority=%q", d1, d2, actual)
 	}
 }
 
