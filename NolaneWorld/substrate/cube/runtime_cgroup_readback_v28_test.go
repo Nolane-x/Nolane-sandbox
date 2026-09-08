@@ -159,6 +159,70 @@ func TestV28HostPIDMembershipMustBracketReadback(t *testing.T) {
 	}
 }
 
+func TestV28TargetPathRejectsRootEscapeAndNonCanonicalForms(t *testing.T) {
+	f := newV28Fixture(t)
+	for _, raw := range []string{
+		"/",
+		"../cubes/sandbox-v26",
+		"cubes/sandbox-v26",
+		"/../etc",
+		"/cubes/../etc",
+		"//cubes/sandbox-v26",
+		"/cubes/sandbox-v26/",
+	} {
+		t.Run(strings.ReplaceAll(raw, "/", "_"), func(t *testing.T) {
+			if _, err := f.cgroupObserver.targetPath(raw); !errors.Is(err, ErrInvalidRuntimeCgroupReadbackAuthority) {
+				t.Fatalf("targetPath(%q) error=%v, want ErrInvalidRuntimeCgroupReadbackAuthority", raw, err)
+			}
+		})
+	}
+
+	rootObserver := newRuntimeCgroupReadbackObserverForTest("/", func(string) ([]byte, error) {
+		return nil, errors.New("unexpected read")
+	})
+	if rootObserver.valid() {
+		t.Fatal("observer with filesystem root became valid")
+	}
+}
+
+func TestV28RuntimeReplacementDuringReadbackFailsPostValidation(t *testing.T) {
+	f := newV28Fixture(t)
+	originalRead := f.cgroupObserver.readFile
+	mutated := false
+	f.cgroupObserver.readFile = func(filename string) ([]byte, error) {
+		value, err := originalRead(filename)
+		if err == nil && !mutated && strings.HasSuffix(filename, "/memory.events") {
+			mutated = true
+			f.runtimeMetrics.body = v27RuntimeMetrics(
+				"sandbox-v26",
+				1,
+				strings.Repeat("81", 32),
+				778,
+				9002,
+				"33333333-3333-4333-8333-333333333333",
+			)
+		}
+		return value, err
+	}
+
+	_, err := validateV28(t, f)
+	if err == nil {
+		t.Fatal("runtime replacement during readback minted Wave28 authority")
+	}
+	if !mutated {
+		t.Fatal("test did not mutate runtime during cgroup readback")
+	}
+}
+
+func TestV28NonV2OrMissingControllersFailsClosed(t *testing.T) {
+	f := newV28Fixture(t)
+	f.files["/v28-test-cgroup/cgroup.controllers"] = "pids\n"
+	_, err := validateV28(t, f)
+	if !errors.Is(err, ErrInvalidRuntimeCgroupReadbackAuthority) {
+		t.Fatalf("missing cpu/memory controllers error=%v, want ErrInvalidRuntimeCgroupReadbackAuthority", err)
+	}
+}
+
 func TestV28UnlimitedCPUOrMemoryFailsClosed(t *testing.T) {
 	cases := map[string][2]string{
 		"cpu unlimited":    {"/v28-test-cgroup/cubes/sandbox-v26/cpu.max", "max 100000\n"},
