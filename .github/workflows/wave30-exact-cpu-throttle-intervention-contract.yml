@@ -1,0 +1,68 @@
+name: Wave30 Exact CPU Throttle Intervention Contract
+
+on:
+  push:
+    branches:
+      - gpt/wave30-exact-cpu-throttle-intervention-authority
+  pull_request:
+    paths:
+      - 'NolaneWorld/substrate/cube/runtime_cpu_intervention.go'
+      - 'NolaneWorld/substrate/cube/runtime_cpu_intervention_protocol_v30_test.go'
+      - 'NolaneWorld/substrate/cube/runtime_cpu_intervention_v30_test.go'
+      - 'NolaneWorld/substrate/cube/runtime_cpu_intervention_v30_review_test.go'
+      - 'NolaneWorld/substrate/cube/runtime_cpu_intervention_v30_attribution_review_test.go'
+      - 'NolaneWorld/substrate/cube/runtime_cgroup_helper_protocol.go'
+      - 'NolaneWorld/substrate/cube/runtime_cgroup_helper_placement.go'
+      - 'NolaneWorld/cmd/nolane-gauntlet-live/main.go'
+      - 'NolaneWorld/cmd/nolane-gauntlet-live/main_test.go'
+      - 'tests/wave30_exact_cpu_throttle_intervention_contract.py'
+      - '.github/workflows/wave30-exact-cpu-throttle-intervention-contract.yml'
+      - 'docs/superpowers/specs/2026-09-08-exact-cpu-throttle-intervention-authority-v30-design.md'
+      - 'docs/superpowers/plans/2026-09-08-exact-cpu-throttle-intervention-authority-v30.md'
+      - 'docs/superpowers/verification/2026-09-08-wave30-exact-cpu-throttle-intervention-red.md'
+      - 'docs/superpowers/verification/2026-09-08-wave30-exact-cpu-throttle-intervention-closure.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check --no-input pytest
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: NolaneWorld/go.sum
+      - name: Focused Wave30 tests
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V30|RuntimeCPUThrottleIntervention|CPUIntervention' -count=1
+      - name: Wave30 command integration
+        working-directory: NolaneWorld
+        run: go test ./cmd/nolane-gauntlet-live -count=1
+      - name: Static Wave30 contract
+        if: ${{ hashFiles('tests/wave30_exact_cpu_throttle_intervention_contract.py') != '' }}
+        run: python -m pytest -q tests/wave30_exact_cpu_throttle_intervention_contract.py
+      - name: Prior Wave29 regression
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V29|RuntimeCgroupHelper|InternalCgroupHelper' -count=1
+      - name: Prior Wave28 regression
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V28|RuntimeCgroupReadback' -count=1
+      - name: Prior Wave27 regression
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube ./gauntlet/live/resourceproof -run 'V27|RuntimeRealization|RealmResourceRuntime' -count=1
+      - name: Vet NolaneWorld
+        working-directory: NolaneWorld
+        run: go vet ./...
+      - name: Test NolaneWorld
+        working-directory: NolaneWorld
+        run: go test ./... -count=1
+      - name: Race focused Wave30
+        working-directory: NolaneWorld
+        run: go test -race ./substrate/cube -run 'V30|RuntimeCPUThrottleIntervention|CPUIntervention' -count=1
