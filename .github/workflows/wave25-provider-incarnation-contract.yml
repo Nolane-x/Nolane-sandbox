@@ -48,3 +48,12 @@ jobs:
       - name: Vet Cube trust package
         working-directory: NolaneWorld
         run: go vet ./substrate/cube
+
+  trust-shape:
+    name: Wave25 static trust contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Enforce Wave25 authority shape and anti-shortcut rules
+        run: python3 tests/wave25_provider_incarnation_contract.py
