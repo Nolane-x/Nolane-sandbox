@@ -497,6 +497,9 @@ pub struct Sandbox {
     #[serde(rename = "sandboxID")]
     pub sandbox_id: String,
 
+    #[serde(rename = "incarnationID", skip_serializing_if = "Option::is_none")]
+    pub incarnation_id: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
 
@@ -563,6 +566,8 @@ pub struct SandboxDetail {
     pub alias: Option<String>,
     #[serde(rename = "sandboxID")]
     pub sandbox_id: String,
+    #[serde(rename = "incarnationID", skip_serializing_if = "Option::is_none")]
+    pub incarnation_id: Option<String>,
     #[serde(rename = "clientID")]
     pub client_id: String,
     #[serde(rename = "startedAt")]
