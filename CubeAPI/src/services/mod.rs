@@ -150,6 +150,6 @@ mod tests {
             &[],
             false,
         )
-        .expect("IP/CIDR allow_out targets should not require deny-all requirement");
+        .expect("IP/CIDR allow_out targets should not require deny-all");
     }
 }
