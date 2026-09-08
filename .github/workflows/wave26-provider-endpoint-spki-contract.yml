@@ -1,0 +1,45 @@
+name: Wave 26 Provider Endpoint SPKI Contract
+
+on:
+  pull_request:
+    paths:
+      - 'NolaneWorld/substrate/cube/**'
+      - 'tests/wave26_provider_endpoint_spki_contract.py'
+      - 'docs/superpowers/specs/**provider-endpoint-spki-authority-v26**'
+      - 'docs/superpowers/plans/**provider-endpoint-spki-authority-v26**'
+      - '.github/workflows/wave26-provider-endpoint-spki-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wave26-provider-endpoint-spki-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  endpoint-spki:
+    name: NolaneWorld endpoint SPKI authority (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: NolaneWorld/go.mod
+      - name: Wave26 focused RED/GREEN tests
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V26|EndpointSPKI' -count=1
+      - name: Vet Cube trust package
+        working-directory: NolaneWorld
+        run: go vet ./substrate/cube
