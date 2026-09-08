@@ -15,7 +15,12 @@ import (
 	cubewire "github.com/Nolane-x/Nolane-sandbox/NolaneWorld/substrate/cube"
 )
 
-func main() { os.Exit(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr)) }
+func main() {
+	if handled, exitCode := cubewire.MaybeRunInternalCgroupHelper(); handled {
+		os.Exit(exitCode)
+	}
+	os.Exit(run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
+}
 
 func run(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("nolane-gauntlet-live", flag.ContinueOnError)
