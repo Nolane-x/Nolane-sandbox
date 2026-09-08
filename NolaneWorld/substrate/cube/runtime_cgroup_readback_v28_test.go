@@ -136,6 +136,29 @@ func TestV28ExactHostPIDMembershipRequired(t *testing.T) {
 	}
 }
 
+func TestV28HostPIDMembershipMustBracketReadback(t *testing.T) {
+	f := newV28Fixture(t)
+	originalRead := f.cgroupObserver.readFile
+	procsReads := 0
+	f.cgroupObserver.readFile = func(filename string) ([]byte, error) {
+		if strings.HasSuffix(filename, "/cgroup.procs") {
+			procsReads++
+			if procsReads >= 2 {
+				return []byte("778\n"), nil
+			}
+		}
+		return originalRead(filename)
+	}
+
+	_, err := validateV28(t, f)
+	if !errors.Is(err, ErrInvalidRuntimeCgroupReadbackAuthority) {
+		t.Fatalf("membership changed during readback error=%v, want ErrInvalidRuntimeCgroupReadbackAuthority", err)
+	}
+	if procsReads < 2 {
+		t.Fatalf("cgroup.procs reads=%d, want at least 2 to bracket readback", procsReads)
+	}
+}
+
 func TestV28UnlimitedCPUOrMemoryFailsClosed(t *testing.T) {
 	cases := map[string][2]string{
 		"cpu unlimited":    {"/v28-test-cgroup/cubes/sandbox-v26/cpu.max", "max 100000\n"},
