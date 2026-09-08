@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -54,5 +55,24 @@ func TestProbeOutputNeverContainsConfiguredAPIKeyWhenOtherConfigMissing(t *testi
 	}
 	if strings.Contains(out.String(), "SUPER-SECRET-CONTROL-KEY") {
 		t.Fatal("API key leaked")
+	}
+}
+
+func TestWave29InternalHelperDispatchPrecedesNormalGauntletRun(t *testing.T) {
+	raw, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	helper := strings.Index(text, "MaybeRunInternalCgroupHelper()")
+	normal := strings.Index(text, "run(os.Args[1:]")
+	if helper < 0 {
+		t.Fatal("main does not invoke Wave29 internal helper entrypoint")
+	}
+	if normal < 0 {
+		t.Fatal("normal gauntlet main flow not found")
+	}
+	if helper > normal {
+		t.Fatal("internal helper dispatch occurs after normal gauntlet flow")
 	}
 }
