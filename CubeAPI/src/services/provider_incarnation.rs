@@ -35,10 +35,17 @@ mod tests {
     fn v25_provider_incarnation_mint_is_canonical_uuid_v4_and_non_repeating() {
         let first = new_provider_incarnation_id();
         let second = new_provider_incarnation_id();
-        assert_ne!(first, second, "two create boundaries reused one incarnation ID");
+        assert_ne!(
+            first, second,
+            "two create boundaries reused one incarnation ID"
+        );
 
         let parsed = Uuid::parse_str(&first).expect("minted provider incarnation is not a UUID");
-        assert_eq!(parsed.get_version_num(), 4, "provider incarnation is not UUIDv4");
+        assert_eq!(
+            parsed.get_version_num(),
+            4,
+            "provider incarnation is not UUIDv4"
+        );
         assert_eq!(
             parsed.hyphenated().to_string(),
             first,
@@ -70,7 +77,10 @@ mod tests {
         assert_eq!(provider_incarnation_from_annotations(&annotations), None);
 
         let canonical = "550e8400-e29b-41d4-a716-446655440000".to_string();
-        annotations.insert(PROVIDER_INCARNATION_ANNOTATION.to_string(), canonical.clone());
+        annotations.insert(
+            PROVIDER_INCARNATION_ANNOTATION.to_string(),
+            canonical.clone(),
+        );
         assert_eq!(
             provider_incarnation_from_annotations(&annotations),
             Some(canonical)
