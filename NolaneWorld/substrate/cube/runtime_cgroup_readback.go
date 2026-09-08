@@ -123,14 +123,13 @@ func (a RuntimeCgroupReadbackAuthority) Snapshot() (RuntimeCgroupReadbackSnapsho
 }
 
 // ValidateRuntimeCgroupReadbackAuthority re-establishes Wave27 freshness on
-// both sides of one exact cgroup-v2 read. No cgroup locator is supplied by the
-// caller: the target comes only from the sealed Wave27 host process identity.
+// both sides of one exact cgroup-v2 read. The concrete sandbox identity and
+// target path come only from the sealed Wave27 host process identity.
 func ValidateRuntimeCgroupReadbackAuthority(
 	ctx context.Context,
 	controller *realm.Controller,
 	realization realm.RealizationAuthority,
 	runtimeAuthority RealmResourceRuntimeAuthority,
-	resource ResourceBinding,
 	epochObserver *RealizationEpochObserver,
 	client *Client,
 	runtimeObserver *RuntimeRealizationObserver,
@@ -142,6 +141,7 @@ func ValidateRuntimeCgroupReadbackAuthority(
 	if !runtimeAuthority.Valid() || !observer.valid() {
 		return RuntimeCgroupReadbackAuthority{}, ErrInvalidRuntimeCgroupReadbackAuthority
 	}
+	resource := ResourceBinding{sandboxID: runtimeAuthority.runtime.process.SandboxID}
 
 	freshBefore, err := ValidateRealmResourceRuntimeAuthority(
 		ctx,
@@ -366,7 +366,7 @@ func containsExactCgroupPID(raw string, expected uint32) bool {
 		if line == "" || strings.TrimSpace(line) != line || strings.ContainsAny(line, " \t\r") {
 			return false
 		}
-		pid, ok := parseCanonicalUint(line, false)
+		pid, ok := parseRuntimeCgroupCanonicalUint(line, false)
 		if !ok || pid > uint64(^uint32(0)) {
 			return false
 		}
@@ -387,11 +387,11 @@ func parseCgroupV2CPUMax(raw string) (int64, uint64, error) {
 	if len(fields) != 2 || trimmed != fields[0]+" "+fields[1] || fields[0] == "max" {
 		return 0, 0, ErrInvalidRuntimeCgroupReadbackAuthority
 	}
-	quota, ok := parseCanonicalUint(fields[0], false)
+	quota, ok := parseRuntimeCgroupCanonicalUint(fields[0], false)
 	if !ok || quota > uint64(^uint64(0)>>1) {
 		return 0, 0, ErrInvalidRuntimeCgroupReadbackAuthority
 	}
-	period, ok := parseCanonicalUint(fields[1], false)
+	period, ok := parseRuntimeCgroupCanonicalUint(fields[1], false)
 	if !ok {
 		return 0, 0, ErrInvalidRuntimeCgroupReadbackAuthority
 	}
@@ -403,7 +403,7 @@ func parseCgroupV2MemoryMax(raw string) (uint64, error) {
 	if trimmed == "" || trimmed == "max" || strings.ContainsAny(trimmed, " \t\r\n") {
 		return 0, ErrInvalidRuntimeCgroupReadbackAuthority
 	}
-	value, ok := parseCanonicalUint(trimmed, false)
+	value, ok := parseRuntimeCgroupCanonicalUint(trimmed, false)
 	if !ok {
 		return 0, ErrInvalidRuntimeCgroupReadbackAuthority
 	}
@@ -424,7 +424,7 @@ func parseCanonicalCgroupStats(raw string) (map[string]uint64, error) {
 		if _, duplicate := stats[fields[0]]; duplicate {
 			return nil, ErrInvalidRuntimeCgroupReadbackAuthority
 		}
-		value, ok := parseCanonicalUint(fields[1], true)
+		value, ok := parseRuntimeCgroupCanonicalUint(fields[1], true)
 		if !ok {
 			return nil, ErrInvalidRuntimeCgroupReadbackAuthority
 		}
@@ -433,7 +433,7 @@ func parseCanonicalCgroupStats(raw string) (map[string]uint64, error) {
 	return stats, nil
 }
 
-func parseCanonicalUint(raw string, allowZero bool) (uint64, bool) {
+func parseRuntimeCgroupCanonicalUint(raw string, allowZero bool) (uint64, bool) {
 	if raw == "" || strings.HasPrefix(raw, "+") || strings.HasPrefix(raw, "-") {
 		return 0, false
 	}
