@@ -5,7 +5,10 @@
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
-use super::validate_allow_out_domains_require_deny_all;
+use super::{
+    provider_incarnation::{new_provider_incarnation_id, PROVIDER_INCARNATION_ANNOTATION},
+    validate_allow_out_domains_require_deny_all,
+};
 use crate::{
     constants::{ENVD_VERSION_ANNOTATION, ENVD_VERSION_FALLBACK},
     cubemaster::{
@@ -251,6 +254,12 @@ impl SandboxService {
         // Always leave containers empty — CubeMaster injects volume_mounts
         // from the annotation into the template's existing container spec.
         let containers = vec![];
+
+        let provider_incarnation_id = new_provider_incarnation_id();
+        annotations.insert(
+            PROVIDER_INCARNATION_ANNOTATION.to_string(),
+            provider_incarnation_id,
+        );
 
         let req = CreateSandboxRequest {
             request_id: new_request_id(),
