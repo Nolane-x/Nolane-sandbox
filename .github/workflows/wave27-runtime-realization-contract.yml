@@ -30,8 +30,6 @@ jobs:
           python-version: '3.12'
       - name: Install pytest
         run: python -m pip install --disable-pip-version-check --no-input pytest
-      - name: Static Wave27 contract
-        run: python -m pytest -q tests/wave27_runtime_realization_contract.py
       - uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
@@ -42,6 +40,8 @@ jobs:
       - name: Focused resourceproof projection tests
         working-directory: NolaneWorld
         run: go test ./gauntlet/live/resourceproof -run 'Runtime.*V27|V27.*Runtime' -count=1
+      - name: Static Wave27 contract
+        run: python -m pytest -q tests/wave27_runtime_realization_contract.py
       - name: Prior Wave23-Wave26 trust tests
         working-directory: NolaneWorld
         run: go test ./realm ./substrate/cube -run 'V23|V24|V25|V26|RealizationAuthority|EndpointSPKI|ProviderIncarnation|RealizationEpoch' -count=1
