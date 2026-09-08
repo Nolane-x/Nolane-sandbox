@@ -1,0 +1,61 @@
+name: Wave29 Runtime Cgroup Helper Placement Contract
+
+on:
+  push:
+    branches:
+      - gpt/wave29-runtime-cgroup-helper-placement-authority
+  pull_request:
+    paths:
+      - 'NolaneWorld/substrate/cube/runtime_cgroup_helper_protocol.go'
+      - 'NolaneWorld/substrate/cube/runtime_cgroup_helper_placement.go'
+      - 'NolaneWorld/substrate/cube/runtime_cgroup_helper_placement_v29_test.go'
+      - 'NolaneWorld/substrate/cube/runtime_cgroup_helper_placement_v29_review_test.go'
+      - 'NolaneWorld/cmd/nolane-gauntlet-live/main.go'
+      - 'NolaneWorld/cmd/nolane-gauntlet-live/main_test.go'
+      - 'tests/wave29_runtime_cgroup_helper_placement_contract.py'
+      - '.github/workflows/wave29-runtime-cgroup-helper-placement-contract.yml'
+      - 'docs/superpowers/specs/2026-09-08-runtime-cgroup-helper-placement-authority-v29-design.md'
+      - 'docs/superpowers/plans/2026-09-08-runtime-cgroup-helper-placement-authority-v29.md'
+      - 'docs/superpowers/verification/2026-09-08-wave29-runtime-cgroup-helper-placement-red.md'
+      - 'docs/superpowers/verification/2026-09-08-wave29-runtime-cgroup-helper-placement-authority-closure.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check --no-input pytest
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: NolaneWorld/go.sum
+      - name: Focused Wave29 tests
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V29|RuntimeCgroupHelper|InternalCgroupHelper' -count=1
+      - name: Wave29 command integration
+        working-directory: NolaneWorld
+        run: go test ./cmd/nolane-gauntlet-live -count=1
+      - name: Static Wave29 contract
+        run: python -m pytest -q tests/wave29_runtime_cgroup_helper_placement_contract.py
+      - name: Prior Wave28 regression
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V28|RuntimeCgroupReadback' -count=1
+      - name: Prior Wave27 regression
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube ./gauntlet/live/resourceproof -run 'V27|RuntimeRealization|RealmResourceRuntime' -count=1
+      - name: Vet NolaneWorld
+        working-directory: NolaneWorld
+        run: go vet ./...
+      - name: Test NolaneWorld
+        working-directory: NolaneWorld
+        run: go test ./... -count=1
+      - name: Race focused Wave29
+        working-directory: NolaneWorld
+        run: go test -race ./substrate/cube -run 'V29|RuntimeCgroupHelper|InternalCgroupHelper' -count=1
