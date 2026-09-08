@@ -138,13 +138,14 @@ func TestV28ExactHostPIDMembershipRequired(t *testing.T) {
 }
 
 func TestV28UnlimitedCPUOrMemoryFailsClosed(t *testing.T) {
-	for name, path, value := range map[string][2]string{
+	cases := map[string][2]string{
 		"cpu unlimited":    {"/v28-test-cgroup/cubes/sandbox-v26/cpu.max", "max 100000\n"},
 		"memory unlimited": {"/v28-test-cgroup/cubes/sandbox-v26/memory.max", "max\n"},
-	} {
+	}
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			f := newV28Fixture(t)
-			f.files[path] = value
+			f.files[tc[0]] = tc[1]
 			_, err := validateV28(t, f)
 			if !errors.Is(err, ErrInvalidRuntimeCgroupReadbackAuthority) {
 				t.Fatalf("unlimited readback error=%v, want ErrInvalidRuntimeCgroupReadbackAuthority", err)
