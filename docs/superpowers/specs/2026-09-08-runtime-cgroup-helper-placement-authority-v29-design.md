@@ -73,30 +73,35 @@ The production helper executor resolves `os.Executable()` once when it is constr
 
 The helper binary digest is recorded as lowercase 64-hex data in Wave29 authority. It is descriptive identity for the exact executable used by the helper lifecycle. It is not a software-supply-chain attestation and is not compared against an externally blessed digest in Wave29.
 
+The production lifecycle is intended for an executable that installs the Wave29 helper entrypoint. In this wave that executable is `NolaneWorld/cmd/nolane-gauntlet-live`. If the current executable does not enter the internal helper protocol, READY never validates and authority minting fails closed.
+
 ### 3.3 Internal helper mode
 
-`NolaneWorld/cmd/nolane-gauntlet-live` calls a package function before ordinary flag parsing:
+`NolaneWorld/cmd/nolane-gauntlet-live` must call this package function before ordinary flag parsing:
 
 `MaybeRunInternalCgroupHelper()`
 
-The function is activated only by package-defined internal environment/FD protocol. In helper mode it does not run the gauntlet command.
+The helper mode is enabled only when all of the following package-defined conditions are present:
 
-The helper receives two inherited file descriptors:
+- `NOLANE_INTERNAL_CGROUP_HELPER=park-exit`;
+- `NOLANE_INTERNAL_CGROUP_HELPER_NONCE=<64 lowercase hex>`;
+- inherited file descriptor 3 is the release pipe, parent -> child;
+- inherited file descriptor 4 is the acknowledgement pipe, child -> parent.
 
-- release pipe: parent -> child;
-- acknowledgement pipe: child -> parent.
+No alternative FD numbers or environment key names are supported in Wave29 production.
 
-The parent also generates a fresh 32-byte nonce using `crypto/rand` and passes only its canonical lowercase hex through a package-defined internal environment variable.
+The parent generates exactly 32 random bytes with `crypto/rand.Read`, encodes those bytes as 64 lowercase hex, and passes that value as `NOLANE_INTERNAL_CGROUP_HELPER_NONCE`.
 
 Helper protocol:
 
-1. validate internal mode, file-descriptor numbers and nonce format;
-2. write `READY <nonce>\n` to the acknowledgement pipe;
-3. block reading one exact release record `GO <nonce>\n`;
-4. write `DONE <nonce>\n` to the acknowledgement pipe;
-5. close descriptors and exit 0.
+1. validate internal mode and canonical nonce;
+2. open inherited fd 3 as release input and fd 4 as acknowledgement output;
+3. write exactly `READY <nonce>\n` to fd 4;
+4. block until fd 3 yields exactly `GO <nonce>\n` and EOF follows that one record;
+5. write exactly `DONE <nonce>\n` to fd 4;
+6. close descriptors and exit 0.
 
-Any malformed or unexpected protocol value exits non-zero without performing pressure.
+Any malformed, duplicate, oversized or unexpected protocol record exits non-zero without performing pressure. Ordinary gauntlet execution is completely bypassed in helper mode.
 
 The nonce is not itself an authority token. Its role is to correlate the exact child protocol instance with the parent lifecycle and prevent accidental acknowledgement from unrelated inherited I/O.
 
@@ -191,7 +196,7 @@ Descriptive snapshot fields:
 - helper PID;
 - helper starttime ticks;
 - helper executable SHA-256;
-- nonce SHA-256 or canonical nonce digest, never the raw nonce;
+- helper nonce SHA-256: SHA-256 of the original 32 raw nonce bytes, lowercase 64-hex;
 - READY/placed/released/exited UTC timestamps;
 - exit code.
 
@@ -203,9 +208,9 @@ using domain separator:
 
 `nolane.runtime-cgroup-helper-placement.v29\x00`
 
-The digest document includes all immutable Wave28 binding fields, both Wave28 readback digests, helper identity fields, nonce digest, timestamps and exact exit code.
+The digest document includes all immutable Wave28 binding fields, both Wave28 readback digests, helper identity fields, nonce SHA-256, timestamps and exact exit code.
 
-The raw nonce is not exported and is not retained in the public snapshot.
+The raw nonce and its directly encoded 64-hex challenge are not exported and are not retained in the public snapshot.
 
 ## 8. Fail-closed cleanup
 
@@ -244,7 +249,7 @@ It accepts the same authority/observer dependencies required to mint fresh Wave2
 
 Package-private test constructors may inject process, filesystem, clock, nonce and executable-hash seams. They must never be exported.
 
-`MaybeRunInternalCgroupHelper()` may be exported only so the command package can invoke the package-owned internal helper protocol. It returns `(handled bool, exitCode int)` and exposes no authority.
+`MaybeRunInternalCgroupHelper() (handled bool, exitCode int)` is the single command-facing helper entrypoint. It exposes no authority and is called before normal `nolane-gauntlet-live` flag parsing.
 
 ## 10. Required tests
 
@@ -286,7 +291,7 @@ Package-private test constructors may inject process, filesystem, clock, nonce a
 
 ## 11. Static anti-shortcut contract
 
-The Wave29 source must contain the production fixed root, `os.Executable`, executable hashing, `/proc/` starttime read, `cgroup.procs` write/read, fresh Wave28 validation on both sides, READY/GO/DONE protocol, and the Wave29 digest domain separator.
+The Wave29 source must contain the production fixed root, `os.Executable`, executable hashing, `/proc/` starttime read, `cgroup.procs` write/read, fresh Wave28 validation on both sides, READY/GO/DONE protocol, exact internal environment keys and FD numbers, and the Wave29 digest domain separator.
 
 The public signatures must not expose:
 
