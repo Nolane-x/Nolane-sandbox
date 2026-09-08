@@ -69,7 +69,6 @@ func validateV28(t *testing.T, f v28Fixture) (RuntimeCgroupReadbackAuthority, er
 		f.bridge.controller,
 		f.bridge.realization,
 		f.runtimeAuth,
-		f.bridge.resource,
 		f.bridge.epochObserver,
 		f.bridge.client,
 		f.runtimeObserver,
