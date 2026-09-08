@@ -111,6 +111,12 @@ All gates completed `SUCCESS`:
 5. `go test ./...` in `NolaneWorld`
 6. Focused Wave28 race test
 
+## Exact-final candidate verification
+
+The closure-record candidate `de470bd501b59e078b660b963e1a6b713b4f8be7` was independently verified by dedicated push run `34227974835`, which completed `SUCCESS` on the unchanged production code plus this closure record.
+
+A final workflow-scope review then found the permanent `pull_request.paths` entry for this closure document omitted `-authority-` from the filename. The finalization lineage corrects that trigger path so future PRs cannot silently skip Wave28 verification when this exact closure evidence surface changes. That correction does not change Wave28 production semantics, tests, digest schema, or trust boundary.
+
 ## Static trust-boundary audit
 
 The Wave28 static contract requires production to contain the fixed `/sys/fs/cgroup` observer, exact cgroup-v2 files, double Wave27 reconstruction, sealed digest derivation, and runtime identity binding.
@@ -145,4 +151,4 @@ Wave28 does not prove:
 
 The next wave should introduce a package-owned cgroup-v2 pressure-helper lifecycle. It must spawn a known helper, attach that exact helper PID to the Wave28 cgroup, induce CPU and memory pressure without killing the Wave27 runtime, correlate before/after counters with exact helper outcome, and revalidate Wave28/Wave27 afterward. Only after that causal chain exists should the project consider minting `resourceproof.TrustedReport`.
 
-The exact-final head is the commit that adds this closure record; it must be verified again by dedicated Wave28 CI and stacked PR integration before Wave28 is called code-closed.
+The exact-final head is the commit containing this finalization note with the corrected workflow trigger path already in its ancestry. It must complete dedicated Wave28 CI and stacked PR integration on that exact SHA before Wave28 is called code-closed.
