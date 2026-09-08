@@ -43,3 +43,5 @@ jobs:
       - name: Vet Cube trust package
         working-directory: NolaneWorld
         run: go vet ./substrate/cube
+      - name: Enforce Wave26 static trust contract
+        run: python3 tests/wave26_provider_endpoint_spki_contract.py
