@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -42,7 +43,6 @@ type v25BridgeFixture struct {
 	controller    *realm.Controller
 	store         *realm.MemoryStore
 	realization   realm.RealizationAuthority
-	worldID       string
 	resource      ResourceBinding
 	epochState    *v24MutableEpochMetrics
 	epochObserver *RealizationEpochObserver
@@ -56,7 +56,7 @@ func newV25BridgeFixture(t *testing.T) v25BridgeFixture {
 	t.Helper()
 	const sandboxID = "sandbox-v25"
 	ctx := context.Background()
-	controller, store, realization, worldID := mintV23RealmAuthority(t, sandboxID)
+	controller, store, realization, _ := mintV23RealmAuthority(t, sandboxID)
 	resource := ResourceBinding{sandboxID: sandboxID}
 
 	epochState := &v24MutableEpochMetrics{
@@ -87,7 +87,6 @@ func newV25BridgeFixture(t *testing.T) v25BridgeFixture {
 		controller:    controller,
 		store:         store,
 		realization:   realization,
-		worldID:       string(worldID),
 		resource:      resource,
 		epochState:    epochState,
 		epochObserver: epochObserver,
@@ -167,13 +166,13 @@ func TestV25StaleRealmCannotMintProviderBridgeAuthority(t *testing.T) {
 		t.Fatal("invalid Realm authority in fixture")
 	}
 	if err := f.store.PutWorld(realm.WorldRecord{
-		RealmID: binding.RealmID,
-		WorldID: binding.WorldID,
+		RealmID:             binding.RealmID,
+		WorldID:             binding.WorldID,
 		RealizationRevision: binding.RealizationRevision + 1,
-		Phase: realm.WorldObservedReady,
-		LeaseGeneration: 1,
-		LeaseExpiresUnix: time.Now().Add(time.Hour).Unix(),
-		Handle: substrate.Handle("sandbox-v25"),
+		Phase:               realm.WorldObservedReady,
+		LeaseGeneration:     1,
+		LeaseExpiresUnix:    time.Now().Add(time.Hour).Unix(),
+		Handle:              substrate.Handle("sandbox-v25"),
 	}); err != nil {
 		t.Fatal(err)
 	}
