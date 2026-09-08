@@ -1,0 +1,102 @@
+name: Wave25 Apply Projection Helper
+
+on:
+  push:
+    branches:
+      - gpt/wave25-provider-incarnation-authority
+    paths:
+      - .github/workflows/wave25-apply-projection-helper.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: gpt/wave25-provider-incarnation-authority
+          fetch-depth: 0
+
+      - name: Apply exact Wave25 projection patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("CubeAPI/src/services/sandboxes.rs")
+          text = path.read_text()
+
+          def replace_exact(old: str, new: str, count: int = 1) -> None:
+              global text
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f"expected {count} occurrence(s), found {actual}: {old[:100]!r}")
+              text = text.replace(old, new, count)
+
+          replace_exact(
+              "    provider_incarnation::{new_provider_incarnation_id, PROVIDER_INCARNATION_ANNOTATION},\n",
+              "    provider_incarnation::{\n        new_provider_incarnation_id, provider_incarnation_from_annotations,\n        PROVIDER_INCARNATION_ANNOTATION,\n    },\n",
+          )
+
+          replace_exact(
+              "        let envd_version = envd_version_from_annotations(&d.annotations);\n        Ok(SandboxDetail {\n            template_id: d.template_id,\n            alias: None,\n            sandbox_id: d.sandbox_id,\n            client_id: d.host_id,\n",
+              "        let envd_version = envd_version_from_annotations(&d.annotations);\n        let provider_incarnation_id = provider_incarnation_from_annotations(&d.annotations);\n        Ok(SandboxDetail {\n            template_id: d.template_id,\n            alias: None,\n            sandbox_id: d.sandbox_id,\n            incarnation_id: provider_incarnation_id,\n            client_id: d.host_id,\n",
+          )
+
+          replace_exact(
+              "        annotations.insert(\n            PROVIDER_INCARNATION_ANNOTATION.to_string(),\n            provider_incarnation_id,\n        );\n",
+              "        annotations.insert(\n            PROVIDER_INCARNATION_ANNOTATION.to_string(),\n            provider_incarnation_id.clone(),\n        );\n",
+          )
+
+          replace_exact(
+              "            template_id,\n            resp.sandbox_id,\n            resp.request_id,\n            envd_version,\n            resp.traffic_access_token,\n",
+              "            template_id,\n            resp.sandbox_id,\n            Some(provider_incarnation_id),\n            resp.request_id,\n            envd_version,\n            resp.traffic_access_token,\n",
+          )
+
+          replace_exact(
+              "        let d = self.fetch_sandbox_detail(sandbox_id).await?;\n        let envd_version = envd_version_from_annotations(&d.annotations);\n        // resume/connect paths reload the sandbox via fetch_sandbox_detail,\n",
+              "        let d = self.fetch_sandbox_detail(sandbox_id).await?;\n        let envd_version = envd_version_from_annotations(&d.annotations);\n        let provider_incarnation_id = provider_incarnation_from_annotations(&d.annotations);\n        // resume/connect paths reload the sandbox via fetch_sandbox_detail,\n",
+          )
+
+          replace_exact(
+              "        let envd_version = envd_version_from_annotations(&d.annotations);\n        Ok(self.sandbox_response(\n            d.template_id,\n            sandbox_id.to_string(),\n",
+              "        let envd_version = envd_version_from_annotations(&d.annotations);\n        let provider_incarnation_id = provider_incarnation_from_annotations(&d.annotations);\n        Ok(self.sandbox_response(\n            d.template_id,\n            sandbox_id.to_string(),\n",
+          )
+
+          replace_exact(
+              "            d.template_id,\n            sandbox_id.to_string(),\n            d.host_id,\n            envd_version,\n            None,\n",
+              "            d.template_id,\n            sandbox_id.to_string(),\n            provider_incarnation_id,\n            d.host_id,\n            envd_version,\n            None,\n",
+              count=2,
+          )
+
+          replace_exact(
+              "        template_id: String,\n        sandbox_id: String,\n        client_id: String,\n        envd_version: String,\n        traffic_access_token: Option<String>,\n    ) -> Sandbox {\n        Sandbox {\n            template_id,\n            sandbox_id,\n            alias: None,\n",
+              "        template_id: String,\n        sandbox_id: String,\n        incarnation_id: Option<String>,\n        client_id: String,\n        envd_version: String,\n        traffic_access_token: Option<String>,\n    ) -> Sandbox {\n        Sandbox {\n            template_id,\n            sandbox_id,\n            incarnation_id,\n            alias: None,\n",
+          )
+
+          path.write_text(text)
+
+      - name: Format CubeAPI
+        run: cargo fmt --manifest-path CubeAPI/Cargo.toml
+
+      - name: Validate focused source shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'provider_incarnation_from_annotations' CubeAPI/src/services/sandboxes.rs
+          grep -q 'incarnation_id: provider_incarnation_id' CubeAPI/src/services/sandboxes.rs
+          grep -q 'Some(provider_incarnation_id)' CubeAPI/src/services/sandboxes.rs
+          test "$(grep -c 'provider_incarnation_id,' CubeAPI/src/services/sandboxes.rs)" -ge 3
+
+      - name: Commit exact projection patch and remove helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/wave25-apply-projection-helper.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git commit -m $'feat(wave25): project persisted provider incarnation\n\nAutonomously-by: ChatGPT:GPT-5.6-Sol'
+          git push origin HEAD:gpt/wave25-provider-incarnation-authority
