@@ -115,9 +115,10 @@ assert 'json:"' not in bridge_struct, "Wave26 bridge authority must remain an op
 # Scope guard: endpoint cryptographic identity must not silently become a claim
 # of task outcome, OOM causality, resource enforcement, hardware attestation or
 # LIVE_PASS. Those words may appear only in explicit non-claim comments; no
-# authority fields may encode them.
+# authority fields may encode them. "resource" itself is intentionally allowed
+# because the older RealmResource authority is a legitimate Wave26 input.
 for struct_body in (proof_struct, bridge_struct):
-    for forbidden in ("oom", "task", "resource", "hardware", "live", "attestation"):
+    for forbidden in ("oom", "task", "enforcement", "hardware", "live", "attestation"):
         assert forbidden not in struct_body.lower(), f"Wave26 authority field launders out-of-scope claim: {forbidden}"
 
 print("Wave26 provider endpoint SPKI authority static contract: PASS")
