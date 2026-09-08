@@ -2,17 +2,22 @@ package cube
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 )
 
 func v26CertificatePin(cert *x509.Certificate) string {
@@ -32,6 +37,43 @@ func v26HealthHandler(reached *bool) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+}
+
+func newV26UniqueTLSServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate TLS key: %v", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"localhost"},
+		IPAddresses: []net.IP{
+			net.ParseIP("127.0.0.1"),
+			net.ParseIP("::1"),
+		},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create TLS certificate: %v", err)
+	}
+	leaf, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse TLS certificate: %v", err)
+	}
+	server := httptest.NewUnstartedServer(handler)
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{{
+		Certificate: [][]byte{der},
+		PrivateKey:  key,
+		Leaf:        leaf,
+	}}}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	return server
 }
 
 func newV26PinnedTLSClient(t *testing.T, server *httptest.Server, pins []string) *Client {
@@ -87,13 +129,11 @@ func TestV26EndpointSPKIObserveRequiresConfiguredPins(t *testing.T) {
 }
 
 func TestV26EndpointSPKIMismatchFailsBeforeHTTPHandler(t *testing.T) {
-	trustedServer := httptest.NewTLSServer(v26HealthHandler(nil))
-	defer trustedServer.Close()
+	trustedServer := newV26UniqueTLSServer(t, v26HealthHandler(nil))
 	trustedPin := v26CertificatePin(trustedServer.Certificate())
 
 	reached := false
-	wrongServer := httptest.NewTLSServer(v26HealthHandler(&reached))
-	defer wrongServer.Close()
+	wrongServer := newV26UniqueTLSServer(t, v26HealthHandler(&reached))
 	client := newV26PinnedTLSClient(t, wrongServer, []string{trustedPin})
 
 	_, err := client.ObserveProviderEndpointSPKI(context.Background())
@@ -171,10 +211,8 @@ func (d *v26SwitchingDialer) DialContext(ctx context.Context, network, _ string)
 }
 
 func TestV26EndpointSPKIOverlapRotationMakesOldProofStale(t *testing.T) {
-	serverA := httptest.NewTLSServer(v26HealthHandler(nil))
-	defer serverA.Close()
-	serverB := httptest.NewTLSServer(v26HealthHandler(nil))
-	defer serverB.Close()
+	serverA := newV26UniqueTLSServer(t, v26HealthHandler(nil))
+	serverB := newV26UniqueTLSServer(t, v26HealthHandler(nil))
 	pinA := v26CertificatePin(serverA.Certificate())
 	pinB := v26CertificatePin(serverB.Certificate())
 	if pinA == pinB {
