@@ -30,3 +30,21 @@ jobs:
       - name: Wave25 focused CubeAPI RED/GREEN tests
         working-directory: CubeAPI
         run: cargo test provider_incarnation -- --nocapture
+
+  provider-proof:
+    name: NolaneWorld provider incarnation authority
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: NolaneWorld/go.mod
+      - name: Wave25 focused NolaneWorld RED/GREEN tests
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V25' -count=1
+      - name: Vet Cube trust package
+        working-directory: NolaneWorld
+        run: go vet ./substrate/cube
