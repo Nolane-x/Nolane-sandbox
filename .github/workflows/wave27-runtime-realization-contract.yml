@@ -1,0 +1,56 @@
+name: Wave27 Runtime Realization Contract
+
+on:
+  push:
+    branches:
+      - gpt/wave27-runtime-realization-provenance-authority
+  pull_request:
+    paths:
+      - 'NolaneWorld/substrate/cube/runtime_realization.go'
+      - 'NolaneWorld/substrate/cube/runtime_realization_v27_test.go'
+      - 'NolaneWorld/substrate/cube/realm_resource_runtime_authority.go'
+      - 'NolaneWorld/substrate/cube/realm_resource_runtime_authority_v27_test.go'
+      - 'NolaneWorld/gauntlet/live/resourceproof/runtime_binding_v27.go'
+      - 'NolaneWorld/gauntlet/live/resourceproof/runtime_binding_v27_test.go'
+      - 'tests/wave27_runtime_realization_contract.py'
+      - '.github/workflows/wave27-runtime-realization-contract.yml'
+      - 'docs/superpowers/specs/2026-09-08-runtime-realization-provenance-authority-v27-design.md'
+      - 'docs/superpowers/plans/2026-09-08-runtime-realization-provenance-authority-v27.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check --no-input pytest
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: NolaneWorld/go.sum
+      - name: Focused Wave27 tests
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'RuntimeRealization.*V27|V27.*RuntimeRealization|RealmResourceRuntime.*V27|V27.*RealmResourceRuntime' -count=1
+      - name: Focused resourceproof projection tests
+        working-directory: NolaneWorld
+        run: go test ./gauntlet/live/resourceproof -run 'Runtime.*V27|V27.*Runtime' -count=1
+      - name: Static Wave27 contract
+        run: python -m pytest -q tests/wave27_runtime_realization_contract.py
+      - name: Prior Wave23-Wave26 trust tests
+        working-directory: NolaneWorld
+        run: go test ./realm ./substrate/cube -run 'V23|V24|V25|V26|RealizationAuthority|EndpointSPKI|ProviderIncarnation|RealizationEpoch' -count=1
+      - name: Vet NolaneWorld
+        working-directory: NolaneWorld
+        run: go vet ./...
+      - name: Test NolaneWorld
+        working-directory: NolaneWorld
+        run: go test ./... -count=1
+      - name: Race focused Wave27
+        working-directory: NolaneWorld
+        run: go test -race ./substrate/cube ./gauntlet/live/resourceproof -run 'V27|RuntimeRealization|RealmResourceRuntime' -count=1
