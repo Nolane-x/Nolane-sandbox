@@ -22,6 +22,10 @@ def test_wave29_runtime_cgroup_helper_placement_contract() -> None:
         "os.Executable()",
         "sha256",
         '"/proc/"',
+        '"/exe"',
+        "readHelperExecutableDigest",
+        "measureRuntimeCgroupHelperProcessExecutable",
+        "waitRuntimeCgroupHelperChild(",
         '"cgroup.procs"',
         "ValidateRuntimeCgroupReadbackAuthority(",
         '"runtime-cgroup-helper-placement-v29:"',
@@ -39,6 +43,12 @@ def test_wave29_runtime_cgroup_helper_placement_contract() -> None:
 
     assert combined.count("ValidateRuntimeCgroupReadbackAuthority(") >= 2, (
         "Wave29 must mint fresh Wave28 authority both before and after helper lifecycle"
+    )
+    assert 'sha256File("/proc/" + strconv.Itoa(pid) + "/exe")' in placement, (
+        "Wave29 must hash the exact started helper executable via /proc/<pid>/exe"
+    )
+    assert "_ = child.Kill()" in placement and "got := <-ch" in placement, (
+        "context-aware helper wait must kill and still reap the exact child"
     )
 
     constructor_start = placement.index("func NewRuntimeCgroupHelperExecutor()")
