@@ -48,9 +48,10 @@ def test_wave28_runtime_cgroup_readback_contract() -> None:
 
     constructor_start = text.index("func NewRuntimeCgroupReadbackObserver()")
     constructor_end = text.index("{", constructor_start)
-    constructor_signature = text[constructor_start:constructor_end]
-    assert "root" not in constructor_signature.lower()
-    assert "read" not in constructor_signature.lower()
+    constructor_signature = text[constructor_start:constructor_end].strip()
+    assert constructor_signature == (
+        "func NewRuntimeCgroupReadbackObserver() *RuntimeCgroupReadbackObserver"
+    ), "production Wave28 observer constructor must not accept caller-controlled inputs"
 
     validator_start = text.index("func ValidateRuntimeCgroupReadbackAuthority(")
     validator_end = text.index(") (RuntimeCgroupReadbackAuthority, error)", validator_start)
