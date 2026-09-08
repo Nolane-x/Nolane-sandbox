@@ -5,7 +5,13 @@
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
-use super::validate_allow_out_domains_require_deny_all;
+use super::{
+    provider_incarnation::{
+        new_provider_incarnation_id, provider_incarnation_from_annotations,
+        PROVIDER_INCARNATION_ANNOTATION,
+    },
+    validate_allow_out_domains_require_deny_all,
+};
 use crate::{
     constants::{ENVD_VERSION_ANNOTATION, ENVD_VERSION_FALLBACK},
     cubemaster::{
@@ -132,10 +138,12 @@ impl SandboxService {
             .or(d.end_at);
 
         let envd_version = envd_version_from_annotations(&d.annotations);
+        let provider_incarnation_id = provider_incarnation_from_annotations(&d.annotations);
         Ok(SandboxDetail {
             template_id: d.template_id,
             alias: None,
             sandbox_id: d.sandbox_id,
+            incarnation_id: provider_incarnation_id,
             client_id: d.host_id,
             started_at,
             end_at,
@@ -252,6 +260,12 @@ impl SandboxService {
         // from the annotation into the template's existing container spec.
         let containers = vec![];
 
+        let provider_incarnation_id = new_provider_incarnation_id();
+        annotations.insert(
+            PROVIDER_INCARNATION_ANNOTATION.to_string(),
+            provider_incarnation_id.clone(),
+        );
+
         let req = CreateSandboxRequest {
             request_id: new_request_id(),
             instance_type: self.instance_type.clone(),
@@ -285,6 +299,7 @@ impl SandboxService {
         Ok(self.sandbox_response(
             template_id,
             resp.sandbox_id,
+            Some(provider_incarnation_id),
             resp.request_id,
             envd_version,
             resp.traffic_access_token,
@@ -349,6 +364,7 @@ impl SandboxService {
 
         let d = self.fetch_sandbox_detail(sandbox_id).await?;
         let envd_version = envd_version_from_annotations(&d.annotations);
+        let provider_incarnation_id = provider_incarnation_from_annotations(&d.annotations);
         // resume/connect paths reload the sandbox via fetch_sandbox_detail,
         // which does not surface the traffic_access_token. The token only
         // matters at create time (so the caller can persist it); afterward
@@ -356,6 +372,7 @@ impl SandboxService {
         Ok(self.sandbox_response(
             d.template_id,
             sandbox_id.to_string(),
+            provider_incarnation_id,
             d.host_id,
             envd_version,
             None,
@@ -387,9 +404,11 @@ impl SandboxService {
         }
 
         let envd_version = envd_version_from_annotations(&d.annotations);
+        let provider_incarnation_id = provider_incarnation_from_annotations(&d.annotations);
         Ok(self.sandbox_response(
             d.template_id,
             sandbox_id.to_string(),
+            provider_incarnation_id,
             d.host_id,
             envd_version,
             None,
@@ -613,6 +632,7 @@ impl SandboxService {
         &self,
         template_id: String,
         sandbox_id: String,
+        incarnation_id: Option<String>,
         client_id: String,
         envd_version: String,
         traffic_access_token: Option<String>,
@@ -620,6 +640,7 @@ impl SandboxService {
         Sandbox {
             template_id,
             sandbox_id,
+            incarnation_id,
             alias: None,
             client_id,
             envd_version,

@@ -1,0 +1,82 @@
+name: Wave 25 Provider Incarnation Contract
+
+on:
+  pull_request:
+    paths:
+      - 'CubeAPI/**'
+      - 'NolaneWorld/substrate/cube/**'
+      - 'tests/wave25_provider_incarnation_contract.py'
+      - 'docs/superpowers/specs/**provider-persisted-incarnation-authority-v25**'
+      - 'docs/superpowers/plans/**provider-persisted-incarnation-authority-v25**'
+      - '.github/workflows/wave25-provider-incarnation-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wave25-provider-incarnation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  provider-incarnation:
+    name: CubeAPI provider incarnation behavior
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install repository Rust toolchain
+        run: rustup toolchain install 1.85 --profile minimal
+      - name: Wave25 focused CubeAPI RED/GREEN tests
+        working-directory: CubeAPI
+        run: cargo test provider_incarnation -- --nocapture
+
+  provider-proof:
+    name: NolaneWorld provider incarnation authority
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: NolaneWorld/go.mod
+      - name: Wave25 focused NolaneWorld RED/GREEN tests
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V25' -count=1
+      - name: Vet Cube trust package
+        working-directory: NolaneWorld
+        run: go vet ./substrate/cube
+
+  host-resource-regression:
+    name: Wave25 host resource regression (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Cubelet Go toolchain
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: Cubelet/go.mod
+          cache-dependency-path: Cubelet/go.sum
+      - name: Re-run host resource producer contract on Wave25 tree
+        working-directory: Cubelet
+        run: go test -short ./plugins/cube/internals/resourcemetrics
+
+  trust-shape:
+    name: Wave25 static trust contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Enforce Wave25 authority shape and anti-shortcut rules
+        run: python3 tests/wave25_provider_incarnation_contract.py
