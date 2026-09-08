@@ -9,6 +9,7 @@ on:
       - 'NolaneWorld/substrate/cube/runtime_cgroup_helper_protocol.go'
       - 'NolaneWorld/substrate/cube/runtime_cgroup_helper_placement.go'
       - 'NolaneWorld/substrate/cube/runtime_cgroup_helper_placement_v29_test.go'
+      - 'NolaneWorld/substrate/cube/runtime_cgroup_helper_placement_v29_review_test.go'
       - 'NolaneWorld/cmd/nolane-gauntlet-live/main.go'
       - 'NolaneWorld/cmd/nolane-gauntlet-live/main_test.go'
       - 'tests/wave29_runtime_cgroup_helper_placement_contract.py'
