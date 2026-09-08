@@ -1,0 +1,51 @@
+name: Wave28 Runtime Cgroup Readback Contract
+
+on:
+  push:
+    branches:
+      - gpt/wave28-runtime-cgroup-readback-authority
+  pull_request:
+    paths:
+      - 'NolaneWorld/substrate/cube/runtime_cgroup_readback.go'
+      - 'NolaneWorld/substrate/cube/runtime_cgroup_readback_v28_test.go'
+      - 'tests/wave28_runtime_cgroup_readback_contract.py'
+      - '.github/workflows/wave28-runtime-cgroup-readback-contract.yml'
+      - 'docs/superpowers/specs/2026-09-08-runtime-cgroup-readback-authority-v28-design.md'
+      - 'docs/superpowers/plans/2026-09-08-runtime-cgroup-readback-authority-v28.md'
+      - 'docs/superpowers/verification/2026-09-08-wave28-runtime-cgroup-readback-red.md'
+      - 'docs/superpowers/verification/2026-09-08-wave28-runtime-cgroup-readback-authority-closure.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check --no-input pytest
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: NolaneWorld/go.sum
+      - name: Focused Wave28 tests
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'V28|RuntimeCgroupReadback' -count=1
+      - name: Static Wave28 contract
+        run: python -m pytest -q tests/wave28_runtime_cgroup_readback_contract.py
+      - name: Prior Wave27 regression
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube ./gauntlet/live/resourceproof -run 'V27|RuntimeRealization|RealmResourceRuntime' -count=1
+      - name: Vet NolaneWorld
+        working-directory: NolaneWorld
+        run: go vet ./...
+      - name: Test NolaneWorld
+        working-directory: NolaneWorld
+        run: go test ./... -count=1
+      - name: Race focused Wave28
+        working-directory: NolaneWorld
+        run: go test -race ./substrate/cube -run 'V28|RuntimeCgroupReadback' -count=1
