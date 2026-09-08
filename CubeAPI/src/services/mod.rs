@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+mod provider_incarnation;
 pub mod sandboxes;
 pub mod snapshots;
 pub mod templates;
 pub mod volumes;
-mod provider_incarnation;
 
 use crate::{
     config::ServerConfig,
@@ -150,6 +150,6 @@ mod tests {
             &[],
             false,
         )
-        .expect("IP/CIDR allow_out targets should not require deny-all");
+        .expect("IP/CIDR allow_out targets should not require deny-all requirement");
     }
 }
