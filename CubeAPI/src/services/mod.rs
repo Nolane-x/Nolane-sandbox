@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+mod provider_incarnation;
+#[cfg(test)]
+mod provider_incarnation_service_v25;
 pub mod sandboxes;
 pub mod snapshots;
 pub mod templates;
