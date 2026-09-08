@@ -282,6 +282,10 @@ func (o *RuntimeCgroupReadbackObserver) observe(ctx context.Context, authority R
 	if !ok {
 		return RuntimeCgroupReadbackSnapshot{}, ErrInvalidRuntimeCgroupReadbackAuthority
 	}
+	finalProcs, err := o.read(ctx, filepath.Join(target, "cgroup.procs"))
+	if err != nil || !containsExactCgroupPID(finalProcs, process.HostPID) {
+		return RuntimeCgroupReadbackSnapshot{}, ErrInvalidRuntimeCgroupReadbackAuthority
+	}
 
 	return RuntimeCgroupReadbackSnapshot{
 		RuntimeDigest:    runtimeDigest,
