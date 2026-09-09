@@ -15,12 +15,12 @@ import (
 )
 
 var (
-	ErrInvalidFabric                         = errors.New("fabric: invalid local fabric")
-	ErrStaleRealmRevision                    = errors.New("fabric: stale realm revision")
-	ErrWorldLimit                            = errors.New("fabric: realm world limit reached")
-	ErrWorldTerminal                         = errors.New("fabric: world terminal")
-	ErrOutcomeUncertain                      = errors.New("fabric: outcome uncertain")
-	ErrWorldUnavailable                      = errors.New("fabric: world unavailable")
+	ErrInvalidFabric                          = errors.New("fabric: invalid local fabric")
+	ErrStaleRealmRevision                     = errors.New("fabric: stale realm revision")
+	ErrWorldLimit                             = errors.New("fabric: realm world limit reached")
+	ErrWorldTerminal                          = errors.New("fabric: world terminal")
+	ErrOutcomeUncertain                       = errors.New("fabric: outcome uncertain")
+	ErrWorldUnavailable                       = errors.New("fabric: world unavailable")
 	ErrRuntimeCPUPolicyPropagationUnavailable = errors.New("fabric: runtime CPU policy propagation unavailable")
 )
 
@@ -175,7 +175,7 @@ func (f *Local) Acquire(ctx context.Context, req AcquireRequest) (Lease, error) 
 		var propagation substrate.RuntimeCPUPolicyCreatePropagation
 		h, propagation, createErr = runtimePolicyManager.CreateWithRuntimeCPUPolicy(ctx, req.WorldID, runtimePolicyAuthority)
 		if createErr == nil && h != "" {
-			if !runtimeCPUPolicyPropagationMatches(runtimePolicyBinding, req.WorldID, propagation) {
+			if !runtimeCPUPolicyPropagationMatches(runtimePolicyBinding, req.WorldID, h, propagation) {
 				_ = f.store.RecordOperation(realm.OperationRecord{RealmID: req.RealmID, OperationID: req.OperationID, RequestDigest: digest, Status: "uncertain", ReceiptDigest: res.ID})
 				return Lease{}, ErrOutcomeUncertain
 			}
@@ -208,14 +208,15 @@ func (f *Local) Acquire(ctx context.Context, req AcquireRequest) (Lease, error) 
 	return lease, nil
 }
 
-func runtimeCPUPolicyPropagationMatches(binding realm.RuntimeCPUPolicyBinding, worldID world.ID, propagation substrate.RuntimeCPUPolicyCreatePropagation) bool {
+func runtimeCPUPolicyPropagationMatches(binding realm.RuntimeCPUPolicyBinding, worldID world.ID, handle substrate.Handle, propagation substrate.RuntimeCPUPolicyCreatePropagation) bool {
 	return propagation.Valid() &&
 		propagation.RealmID == string(binding.RealmID) &&
 		propagation.RealmRevision == binding.RealmRevision &&
 		propagation.PolicyDigest == binding.PolicyDigest &&
 		propagation.LimitMilliCPU == binding.LimitMilliCPU &&
 		propagation.AuthorityDigest == binding.Digest &&
-		propagation.WorldID == worldID
+		propagation.WorldID == worldID &&
+		propagation.SubstrateHandle == handle
 }
 
 func (f *Local) Spawn(ctx context.Context, req SpawnRequest) (Lease, error) {
