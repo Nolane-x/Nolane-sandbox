@@ -15,12 +15,13 @@ import (
 )
 
 var (
-	ErrInvalidFabric      = errors.New("fabric: invalid local fabric")
-	ErrStaleRealmRevision = errors.New("fabric: stale realm revision")
-	ErrWorldLimit         = errors.New("fabric: realm world limit reached")
-	ErrWorldTerminal      = errors.New("fabric: world terminal")
-	ErrOutcomeUncertain   = errors.New("fabric: outcome uncertain")
-	ErrWorldUnavailable   = errors.New("fabric: world unavailable")
+	ErrInvalidFabric                          = errors.New("fabric: invalid local fabric")
+	ErrStaleRealmRevision                     = errors.New("fabric: stale realm revision")
+	ErrWorldLimit                             = errors.New("fabric: realm world limit reached")
+	ErrWorldTerminal                          = errors.New("fabric: world terminal")
+	ErrOutcomeUncertain                       = errors.New("fabric: outcome uncertain")
+	ErrWorldUnavailable                       = errors.New("fabric: world unavailable")
+	ErrRuntimeCPUPolicyPropagationUnavailable = errors.New("fabric: runtime CPU policy propagation unavailable")
 )
 
 type WorldManager interface {
@@ -30,6 +31,10 @@ type WorldManager interface {
 	Clone(context.Context, world.ID, substrate.Snapshot, world.ID) (substrate.Handle, error)
 	Destroy(context.Context, world.ID) error
 	AuthorityState(world.ID) (world.AuthorityState, bool)
+}
+
+type RuntimeCPUPolicyWorldManager interface {
+	CreateWithRuntimeCPUPolicy(context.Context, world.ID, realm.RuntimeCPUPolicyAuthority) (substrate.Handle, substrate.RuntimeCPUPolicyCreatePropagation, error)
 }
 
 type AcquireRequest struct {
@@ -44,24 +49,29 @@ type AcquireRequest struct {
 type SpawnRequest = AcquireRequest
 
 type Local struct {
-	mu        sync.Mutex
-	store     realm.Store
-	manager   WorldManager
-	capacity  *Capacity
-	leases    *LeaseBook
-	baselines *BaselineCatalog
-	now       func() time.Time
+	mu              sync.Mutex
+	store           realm.Store
+	realmController *realm.Controller
+	manager         WorldManager
+	capacity        *Capacity
+	leases          *LeaseBook
+	baselines       *BaselineCatalog
+	now             func() time.Time
 }
 
 func NewLocal(store realm.Store, manager WorldManager, capacity *Capacity, leases *LeaseBook, baselines *BaselineCatalog) (*Local, error) {
 	if store == nil || manager == nil || capacity == nil || leases == nil || baselines == nil {
 		return nil, ErrInvalidFabric
 	}
-	return &Local{store: store, manager: manager, capacity: capacity, leases: leases, baselines: baselines, now: time.Now}, nil
+	controller, err := realm.NewController(store)
+	if err != nil {
+		return nil, ErrInvalidFabric
+	}
+	return &Local{store: store, realmController: controller, manager: manager, capacity: capacity, leases: leases, baselines: baselines, now: time.Now}, nil
 }
 
 func (f *Local) Acquire(ctx context.Context, req AcquireRequest) (Lease, error) {
-	if f == nil || f.store == nil || req.RealmID == "" || req.WorldID == "" || req.OperationID == "" || !req.Units.Valid() || req.ExpiresUnix <= 0 {
+	if f == nil || f.store == nil || f.realmController == nil || req.RealmID == "" || req.WorldID == "" || req.OperationID == "" || !req.Units.Valid() || req.ExpiresUnix <= 0 {
 		return Lease{}, ErrInvalidFabric
 	}
 	if err := ctx.Err(); err != nil {
@@ -79,6 +89,31 @@ func (f *Local) Acquire(ctx context.Context, req AcquireRequest) (Lease, error) 
 	if rec.Revision != req.RealmRevision {
 		return Lease{}, ErrStaleRealmRevision
 	}
+
+	var runtimePolicyManager RuntimeCPUPolicyWorldManager
+	var runtimePolicyAuthority realm.RuntimeCPUPolicyAuthority
+	var runtimePolicyBinding realm.RuntimeCPUPolicyBinding
+	useRuntimePolicy := rec.Spec.RuntimeCPULimitMilliCPU > 0
+	if useRuntimePolicy {
+		var managerOK bool
+		runtimePolicyManager, managerOK = f.manager.(RuntimeCPUPolicyWorldManager)
+		if !managerOK || runtimePolicyManager == nil {
+			return Lease{}, ErrRuntimeCPUPolicyPropagationUnavailable
+		}
+		var err error
+		runtimePolicyAuthority, err = f.realmController.CurrentRuntimeCPUPolicyAuthority(ctx, req.RealmID)
+		if err != nil {
+			return Lease{}, errors.Join(ErrRuntimeCPUPolicyPropagationUnavailable, err)
+		}
+		runtimePolicyBinding, err = f.realmController.ValidateRuntimeCPUPolicyAuthority(ctx, runtimePolicyAuthority)
+		if err != nil {
+			return Lease{}, errors.Join(ErrRuntimeCPUPolicyPropagationUnavailable, err)
+		}
+		if runtimePolicyBinding.RealmID != req.RealmID || runtimePolicyBinding.RealmRevision != req.RealmRevision || runtimePolicyBinding.LimitMilliCPU != rec.Spec.RuntimeCPULimitMilliCPU {
+			return Lease{}, ErrStaleRealmRevision
+		}
+	}
+
 	digest := acquireDigest(req)
 	if op, ok := f.store.Operation(req.RealmID, req.OperationID); ok {
 		if op.RequestDigest != digest {
@@ -128,7 +163,31 @@ func (f *Local) Acquire(ctx context.Context, req AcquireRequest) (Lease, error) 
 		_ = f.capacity.ReleaseForRealm(req.RealmID, req.OperationID)
 		return Lease{}, err
 	}
-	h, createErr := f.manager.Create(ctx, req.WorldID)
+
+	var h substrate.Handle
+	var createErr error
+	if useRuntimePolicy {
+		freshBefore, err := f.realmController.ValidateRuntimeCPUPolicyAuthority(ctx, runtimePolicyAuthority)
+		if err != nil || freshBefore != runtimePolicyBinding {
+			_ = f.store.RecordOperation(realm.OperationRecord{RealmID: req.RealmID, OperationID: req.OperationID, RequestDigest: digest, Status: "uncertain", ReceiptDigest: res.ID})
+			return Lease{}, ErrOutcomeUncertain
+		}
+		var propagation substrate.RuntimeCPUPolicyCreatePropagation
+		h, propagation, createErr = runtimePolicyManager.CreateWithRuntimeCPUPolicy(ctx, req.WorldID, runtimePolicyAuthority)
+		if createErr == nil && h != "" {
+			if !runtimeCPUPolicyPropagationMatches(runtimePolicyBinding, req.WorldID, h, propagation) {
+				_ = f.store.RecordOperation(realm.OperationRecord{RealmID: req.RealmID, OperationID: req.OperationID, RequestDigest: digest, Status: "uncertain", ReceiptDigest: res.ID})
+				return Lease{}, ErrOutcomeUncertain
+			}
+			freshAfter, err := f.realmController.ValidateRuntimeCPUPolicyAuthority(ctx, runtimePolicyAuthority)
+			if err != nil || freshAfter != runtimePolicyBinding {
+				_ = f.store.RecordOperation(realm.OperationRecord{RealmID: req.RealmID, OperationID: req.OperationID, RequestDigest: digest, Status: "uncertain", ReceiptDigest: res.ID})
+				return Lease{}, ErrOutcomeUncertain
+			}
+		}
+	} else {
+		h, createErr = f.manager.Create(ctx, req.WorldID)
+	}
 	if createErr != nil || h == "" {
 		_ = f.store.RecordOperation(realm.OperationRecord{RealmID: req.RealmID, OperationID: req.OperationID, RequestDigest: digest, Status: "uncertain", ReceiptDigest: res.ID})
 		return Lease{}, ErrOutcomeUncertain
@@ -147,6 +206,17 @@ func (f *Local) Acquire(ctx context.Context, req AcquireRequest) (Lease, error) 
 		return Lease{}, ErrOutcomeUncertain
 	}
 	return lease, nil
+}
+
+func runtimeCPUPolicyPropagationMatches(binding realm.RuntimeCPUPolicyBinding, worldID world.ID, handle substrate.Handle, propagation substrate.RuntimeCPUPolicyCreatePropagation) bool {
+	return propagation.Valid() &&
+		propagation.RealmID == string(binding.RealmID) &&
+		propagation.RealmRevision == binding.RealmRevision &&
+		propagation.PolicyDigest == binding.PolicyDigest &&
+		propagation.LimitMilliCPU == binding.LimitMilliCPU &&
+		propagation.AuthorityDigest == binding.Digest &&
+		propagation.WorldID == worldID &&
+		propagation.SubstrateHandle == handle
 }
 
 func (f *Local) Spawn(ctx context.Context, req SpawnRequest) (Lease, error) {

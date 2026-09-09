@@ -1,0 +1,57 @@
+name: Wave32 Realm Runtime CPU Policy Create Propagation Contract
+
+on:
+  push:
+    branches:
+      - gpt/wave32-realm-cpu-policy-create-propagation-authority
+  pull_request:
+    paths:
+      - 'NolaneWorld/fabric/fabric.go'
+      - 'NolaneWorld/fabric/runtime_cpu_policy_create_v32_test.go'
+      - 'NolaneWorld/substrate/runtime_cpu_policy_create_propagation.go'
+      - 'NolaneWorld/substrate/cube/client.go'
+      - 'NolaneWorld/substrate/cube/runtime_cpu_policy_create_v32_test.go'
+      - 'tests/wave32_realm_runtime_cpu_policy_create_propagation_contract.py'
+      - '.github/workflows/wave32-realm-runtime-cpu-policy-create-propagation-contract.yml'
+      - 'docs/superpowers/specs/2026-09-09-realm-runtime-cpu-policy-create-propagation-v32-design.md'
+      - 'docs/superpowers/plans/2026-09-09-realm-runtime-cpu-policy-create-propagation-v32.md'
+      - 'docs/superpowers/verification/2026-09-09-wave32-realm-runtime-cpu-policy-create-propagation-red.md'
+      - 'docs/superpowers/verification/2026-09-09-wave32-realm-runtime-cpu-policy-create-propagation-closure.md'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check --no-input pytest
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: NolaneWorld/go.sum
+      - name: Focused Wave32 fabric tests
+        working-directory: NolaneWorld
+        run: go test ./fabric -run 'TestV32' -count=1
+      - name: Focused Wave32 Cube tests
+        working-directory: NolaneWorld
+        run: go test ./substrate/cube -run 'TestV32' -count=1
+      - name: Static Wave32 contract
+        run: python -m pytest -q tests/wave32_realm_runtime_cpu_policy_create_propagation_contract.py
+      - name: Prior Realm authority regression
+        working-directory: NolaneWorld
+        run: go test ./realm -run 'V23|V31|RealizationAuthority|RuntimeCPUPolicy|PolicyDigest' -count=1
+      - name: Vet NolaneWorld
+        working-directory: NolaneWorld
+        run: go vet ./...
+      - name: Test NolaneWorld
+        working-directory: NolaneWorld
+        run: go test ./... -count=1
+      - name: Race focused Wave32
+        working-directory: NolaneWorld
+        run: go test -race ./fabric ./substrate/cube -run 'TestV32' -count=1

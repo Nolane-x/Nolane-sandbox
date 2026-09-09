@@ -3,6 +3,8 @@ package cube
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,20 +12,25 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/realm"
 	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/substrate"
 	"github.com/Nolane-x/Nolane-sandbox/NolaneWorld/world"
 )
 
 var (
-	ErrInvalidConfig    = errors.New("cube: invalid config")
-	ErrInsecureAPI      = errors.New("cube: insecure api url")
-	ErrRequestFailed    = errors.New("cube: request failed")
-	ErrResponseTooLarge = errors.New("cube: response too large")
-	ErrInvalidResponse  = errors.New("cube: invalid response")
+	ErrInvalidConfig                          = errors.New("cube: invalid config")
+	ErrInsecureAPI                            = errors.New("cube: insecure api url")
+	ErrRequestFailed                          = errors.New("cube: request failed")
+	ErrResponseTooLarge                       = errors.New("cube: response too large")
+	ErrInvalidResponse                        = errors.New("cube: invalid response")
+	ErrInvalidRuntimeCPUPolicyCreateAuthority = errors.New("cube: invalid runtime CPU policy create authority")
 )
+
+const runtimeCPUPolicyCreatePropagationDigestDomain = "nolane.runtime-cpu-policy-create-propagation.v32\x00"
 
 type Config struct {
 	APIURL           string
@@ -112,6 +119,60 @@ func (c *Client) Create(ctx context.Context, id world.ID) (substrate.Handle, err
 	return c.createFromTemplate(ctx, c.templateID, id)
 }
 
+func (c *Client) CreateWithRuntimeCPUPolicy(ctx context.Context, id world.ID, authority realm.RuntimeCPUPolicyAuthority) (substrate.Handle, substrate.RuntimeCPUPolicyCreatePropagation, error) {
+	if c == nil || c.templateID == "" || id == "" {
+		return "", substrate.RuntimeCPUPolicyCreatePropagation{}, ErrInvalidConfig
+	}
+	binding, ok := authority.Binding()
+	if !ok {
+		return "", substrate.RuntimeCPUPolicyCreatePropagation{}, ErrInvalidRuntimeCPUPolicyCreateAuthority
+	}
+	body := map[string]any{
+		"templateID":            c.templateID,
+		"allow_internet_access": false,
+		"metadata": map[string]string{
+			"nolane.world.id":                         string(id),
+			"nolane.realm.id":                         string(binding.RealmID),
+			"nolane.realm.revision":                   strconv.FormatUint(binding.RealmRevision, 10),
+			"nolane.realm.policy_digest":              binding.PolicyDigest,
+			"nolane.realm.runtime_cpu_policy_digest":  binding.Digest,
+			"nolane.realm.runtime_cpu_limit_millicpu": strconv.FormatUint(binding.LimitMilliCPU, 10),
+		},
+		"network": map[string]any{
+			"allowPublicTraffic": false,
+		},
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return "", substrate.RuntimeCPUPolicyCreatePropagation{}, errors.Join(ErrInvalidConfig, err)
+	}
+	hash := sha256.Sum256(append([]byte(runtimeCPUPolicyCreatePropagationDigestDomain), raw...))
+	receipt := substrate.RuntimeCPUPolicyCreatePropagation{
+		RealmID:         string(binding.RealmID),
+		RealmRevision:   binding.RealmRevision,
+		PolicyDigest:    binding.PolicyDigest,
+		LimitMilliCPU:   binding.LimitMilliCPU,
+		AuthorityDigest: binding.Digest,
+		WorldID:         id,
+		RequestDigest:   substrate.RuntimeCPUPolicyCreatePropagationDigestPrefix + hex.EncodeToString(hash[:]),
+	}
+	var out struct {
+		SandboxID string `json:"sandboxID"`
+	}
+	if err := c.doJSONBytes(ctx, http.MethodPost, "/sandboxes", raw, &out, false); err != nil {
+		return "", substrate.RuntimeCPUPolicyCreatePropagation{}, err
+	}
+	if out.SandboxID == "" {
+		return "", substrate.RuntimeCPUPolicyCreatePropagation{}, ErrInvalidResponse
+	}
+	handle := substrate.Handle(out.SandboxID)
+	receipt.SubstrateHandle = handle
+	if !receipt.Valid() {
+		return "", substrate.RuntimeCPUPolicyCreatePropagation{}, ErrInvalidResponse
+	}
+	return handle, receipt, nil
+}
+
 func (c *Client) Clone(ctx context.Context, source substrate.Handle, snap substrate.Snapshot, id world.ID) (substrate.Handle, error) {
 	if source == "" || snap == "" || id == "" {
 		return "", ErrInvalidConfig
@@ -191,15 +252,23 @@ func (c *Client) Rollback(ctx context.Context, h substrate.Handle, snap substrat
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, body any, out any, allowNotFound bool) error {
+	var raw []byte
+	var err error
+	if body != nil {
+		raw, err = json.Marshal(body)
+		if err != nil {
+			return errors.Join(ErrInvalidConfig, err)
+		}
+	}
+	return c.doJSONBytes(ctx, method, path, raw, out, allowNotFound)
+}
+
+func (c *Client) doJSONBytes(ctx context.Context, method, path string, raw []byte, out any, allowNotFound bool) error {
 	if c == nil || c.http == nil {
 		return ErrInvalidConfig
 	}
 	var reader io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			return errors.Join(ErrInvalidConfig, err)
-		}
+	if raw != nil {
 		reader = bytes.NewReader(raw)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.apiURL+path, reader)
@@ -207,7 +276,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 		return errors.Join(ErrRequestFailed, err)
 	}
 	req.Header.Set("Accept", "application/json")
-	if body != nil {
+	if raw != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if c.apiKey != "" {
@@ -221,11 +290,11 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 	defer resp.Body.Close()
 
 	limited := io.LimitReader(resp.Body, c.maxBytes+1)
-	raw, err := io.ReadAll(limited)
+	responseRaw, err := io.ReadAll(limited)
 	if err != nil {
 		return errors.Join(ErrRequestFailed, err)
 	}
-	if int64(len(raw)) > c.maxBytes {
+	if int64(len(responseRaw)) > c.maxBytes {
 		return ErrResponseTooLarge
 	}
 
@@ -238,10 +307,10 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 	if out == nil {
 		return nil
 	}
-	if len(raw) == 0 {
+	if len(responseRaw) == 0 {
 		return ErrInvalidResponse
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
+	if err := json.Unmarshal(responseRaw, out); err != nil {
 		return errors.Join(ErrInvalidResponse, err)
 	}
 	return nil
