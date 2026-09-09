@@ -98,8 +98,8 @@ func TestV32CubeCreatePropagatesExactWave31BindingIntoProviderBody(t *testing.T)
 			t.Fatalf("metadata[%q]=%v want %q; metadata=%v", key, got, want, metadata)
 		}
 	}
-	if receipt.RealmID != string(binding.RealmID) || receipt.RealmRevision != binding.RealmRevision || receipt.PolicyDigest != binding.PolicyDigest || receipt.LimitMilliCPU != binding.LimitMilliCPU || receipt.AuthorityDigest != binding.Digest || receipt.WorldID != world.ID("world-v32") {
-		t.Fatalf("receipt=%+v binding=%+v", receipt, binding)
+	if receipt.RealmID != string(binding.RealmID) || receipt.RealmRevision != binding.RealmRevision || receipt.PolicyDigest != binding.PolicyDigest || receipt.LimitMilliCPU != binding.LimitMilliCPU || receipt.AuthorityDigest != binding.Digest || receipt.WorldID != world.ID("world-v32") || receipt.SubstrateHandle != handle {
+		t.Fatalf("receipt=%+v binding=%+v handle=%q", receipt, binding, handle)
 	}
 	h := sha256.Sum256(append([]byte("nolane.runtime-cpu-policy-create-propagation.v32\x00"), rawBody...))
 	wantDigest := substrate.RuntimeCPUPolicyCreatePropagationDigestPrefix + hex.EncodeToString(h[:])
