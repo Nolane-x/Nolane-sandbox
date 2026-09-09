@@ -73,11 +73,12 @@ func (b ResourceBudget) Valid() bool {
 }
 
 type Spec struct {
-	ID             ID             `json:"id"`
-	MaxWorlds      uint32         `json:"max_worlds"`
-	DefaultLease   time.Duration  `json:"default_lease"`
-	NetworkProfile NetworkProfile `json:"network_profile"`
-	ResourceBudget ResourceBudget `json:"resource_budget"`
+	ID                      ID             `json:"id"`
+	MaxWorlds               uint32         `json:"max_worlds"`
+	DefaultLease            time.Duration  `json:"default_lease"`
+	NetworkProfile          NetworkProfile `json:"network_profile"`
+	ResourceBudget          ResourceBudget `json:"resource_budget"`
+	RuntimeCPULimitMilliCPU uint64         `json:"runtime_cpu_limit_millicpu,omitempty"`
 }
 
 func (s Spec) Validate() error {
