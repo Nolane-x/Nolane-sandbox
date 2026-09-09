@@ -156,9 +156,6 @@ func (c *Client) CreateWithRuntimeCPUPolicy(ctx context.Context, id world.ID, au
 		WorldID:         id,
 		RequestDigest:   substrate.RuntimeCPUPolicyCreatePropagationDigestPrefix + hex.EncodeToString(hash[:]),
 	}
-	if !receipt.Valid() {
-		return "", substrate.RuntimeCPUPolicyCreatePropagation{}, ErrInvalidRuntimeCPUPolicyCreateAuthority
-	}
 	var out struct {
 		SandboxID string `json:"sandboxID"`
 	}
@@ -168,7 +165,12 @@ func (c *Client) CreateWithRuntimeCPUPolicy(ctx context.Context, id world.ID, au
 	if out.SandboxID == "" {
 		return "", substrate.RuntimeCPUPolicyCreatePropagation{}, ErrInvalidResponse
 	}
-	return substrate.Handle(out.SandboxID), receipt, nil
+	handle := substrate.Handle(out.SandboxID)
+	receipt.SubstrateHandle = handle
+	if !receipt.Valid() {
+		return "", substrate.RuntimeCPUPolicyCreatePropagation{}, ErrInvalidResponse
+	}
+	return handle, receipt, nil
 }
 
 func (c *Client) Clone(ctx context.Context, source substrate.Handle, snap substrate.Snapshot, id world.ID) (substrate.Handle, error) {
