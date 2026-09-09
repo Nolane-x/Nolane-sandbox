@@ -49,7 +49,7 @@ Tests must assert:
 
 ```go
 func TestV31LegacySpecOmitsRuntimeCPULimit(t *testing.T) {
-    spec := validTestSpec()
+    spec := validSpec()
     raw, err := json.Marshal(spec)
     if err != nil { t.Fatal(err) }
     if bytes.Contains(raw, []byte("runtime_cpu_limit_millicpu")) {
@@ -58,15 +58,15 @@ func TestV31LegacySpecOmitsRuntimeCPULimit(t *testing.T) {
 }
 
 func TestV31LegacyPolicyDigestFrozen(t *testing.T) {
-    spec := validTestSpec()
+    spec := validSpec()
     got, err := PolicyDigest(spec, 7)
     if err != nil { t.Fatal(err) }
-    const want = "<replace in test with exact pre-Wave31 digest computed from Wave30 source fixture>"
+    const want = "ff2a38e09715c134c0590d2c286afb4d2d19480eebf04acdcea2a057723c55b1"
     if got != want { t.Fatalf("legacy policy digest drift: got %q want %q", got, want) }
 }
 
 func TestV31PositiveLimitChangesPolicyDigest(t *testing.T) {
-    legacy := validTestSpec()
+    legacy := validSpec()
     withLimit := legacy
     withLimit.RuntimeCPULimitMilliCPU = 500
     before, _ := PolicyDigest(legacy, 7)
@@ -75,7 +75,7 @@ func TestV31PositiveLimitChangesPolicyDigest(t *testing.T) {
 }
 ```
 
-Before committing the test, compute and hard-code the frozen legacy digest from the Wave30 implementation/fixture; do not leave a placeholder literal.
+The frozen digest above is computed from the exact pre-Wave31 Wave30 `validSpec()` canonical JSON at revision 7 under the unchanged `nolane.realm.policy.v1\x00` domain.
 
 - [ ] **Step 2: Add authority RED tests**
 
@@ -167,8 +167,8 @@ Use path triggers for:
 Jobs/steps must run:
 
 ```bash
-python -m unittest tests.wave31_realm_runtime_cpu_policy_contract
 cd NolaneWorld && go test ./realm -run 'V31' -count=1
+python -m pytest -q tests/wave31_realm_runtime_cpu_policy_contract.py
 cd NolaneWorld && go test ./realm -run 'V23|V31' -count=1
 cd NolaneWorld && go vet ./...
 cd NolaneWorld && go test ./...
@@ -177,7 +177,7 @@ cd NolaneWorld && go test -race ./realm -run 'V31' -count=1
 
 - [ ] **Step 3: Commit and observe RED**
 
-The workflow must fail only because Wave31 production symbols/field are absent. If static contract fails before Go due to absent production file, arrange workflow ordering so focused Go RED still yields the intended missing-symbol evidence, or make the static step run after focused Go.
+The workflow must run focused Go before the static contract so the test-only candidate produces canonical missing-symbol RED evidence rather than a file-not-found error for production source.
 
 ---
 
@@ -282,7 +282,6 @@ No caller-supplied revision/digest/value.
 ```text
 malformed/foreign seal or Store instance -> ErrInvalidRuntimeCPUPolicyAuthority
 current same-store Realm drift/close/limit clear/change/revision or policy digest drift -> ErrStaleRuntimeCPUPolicyAuthority
-current source structurally unavailable without a previously valid same-store authority only where spec says unavailable
 context cancellation -> ctx error
 ```
 
@@ -315,7 +314,7 @@ Commit with autonomous provenance.
 - [ ] **Step 1: Run full dedicated gate**
 
 ```bash
-python -m unittest tests.wave31_realm_runtime_cpu_policy_contract
+python -m pytest -q tests/wave31_realm_runtime_cpu_policy_contract.py
 cd NolaneWorld && go test ./realm -run 'V31' -count=1
 cd NolaneWorld && go test ./realm -run 'V23|V31' -count=1
 cd NolaneWorld && go vet ./...
