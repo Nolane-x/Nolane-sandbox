@@ -14,9 +14,10 @@ import (
 
 type v32PolicyManager struct {
 	*fakeManager
-	policyCreates int
-	beforeReturn  func()
-	mutateReceipt func(*substrate.RuntimeCPUPolicyCreatePropagation)
+	policyCreates  int
+	beforeReturn   func()
+	mutateReceipt  func(*substrate.RuntimeCPUPolicyCreatePropagation)
+	handleOverride substrate.Handle
 }
 
 func newV32PolicyManager() *v32PolicyManager {
@@ -34,6 +35,7 @@ func (m *v32PolicyManager) CreateWithRuntimeCPUPolicy(_ context.Context, id worl
 		return "", substrate.RuntimeCPUPolicyCreatePropagation{}, err
 	}
 	m.states[id] = state
+	handle := substrate.Handle("handle-" + string(id))
 	receipt := substrate.RuntimeCPUPolicyCreatePropagation{
 		RealmID:         string(binding.RealmID),
 		RealmRevision:   binding.RealmRevision,
@@ -41,6 +43,7 @@ func (m *v32PolicyManager) CreateWithRuntimeCPUPolicy(_ context.Context, id worl
 		LimitMilliCPU:   binding.LimitMilliCPU,
 		AuthorityDigest: binding.Digest,
 		WorldID:         id,
+		SubstrateHandle: handle,
 		RequestDigest:   substrate.RuntimeCPUPolicyCreatePropagationDigestPrefix + strings.Repeat("a", 64),
 	}
 	if m.mutateReceipt != nil {
@@ -49,7 +52,10 @@ func (m *v32PolicyManager) CreateWithRuntimeCPUPolicy(_ context.Context, id worl
 	if m.beforeReturn != nil {
 		m.beforeReturn()
 	}
-	return substrate.Handle("handle-" + string(id)), receipt, nil
+	if m.handleOverride != "" {
+		return m.handleOverride, receipt, nil
+	}
+	return handle, receipt, nil
 }
 
 func newV32Local(t *testing.T, manager WorldManager, limit uint64) (*Local, *realm.MemoryStore, realm.Spec) {
@@ -123,6 +129,16 @@ func TestV32ReceiptMismatchCannotCompleteAcquire(t *testing.T) {
 	}
 	local, _, spec := newV32Local(t, manager, 750)
 	_, err := local.Acquire(context.Background(), v32AcquireRequest(spec, world.ID("world-v32-mismatch"), "op-v32-mismatch"))
+	if !errors.Is(err, ErrOutcomeUncertain) {
+		t.Fatalf("err=%v want ErrOutcomeUncertain", err)
+	}
+}
+
+func TestV32ReceiptMustBindReturnedSubstrateHandle(t *testing.T) {
+	manager := newV32PolicyManager()
+	manager.handleOverride = substrate.Handle("handle-other-sandbox")
+	local, _, spec := newV32Local(t, manager, 750)
+	_, err := local.Acquire(context.Background(), v32AcquireRequest(spec, world.ID("world-v32-handle-mismatch"), "op-v32-handle-mismatch"))
 	if !errors.Is(err, ErrOutcomeUncertain) {
 		t.Fatalf("err=%v want ErrOutcomeUncertain", err)
 	}
