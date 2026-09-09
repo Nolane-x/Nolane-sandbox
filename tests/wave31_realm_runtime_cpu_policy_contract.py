@@ -8,8 +8,11 @@ AUTH = ROOT / "NolaneWorld" / "realm" / "runtime_cpu_policy_authority.go"
 
 def test_wave31_model_field_is_optional_and_explicit():
     model = MODEL.read_text()
-    assert 'RuntimeCPULimitMilliCPU uint64 `json:"runtime_cpu_limit_millicpu,omitempty"`' in model
-    assert 'CPUUnits  uint64 `json:"cpu_units"`' in model
+    assert re.search(
+        r'RuntimeCPULimitMilliCPU\s+uint64\s+`json:"runtime_cpu_limit_millicpu,omitempty"`',
+        model,
+    )
+    assert re.search(r'CPUUnits\s+uint64\s+`json:"cpu_units"`', model)
 
 
 def test_wave31_authority_surface_is_sealed_and_domain_separated():
