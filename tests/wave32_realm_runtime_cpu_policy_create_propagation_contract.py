@@ -38,6 +38,8 @@ def test_fabric_positive_policy_path_requires_sealed_wave31_authority():
     assert source.count("ValidateRuntimeCPUPolicyAuthority(") >= 2
     assert "RuntimeCPULimitMilliCPU > 0" in source or "RuntimeCPULimitMilliCPU != 0" in source
     assert "ErrRuntimeCPUPolicyPropagationUnavailable" in source
+    assert "runtimeCPUPolicyPropagationMatches(runtimePolicyBinding, req.WorldID, h, propagation)" in source
+    assert "propagation.SubstrateHandle == handle" in source
 
 
 def test_cube_provider_boundary_derives_only_from_authority_binding():
@@ -54,6 +56,8 @@ def test_cube_provider_boundary_derives_only_from_authority_binding():
         assert key in source
     assert "nolane.runtime-cpu-policy-create-propagation.v32\\x00" in source
     assert "RuntimeCPUPolicyCreatePropagationDigestPrefix" in source
+    assert "handle := substrate.Handle(out.SandboxID)" in source
+    assert "receipt.SubstrateHandle = handle" in source
 
 
 def test_receipt_is_descriptive_and_canonical():
@@ -66,10 +70,12 @@ def test_receipt_is_descriptive_and_canonical():
         "LimitMilliCPU",
         "AuthorityDigest",
         "WorldID",
+        "SubstrateHandle",
         "RequestDigest",
     ):
         assert field in source
     assert "func (p RuntimeCPUPolicyCreatePropagation) Valid() bool" in source
+    assert "p.SubstrateHandle == \"\"" in source
 
 
 def test_wave32_does_not_launder_propagation_into_enforcement_claims():
