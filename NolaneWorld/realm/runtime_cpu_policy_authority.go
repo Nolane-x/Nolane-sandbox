@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	ErrRuntimeCPUPolicyUnavailable          = errors.New("realm: runtime CPU policy authority unavailable")
-	ErrInvalidRuntimeCPUPolicyAuthority     = errors.New("realm: invalid runtime CPU policy authority")
-	ErrStaleRuntimeCPUPolicyAuthority       = errors.New("realm: stale runtime CPU policy authority")
+	ErrRuntimeCPUPolicyUnavailable      = errors.New("realm: runtime CPU policy authority unavailable")
+	ErrInvalidRuntimeCPUPolicyAuthority = errors.New("realm: invalid runtime CPU policy authority")
+	ErrStaleRuntimeCPUPolicyAuthority   = errors.New("realm: stale runtime CPU policy authority")
 )
 
 const (
@@ -45,6 +45,17 @@ type runtimeCPUPolicyStore interface {
 
 func (*MemoryStore) packageOwnedRuntimeCPUPolicyStore()  {}
 func (*DurableStore) packageOwnedRuntimeCPUPolicyStore() {}
+
+func exactRuntimeCPUPolicyStore(store runtimeCPUPolicyStore) bool {
+	switch exact := store.(type) {
+	case *MemoryStore:
+		return exact != nil
+	case *DurableStore:
+		return exact != nil
+	default:
+		return false
+	}
+}
 
 func (c *Controller) trustedRuntimeCPUPolicyStore() (runtimeCPUPolicyStore, bool) {
 	if c == nil || c.store == nil {
@@ -128,7 +139,7 @@ func validRuntimeCPUPolicyBinding(binding RuntimeCPUPolicyBinding) bool {
 // is descriptive and does not re-read current Realm state; callers that need
 // freshness must use Controller.ValidateRuntimeCPUPolicyAuthority.
 func (a RuntimeCPUPolicyAuthority) Binding() (RuntimeCPUPolicyBinding, bool) {
-	if a.seal != currentRuntimeCPUPolicyAuthoritySeal || a.store == nil || !validRuntimeCPUPolicyBinding(a.binding) {
+	if a.seal != currentRuntimeCPUPolicyAuthoritySeal || !exactRuntimeCPUPolicyStore(a.store) || !validRuntimeCPUPolicyBinding(a.binding) {
 		return RuntimeCPUPolicyBinding{}, false
 	}
 	return a.binding, true
