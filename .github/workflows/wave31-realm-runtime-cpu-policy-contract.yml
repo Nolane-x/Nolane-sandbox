@@ -10,6 +10,7 @@ on:
       - 'NolaneWorld/realm/runtime_cpu_policy_authority.go'
       - 'NolaneWorld/realm/runtime_cpu_policy_authority_v31_test.go'
       - 'NolaneWorld/realm/runtime_cpu_policy_authority_external_v31_test.go'
+      - 'NolaneWorld/realm/runtime_cpu_policy_authority_v31_review_test.go'
       - 'tests/wave31_realm_runtime_cpu_policy_contract.py'
       - '.github/workflows/wave31-realm-runtime-cpu-policy-contract.yml'
       - 'docs/superpowers/specs/2026-09-09-realm-runtime-cpu-policy-authority-v31-design.md'
