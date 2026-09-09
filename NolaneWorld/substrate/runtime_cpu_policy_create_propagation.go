@@ -13,7 +13,8 @@ const runtimeCPUPolicyAuthorityDigestPrefix = "realm-runtime-cpu-policy-v31:"
 
 // RuntimeCPUPolicyCreatePropagation is descriptive evidence that one exact
 // Wave31 runtime CPU policy binding was represented in one World provider
-// create request. It is not an authority and makes no enforcement claim.
+// create request and that the provider response identified one exact substrate
+// handle. It is not an authority and makes no enforcement claim.
 type RuntimeCPUPolicyCreatePropagation struct {
 	RealmID         string
 	RealmRevision   uint64
@@ -21,6 +22,7 @@ type RuntimeCPUPolicyCreatePropagation struct {
 	LimitMilliCPU   uint64
 	AuthorityDigest string
 	WorldID         world.ID
+	SubstrateHandle Handle
 	RequestDigest   string
 }
 
@@ -44,6 +46,9 @@ func (p RuntimeCPUPolicyCreatePropagation) Valid() bool {
 		return false
 	}
 	if p.WorldID == "" || string(p.WorldID) != strings.TrimSpace(string(p.WorldID)) {
+		return false
+	}
+	if p.SubstrateHandle == "" || string(p.SubstrateHandle) != strings.TrimSpace(string(p.SubstrateHandle)) {
 		return false
 	}
 	if !canonicalLowerHex64(p.PolicyDigest) {
